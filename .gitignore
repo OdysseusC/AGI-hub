@@ -1,0 +1,11 @@
+/private/
+/dist/
+*.log
+*.journal
+config.json
+state.jsonl
+.env
+.env.*
+*.key
+*.pem
+.DS_Store
