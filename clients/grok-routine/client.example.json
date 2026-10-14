@@ -1,0 +1,12 @@
+{
+  "base_url": "http://127.0.0.1:7331",
+  "endpoint": "grok",
+  "endpoint_token": "<scoped endpoint token issued by this Hub>",
+  "native": {
+    "routine_id": "<user label matching this Hub endpoint session_id>",
+    "url": "<official Routine webhook URL from the user's setup>",
+    "headers": {},
+    "body": {"replace_with_official_routine_field": "{{notification}}"},
+    "timeout_seconds": 30
+  }
+}

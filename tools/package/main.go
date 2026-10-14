@@ -108,7 +108,7 @@ func packageBinary(path, binary, name string) (err error) {
 		_, e = io.Copy(out, in)
 		return e
 	}
-	for source, target := range map[string]string{binary: name, "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json"} {
+	for source, target := range map[string]string{binary: name, "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json", "tools/smoke_client.py": "tools/smoke_client.py"} {
 		if err = add(source, target); err != nil {
 			z.Close()
 			return err
@@ -123,6 +123,31 @@ func packageBinary(path, binary, name string) (err error) {
 		}
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("unexpected document type: %s", source)
+		}
+		return add(source, filepath.ToSlash(source))
+	})
+	if err != nil {
+		z.Close()
+		return err
+	}
+	err = filepath.WalkDir("clients", func(source string, d os.DirEntry, e error) error {
+		if e != nil {
+			return e
+		}
+		if d.IsDir() {
+			if d.Name() == "__pycache__" || d.Name() == "private" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Explicit public-file allowlist: never package client.json credentials,
+		// local caches, logs or arbitrary files alongside an adapter.
+		public := filepath.Ext(source) == ".py" || filepath.Ext(source) == ".md" || d.Name() == "manifest.json" || d.Name() == "client.example.json"
+		if !public {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("unexpected client source type: %s", source)
 		}
 		return add(source, filepath.ToSlash(source))
 	})

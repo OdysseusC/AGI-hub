@@ -186,6 +186,7 @@ func TestAPISeparatesAdministrativeAndEndpointPermissions(t *testing.T) {
 		{name: "anonymous-state", method: http.MethodGet, path: "/v1/state"},
 		{name: "invalid-admin-token", method: http.MethodGet, path: "/v1/state", token: "invalid"},
 		{name: "client-cannot-read-all-state", method: http.MethodGet, path: "/v1/state", token: f.clientToken("worker")},
+		{name: "client-cannot-read-peer-binding", method: http.MethodGet, path: "/v1/endpoint?endpoint=other", token: f.clientToken("worker")},
 		{name: "client-cannot-change-leader", method: http.MethodPost, path: "/v1/leader", token: f.clientToken("worker"), body: `{"endpoint":"other"}`},
 		{name: "client-cannot-submit", method: http.MethodPost, path: "/v1/tasks", token: f.clientToken("worker"), body: marshalBody(t, apiSubmission("unauthorized-task"))},
 		{name: "client-cannot-change-session", method: http.MethodPost, path: "/v1/session", token: f.clientToken("worker"), body: `{"endpoint":"other","state":"idle"}`},
@@ -203,6 +204,31 @@ func TestAPISeparatesAdministrativeAndEndpointPermissions(t *testing.T) {
 	checkStatus(t, f.request(http.MethodPost, "/v1/leader", f.adminToken(), `{"endpoint":"other"}`), http.StatusOK)
 	if f.server.Broker.Snapshot().Leader != "other" {
 		t.Fatal("administrator could not change the leader")
+	}
+}
+
+func TestEndpointMetadataIsScopedAndDoesNotExposeOtherState(t *testing.T) {
+	f := newAPIFixture(t)
+	w := f.request(http.MethodGet, "/v1/endpoint?endpoint=worker", f.clientToken("worker"), "")
+	checkStatus(t, w, http.StatusOK)
+	var binding struct {
+		ProtocolVersion int              `json:"protocol_version"`
+		Endpoint        manager.Endpoint `json:"endpoint"`
+		Session         manager.Session  `json:"session"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding.ProtocolVersion != 1 || binding.Endpoint.ID != "worker" || binding.Endpoint.SessionID != "native-worker" || binding.Session.State != "idle" {
+		t.Fatal("incorrect endpoint metadata")
+	}
+	for _, secret := range []string{f.adminToken(), f.clientToken("worker"), "native-other", "resource_owners", "\"tasks\""} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Fatal("endpoint metadata exposed unrelated state or credentials")
+		}
+	}
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("metadata permits caching")
 	}
 }
 

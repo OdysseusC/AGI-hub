@@ -18,11 +18,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"syscall"
 	"time"
 
 	"agihub/internal/app"
+	"agihub/internal/install"
 	"agihub/internal/manager"
 )
 
@@ -35,7 +35,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("AGI Hub sidecar v0\nCommands: init, serve, doctor, status, submit, report, session, leader, dashboard\nUse <command> --help for options.")
+		fmt.Println("AGI Hub sidecar v0\nCommands: init, serve, doctor, status, submit, report, session, leader, dashboard, install-skill, client-config, inbox, delivery\nUse <command> --help for options.")
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
@@ -58,6 +58,12 @@ func run(args []string) error {
 	resource := fs.String("resource", "", "shared workspace/desktop resource ID")
 	requireArtifact := fs.Bool("require-artifact", false, "require a verified artifact before success")
 	open := fs.Bool("open", false, "open the local status page")
+	host := fs.String("host", "", "native host for skill installation")
+	skillsDir := fs.String("skills-dir", "", "explicit native skill directory")
+	binaryPath := fs.String("binary", "", "absolute installed AGI Hub executable path")
+	messageID := fs.String("message-id", "", "message for delivery reconciliation")
+	outcome := fs.String("outcome", "", "delivered, uncertain, or failed")
+	detail := fs.String("detail", "", "minimal nonsecret delivery evidence")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -76,17 +82,45 @@ func run(args []string) error {
 		return fmt.Errorf("load config (run init first): %w", err)
 	}
 	switch args[0] {
+	case "client-config":
+		path, err := writeClientConfig(cfg, *endpoint, *file)
+		if err != nil {
+			return err
+		}
+		return output(map[string]string{"private_client_config": path, "next": "fill only this client's native settings; no native messages sent"})
+	case "install-skill":
+		if *binaryPath == "" {
+			*binaryPath, err = os.Executable()
+			if err != nil {
+				return err
+			}
+		}
+		absoluteData, err := filepath.Abs(*data)
+		if err != nil {
+			return err
+		}
+		path, err := install.Skill(install.Options{Host: *host, Endpoint: *endpoint, BinaryPath: *binaryPath, DataDir: absoluteData, SkillsDir: *skillsDir})
+		if err != nil {
+			return err
+		}
+		return output(map[string]string{"installed_skill": path, "native_discovery": "must be verified in the host"})
+	case "inbox":
+		if *endpoint == "" {
+			return errors.New("inbox requires --endpoint")
+		}
+		return request(cfg, "POST", "/v1/inbox?endpoint="+url.QueryEscape(*endpoint), *endpoint, nil)
+	case "delivery":
+		if *endpoint == "" {
+			return errors.New("delivery requires --endpoint")
+		}
+		return request(cfg, "POST", "/v1/delivery?endpoint="+url.QueryEscape(*endpoint), *endpoint, map[string]string{"message_id": *messageID, "outcome": *outcome, "detail": *detail})
 	case "serve":
 		return serve(*data, cfg, *open)
 	case "doctor":
 		result := map[string]any{"platform": runtime.GOOS + "/" + runtime.GOARCH, "device_id": cfg.DeviceID, "bindings": []any{}, "note": "No native messages sent. Wake verification is a configuration assertion until tested in the specified native session."}
 		rows := []any{}
 		for _, b := range cfg.Bindings {
-			_, lookErr := exec.LookPath(b.Driver.Executable)
-			if b.Driver.Executable == "" && b.Driver.Type == "codex-queue" {
-				_, lookErr = exec.LookPath("codex")
-			}
-			rows = append(rows, map[string]any{"endpoint": b.Endpoint.ID, "enabled": b.Endpoint.Enabled, "session_bound": b.Endpoint.SessionID != "", "idle_wake_declared_verified": b.Endpoint.IdleWakeVerified, "driver": b.Driver.Type, "executable_found": lookErr == nil, "webhook_configured": b.Driver.URL != "" && len(b.Driver.Body) > 0})
+			rows = append(rows, map[string]any{"endpoint": b.Endpoint.ID, "enabled": b.Endpoint.Enabled, "session_bound": b.Endpoint.SessionID != "", "idle_wake_declared_verified": b.Endpoint.IdleWakeVerified, "driver": b.Endpoint.Driver, "client_kind": b.Driver.Type})
 		}
 		result["bindings"] = rows
 		return output(result)
@@ -258,13 +292,6 @@ func serve(dir string, cfg app.Config, open bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	server := http.Server{Handler: (&app.Server{Broker: b, Config: cfg}).Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
-	var wg sync.WaitGroup
-	for _, binding := range cfg.Bindings {
-		if binding.Endpoint.Enabled {
-			wg.Add(1)
-			go func(binding app.Binding) { defer wg.Done(); app.RunClient(ctx, b, binding) }(binding)
-		}
-	}
 	errs := make(chan error, 1)
 	go func() { errs <- server.Serve(listener) }()
 	fmt.Println("AGI Hub listening on http://" + cfg.Listen + " (native session status must be verified after startup)")
@@ -283,7 +310,6 @@ func serve(dir string, cfg app.Config, open bool) error {
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
 	_ = server.Close()
-	wg.Wait()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

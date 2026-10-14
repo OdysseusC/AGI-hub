@@ -13,9 +13,21 @@
         "enabled": false,
         "idle_wake_verified": false,
         "modes": ["queue"],
-        "driver": "codex-queue"
+        "driver": "codex"
       },
-      "driver": {"type": "codex-queue", "timeout_seconds": 30}
+      "driver": {"type": "external"}
+    },
+    {
+      "endpoint": {
+        "id": "workbuddy",
+        "device_id": "this-device",
+        "session_id": "",
+        "enabled": false,
+        "idle_wake_verified": false,
+        "modes": ["queue"],
+        "driver": "workbuddy"
+      },
+      "driver": {"type": "external"}
     },
     {
       "endpoint": {
@@ -25,9 +37,9 @@
         "enabled": false,
         "idle_wake_verified": false,
         "modes": ["queue"],
-        "driver": "webhook"
+        "driver": "grok-routine"
       },
-      "driver": {"type": "webhook", "timeout_seconds": 30}
+      "driver": {"type": "external"}
     }
   ]
 }

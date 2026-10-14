@@ -8,7 +8,7 @@
 
 项目面向 Codex、WorkBuddy、Claude、Grok Bot 等原生 AI 助手。当前入口可以通过设置 leader 切换，接入由用户控制；每个助手的实际支持范围见适配器说明。程序采用本地边车部署方式。
 
-> 当前是本地开发版：协议、投递驱动和状态界面已有实现，原生目标会话的真实闭环仍未验收。当前开发验证环境为 macOS arm64；跨平台构建不能证明各平台的原生助手已经可用。
+> 当前是本地开发版：协议、独立 Client 和状态界面已有实现，原生目标会话的自动闭环仍未验收。本机 WorkBuddy 已发现报告技能，普通桌面任务的原生联系人只读查询基线通过；后台唤醒与 Hub 回传仍需验证。跨平台构建不能证明各平台的原生助手已经可用。
 
 ## 首页导览
 
@@ -19,6 +19,9 @@
 - [适配器与支持边界](docs/ADAPTERS.md)
 - [交给 AI 助手的安装指南](docs/INSTALL-FOR-ASSISTANT.md)
 - [消息协议与回执](docs/PROTOCOL.md)
+- [独立 Client 与版本维护](docs/CLIENTS.md)
+- [自动安装会话技能](docs/SKILLS.md)
+- [本机原生验证记录](docs/NATIVE-VALIDATION.md)
 
 ## 功能与范围
 
@@ -42,9 +45,8 @@ flowchart LR
     Entry --> API[CLI / REST]
     API --> Broker[本地 Sidecar Broker]
     Broker <--> Journal[带校验的快照日志]
-    Broker --> Client[每会话逻辑 Client]
-    Client --> Driver[原生投递适配器]
-    Driver --> Native[指定原生助手会话]
+    Broker --> Client[每助手独立 Client 进程]
+    Client --> Native[原生 CLI / Webhook / 官方接口]
     Native --> Report[关联回执与成果引用]
     Report --> Broker
     Broker --> Result[结果通知]
@@ -54,14 +56,17 @@ flowchart LR
 
 | 项目 | 选择 |
 | --- | --- |
-| 语言与运行 | Go 标准库，单个可执行文件，零外部 Go 依赖 |
-| 消息与状态 | 本地 broker、每 endpoint 的逻辑 client、统一 JSON 协议 |
+| 协调内核 | Go 标准库，单个可执行文件，零外部 Go 依赖 |
+| 助手 Client | 各自独立进程；当前用 Python 3.11+ 标准库实现，无第三方 Python 包 |
+| 消息与状态 | 本地 broker、每 endpoint 的持久化收件箱、统一 JSON 协议 |
 | 持久化 | 追加写入完整状态快照，SHA-256 校验，写入后同步 |
 | 控制接口 | 带授权的 HTTP loopback REST 与 SSE |
 | 界面 | 内置简单状态页，由本机浏览器打开 |
 | 系统目标 | Windows、macOS、Linux；原生适配能力分别验证 |
 
-不需要 Redis、RabbitMQ、SQLite、Docker、Node.js 或 Python。构建源码需要 Go 1.22 或更高版本；运行已构建的程序不需要 Go。
+不需要 Redis、RabbitMQ、SQLite、Docker 或 Node.js。构建内核需要 Go 1.22+，运行已构建的 Hub 不需要 Go；启用当前提供的独立 Client 需要 Python 3.11+。Client 可以用其他语言实现，Hub 不嵌入 Python。
+
+先使用单仓库，每个助手一个目录，分别声明 Client 版本、协议版本、原生会话类型和支持模式。Hub 与 Client 分别更新；兼容协议内替换一个 Client 不需要重新编译 Hub。未来独立维护或发布时可以拆仓库，共享 runtime 固定版本后随 Client 分发。当前支持独立进程的启停与替换；自动托管和无损热更新尚未实现。[维护与更新](docs/CLIENTS.md#单独更新和拔插)
 
 “边车”沿用软件架构中的 Sidecar 含义：在已有应用旁边补充配套能力。这里将协调逻辑与原生助手执行分开。[微软 Sidecar 模式](https://learn.microsoft.com/zh-cn/azure/architecture/patterns/sidecar)
 
@@ -73,9 +78,13 @@ flowchart LR
 go test -race ./...
 go vet ./...
 go run ./tools/package
+python3 -m unittest discover -s clients/tests
+python3 tools/smoke_client.py --hub dist/darwin-arm64/agi-hub
 ```
 
-打包命令使用 Go 工具链生成 Windows、macOS、Linux 的 amd64/arm64 单文件程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含运行说明和空凭据配置示例。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
+最后一条需换成当前系统对应的已构建程序。它运行真实 Hub 与 Python 协议，使用临时目录和模拟 Adapter 核对一次交接、成果校验、结果返回及不重复消费，不向真实助手发消息。
+
+打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含独立 Client 源码、运行说明和空凭据配置示例。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
 
 当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。Windows、Linux 和 macOS amd64 的实际运行，以及原生助手闭环，尚待验收。
 
@@ -94,7 +103,7 @@ go build -o agi-hub ./cmd/agi-hub
 
 Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令将 `./agi-hub` 换为 `.\agi-hub.exe`。
 
-`init` 打印配置路径，创建的绑定默认禁用、没有会话 ID、没有空闲唤醒验证，也没有默认 leader。`doctor` 只检查配置和可执行文件，不向助手发送消息。此时可以查看界面，实际投递需要先完成 [安装与会话绑定](docs/INSTALL-FOR-ASSISTANT.md)。
+`init` 打印配置路径，创建 Codex、WorkBuddy、Grok 三个禁用绑定，没有会话 ID、空闲唤醒验证或默认 leader。`doctor` 只检查 Hub 配置，不向助手发送消息。实际投递需要先完成 [会话绑定、技能安装和 Client 配置](docs/INSTALL-FOR-ASSISTANT.md)。
 
 完成绑定并在原生应用中确认指定会话空闲后，在另一终端声明状态、选择入口、提交任务。以下使用配置中的 `codex` 和 `grok` endpoint，必须先验证两端的接收与回报路径：
 
@@ -115,6 +124,9 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 | `status` / `session` | 查看记录；声明核对过的原生会话状态 |
 | `leader` / `submit` | 切换默认入口；提交任务或受支持的控制请求 |
 | `report` | 从任务接收端回报完整 Report JSON |
+| `install-skill` | 自动安装会话接手与回报技能；拒绝覆盖用户改动 |
+| `client-config` | 将 endpoint 专用凭据写入仓库外的新私有文件，不打印 token |
+| `inbox` / `delivery` | 领取指定 endpoint 的消息；记录或核对投递结果 |
 
 每个命令可以使用 `--help`，也可以通过 `--data` 指定本机私有数据目录。带文件引用的任务与回报示例见 [安装指南](docs/INSTALL-FOR-ASSISTANT.md)。
 
@@ -128,13 +140,14 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 | Windows | `%AppData%\agi-hub` |
 | Linux | `$XDG_CONFIG_HOME/agi-hub`，未设置时通常为 `~/.config/agi-hub` |
 
-目录保存私有 `config.json` 和状态日志 `state.jsonl`。`init` 拒绝覆盖已有配置。代码仓库与个人配置分开；不要提交令牌、真实聊天、私密上下文或成果文件。
+目录保存私有 `config.json`、各 Client 的 `client.json` 和状态日志 `state.jsonl`。`init` 与 `client-config` 拒绝覆盖已有文件。代码仓库与个人配置分开；不要提交令牌、真实聊天、私密上下文或成果文件。
 
 文件只支持同机 allowlist 工作区中的相对路径，并校验存在性与 SHA-256。输入传递的是引用，文件不会自动复制或冻结；跨设备文件传输尚未实现。
 
 ## 当前边界
 
-- 内核理解 `queue / steer / interrupt`；现有 `codex-queue` 与 `webhook` 投递驱动只支持 `queue`。`command` 仅承载用户预先验证的原生接口能力。
+- 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine Client 只实现 `queue`。Claude 接入仍在研究阶段。
+- WorkBuddy Client 对接官方持续本地助理，需要正式 OAuth；普通桌面 Chat 与独立 CodeBuddy CLI 会话须分别验证，不能混称已接入。
 - 原生接收工具返回成功只代表投递，任务完成须核对回报和要求的成果文件。`uncertain` 不自动重发。
 - 会话排队与资源互斥只覆盖边车管理的运行；人工在原生会话或同一桌面并发操作仍需协调。初期建议使用专属会话。
 - 授权范围作为任务元数据传递，不能提供原生权限沙盒。助手消息不能批准用户的权限提示。
@@ -151,10 +164,15 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 ```text
 cmd/agi-hub/         命令入口
 internal/manager/    协议、队列、资源协调、校验日志
-internal/driver/     原生投递驱动
-internal/app/        配置、逻辑 client、REST/SSE、状态页
+internal/app/        Hub 配置、REST/SSE、状态页
+internal/install/    嵌入式接手技能与安全安装
+clients/codex/       Codex 独立 Client、manifest 与配置示例
+clients/workbuddy/   WorkBuddy 独立 Client、manifest 与配置示例
+clients/grok-routine/ Grok Routine 独立 Client、manifest 与配置示例
+clients/shared/      固定版本的协议与传输 runtime
 docs/                架构与接入说明
 tools/package/       标准库便携打包工具
+tools/smoke_client.py Hub 与 Python Client 的模拟闭环检查
 ```
 
 验收围绕一个真实任务：是否减少切换入口、复制粘贴、传文件和追问进度，同时保持成果质量。文档组织参考 [Codex-Manager](https://github.com/qxcnm/Codex-Manager/tree/main) 的分层方式。

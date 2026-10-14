@@ -83,7 +83,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events"
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint"
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -91,6 +91,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var result any = map[string]bool{"ok": true}
 	var err error
 	switch {
+	case r.URL.Path == "/v1/endpoint" && r.Method == http.MethodGet:
+		snapshot := s.Broker.Snapshot()
+		binding, ok := snapshot.Endpoints[endpoint]
+		if !ok {
+			http.Error(w, "endpoint not found", http.StatusNotFound)
+			return
+		}
+		result = struct {
+			ProtocolVersion int              `json:"protocol_version"`
+			Endpoint        manager.Endpoint `json:"endpoint"`
+			Session         manager.Session  `json:"session"`
+		}{1, binding, snapshot.Sessions[endpoint]}
 	case r.URL.Path == "/v1/state" && r.Method == http.MethodGet:
 		result = s.Broker.Snapshot()
 	case r.URL.Path == "/v1/tasks" && r.Method == http.MethodPost:

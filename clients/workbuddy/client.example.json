@@ -1,0 +1,10 @@
+{
+  "base_url": "http://127.0.0.1:7331",
+  "endpoint": "workbuddy",
+  "endpoint_token": "<scoped endpoint token issued by this Hub>",
+  "native": {
+    "access_token": "<short-lived access_token from the user's official OAuth grant>",
+    "oauth_scopes": ["user.localassistant.invokable"],
+    "timeout_seconds": 30
+  }
+}

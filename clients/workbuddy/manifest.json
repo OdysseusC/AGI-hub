@@ -1,0 +1,16 @@
+{
+  "protocol": 1,
+  "id": "workbuddy",
+  "version": "0.1.0",
+  "dependencies": {"shared": "0.1.0"},
+  "label": "WorkBuddy official local assistant OpenAPI",
+  "runtime": "python>=3.11",
+  "entrypoint": "main.py",
+  "session_kinds": ["official-local-assistant"],
+  "supported_modes": ["queue"],
+  "native_validation": "unverified-requires-user-oauth-grant-and-idle-wake-test",
+  "required_oauth_scopes": ["user.localassistant.invokable"],
+  "completion": "native-execution-report",
+  "ordinary_chat_targeting": false,
+  "automatic_oauth_refresh": false
+}

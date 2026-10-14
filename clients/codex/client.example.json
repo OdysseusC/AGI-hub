@@ -1,0 +1,10 @@
+{
+  "base_url": "http://127.0.0.1:7331",
+  "endpoint": "codex",
+  "endpoint_token": "<scoped endpoint token issued by this Hub>",
+  "native": {
+    "thread_id": "<existing native desktop thread ID>",
+    "executable": "codex",
+    "timeout_seconds": 30
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "protocol": 1,
+  "id": "shared",
+  "version": "0.1.0",
+  "kind": "client-runtime-library",
+  "label": "AGI Hub shared Python client runtime",
+  "runtime": "python>=3.11",
+  "dependencies": [],
+  "standalone_consumer": false,
+  "modules": ["runtime", "transport", "notification", "report"]
+}

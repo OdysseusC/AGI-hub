@@ -1,0 +1,13 @@
+{
+  "protocol": 1,
+  "id": "codex",
+  "version": "0.1.0",
+  "dependencies": {"shared": "0.1.0"},
+  "label": "Codex existing desktop thread (queue CLI)",
+  "runtime": "python>=3.11",
+  "entrypoint": "main.py",
+  "session_kinds": ["desktop-thread"],
+  "supported_modes": ["queue"],
+  "native_validation": "requires-local-cli-and-idle-wake-verification",
+  "completion": "native-execution-report"
+}

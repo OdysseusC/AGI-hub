@@ -1,5 +1,7 @@
 /private/
 /dist/
+/agi-hub
+/agi-hub.exe
 *.log
 *.journal
 config.json
@@ -8,4 +10,7 @@ state.jsonl
 .env.*
 *.key
 *.pem
+**/client.json
+**/__pycache__/
+*.pyc
 .DS_Store

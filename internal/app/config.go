@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,17 +9,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 
-	"agihub/internal/driver"
 	"agihub/internal/manager"
 )
 
+// ClientBinding selects independent consumption, not a native transport. The
+// Hub never loads executable paths, webhook secrets, or assistant credentials.
+type ClientBinding struct {
+	Type string `json:"type"`
+}
+
 type Binding struct {
 	Endpoint manager.Endpoint `json:"endpoint"`
-	Driver   driver.Config    `json:"driver"`
+	Driver   ClientBinding    `json:"driver"`
 }
 
 type Config struct {
@@ -54,8 +61,9 @@ func InitConfig(dir string) error {
 		return err
 	}
 	cfg := Config{Version: 1, DeviceID: "this-device", Listen: "127.0.0.1:7331", AdminToken: hex.EncodeToString(buf), Workspaces: map[string]string{}, Bindings: []Binding{
-		{Endpoint: manager.Endpoint{ID: "codex", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "codex-queue"}, Driver: driver.Config{Type: "codex-queue", TimeoutSeconds: 30}},
-		{Endpoint: manager.Endpoint{ID: "grok", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "webhook"}, Driver: driver.Config{Type: "webhook", TimeoutSeconds: 30}},
+		{Endpoint: manager.Endpoint{ID: "codex", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "codex"}, Driver: ClientBinding{Type: "external"}},
+		{Endpoint: manager.Endpoint{ID: "workbuddy", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "workbuddy"}, Driver: ClientBinding{Type: "external"}},
+		{Endpoint: manager.Endpoint{ID: "grok", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "grok-routine"}, Driver: ClientBinding{Type: "external"}},
 	}}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -82,8 +90,14 @@ func LoadConfig(dir string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	if err = json.Unmarshal(b, &c); err != nil {
-		return c, err
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&c); err != nil {
+		return c, fmt.Errorf("invalid Hub configuration: %w; native transport settings belong in a private Client config; binding driver.type must be external", err)
+	}
+	var trailing any
+	if err = decoder.Decode(&trailing); err != io.EOF {
+		return c, errors.New("Hub configuration must contain exactly one JSON object")
 	}
 	if c.Version != 1 || c.DeviceID == "" || len(c.AdminToken) < 32 {
 		return c, errors.New("config requires version 1, device_id, and a private admin_token of at least 32 characters")
@@ -93,13 +107,20 @@ func LoadConfig(dir string) (Config, error) {
 		return c, errors.New("listen must be a numeric loopback address, such as 127.0.0.1:7331")
 	}
 	seen := map[string]bool{}
-	for _, b := range c.Bindings {
+	for i := range c.Bindings {
+		b := &c.Bindings[i]
 		if b.Endpoint.ID == "" || seen[b.Endpoint.ID] {
 			return c, errors.New("endpoint IDs must be nonempty and unique")
 		}
 		seen[b.Endpoint.ID] = true
 		if b.Endpoint.DeviceID != c.DeviceID {
 			return c, errors.New("v0 bindings must belong to this device; remote file transport is not implemented")
+		}
+		if b.Driver.Type == "" {
+			b.Driver.Type = "external"
+		}
+		if b.Driver.Type != "external" {
+			return c, errors.New("binding driver.type must be external; built-in native drivers have moved to independent Clients with private client.json settings")
 		}
 	}
 	for id, root := range c.Workspaces {

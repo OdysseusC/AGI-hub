@@ -10,7 +10,7 @@
 
 ## 1. 构建程序
 
-从用户提供的本项目源码目录开始。需要 Go 1.22+，没有外部依赖安装步骤。
+从用户提供的本项目源码目录开始。构建 Hub 需要 Go 1.22+，零第三方 Go 依赖。当前独立 Client 使用 Python 3.11+ 标准库，启用时需检查该运行时，不需要安装额外 Python 包。
 
 macOS / Linux：
 
@@ -41,14 +41,38 @@ go build -o agi-hub.exe ./cmd/agi-hub
 | `device_id` | 当前设备的稳定 ID，所有本机 endpoint 和文件引用保持一致 |
 | `listen` | 数字 loopback 地址，默认 `127.0.0.1:7331` |
 | `workspaces` | 工作区 ID 到现有本机绝对目录的映射 |
-| `bindings` | 每个助手及其一个具体原生会话，配套 driver |
+| `bindings` | 每个助手及其具体原生会话，`driver.type` 固定为 `external` |
 | `leader` | 初始为空；实际验证后通过命令选择 |
 
 例如工作区映射可以是 `"daily-work": "/absolute/local/workspace"`，Windows 可使用 `"daily-work": "C:\\Users\\you\\work"`。这些是示例，须替换为本机现有目录。文件引用采用 `inputs/source.txt` 这样的正斜杠相对路径。
 
-绑定至少核对 `endpoint.id / device_id / session_id / driver / modes` 与实际 driver 配置。[适配器说明](ADAPTERS.md) 提供 Codex 示例与 Webhook 模板规则。初始化时的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。
+绑定核对 `endpoint.id / device_id / session_id / driver / modes`。产品连接参数分别保存在仓库外的 `client.json`；Hub 配置不再存可执行文件、Webhook URL 或原生凭据。Client 在领取前核对 Hub 返回的自身绑定，Codex 的 thread 必须与 session_id 一致。WorkBuddy 官方本地助理使用专用标识 `localassistant`，不表示可定位普通 Chat。[独立 Client](CLIENTS.md) 提供配置格式。
+
+初始化的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
 
 原生验收建议先选一个专属会话，做用户明确授权、可逆的任务，确认实际接手、原生工具保留和结果回报。对云端 Routine，要先解决授权回到本机的报告通道；本地 loopback 地址不能直接供云端使用。完成这些验证后才启用绑定。当前修改配置需要重启 `serve`。
+
+### 安装会话技能和生成 Client 配置
+
+先将 Hub 可执行文件放在稳定的安装位置，再用这个已安装程序执行：
+
+```sh
+agi-hub install-skill --host codex --endpoint codex
+agi-hub install-skill --host workbuddy --endpoint workbuddy
+agi-hub client-config --endpoint codex --file /absolute/private/codex/client.json
+```
+
+Windows 使用 `agi-hub.exe` 及该电脑的绝对路径。上述 endpoint 必须对应本机配置。`client-config` 只写该 endpoint 的 scoped token 和空 `native` 到新私有文件，拒绝 Git 仓库内路径、符号链接父目录或覆盖已有文件；再按该 Client 的示例填写原生参数。
+
+技能安装记录程序路径、数据目录和 endpoint，不包含凭据。默认支持 Codex 用户技能目录和当前 WorkBuddy 桌面版本的用户技能目录；在原生应用核对是否发现并启用，其他宿主用明确验证过的 `--skills-dir`。[技能安装支持范围](SKILLS.md)
+
+在独立终端启动对应 Client：
+
+```sh
+python3 clients/codex/main.py --config /absolute/private/codex/client.json
+```
+
+Hub 不自动启动 Client；同一 endpoint 只运行一个消费者。每个 Client 单独配置与更新，既有 native 执行不随 Client 停止而取消。WorkBuddy OAuth 缺失时在领取前停止，不能用桌面登录态代替授权。
 
 ## 3. 启动与核对会话
 
@@ -110,7 +134,7 @@ CLI 默认采用当前 leader 为 origin、queue 模式、一次交接和提交�
 
 输入必须已经存在于同机 allowlist 工作区；也可提供 `sha256` 要求匹配。边车传引用，不自动复制或冻结输入。需要重试同一提交时保存并复用完全相同的 JSON（包括 deadline），不要换 ID 规避未解决的投递状态。
 
-`steer / interrupt` 只有经过实际验证的 endpoint 模式才可使用，还必须指定匹配的活跃 `--target-run`。内置 Codex 队列与 Webhook 只支持 queue。[协议边界](ARCHITECTURE.md)
+`steer / interrupt` 只有经过实际验证的 endpoint 模式才可使用，还必须指定匹配的活跃 `--target-run`。当前三个独立 Client 只支持 queue。[协议边界](ARCHITECTURE.md)
 
 ## 5. 接手助手回报
 
@@ -172,6 +196,7 @@ CLI 从私有配置使用对应 endpoint 的 scope token，不打印凭据。接
 | pending 且会话 unknown | 在原生应用核对真实状态，再声明；不要盲改为 idle |
 | delivered 但无 accepted | 检查指定会话是否实际接手与回报通道；工具接收不代表执行 |
 | uncertain | 保留关联 ID，检查原生会话或正式回执，不换 ID 盲重发 |
+| Client 停止，消息一直 dispatching | 核对原生接收后，用 `delivery --endpoint NAME --message-id ID --outcome uncertain --detail "实际核对说明"` 记录；不得改回 pending 或清空记录 |
 | needs_user | 用户处理原生提示或判断，再由接手端回报后续状态 |
 | 成功文件校验失败 | 核对设备、工作区、相对路径、文件实际存在及 SHA |
 | 日志达到上限或校验失败 | 保留私有数据与历史，停止追加；不要清空日志冒充恢复 |

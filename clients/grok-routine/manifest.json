@@ -1,0 +1,13 @@
+{
+  "protocol": 1,
+  "id": "grok-routine",
+  "version": "0.1.0",
+  "dependencies": {"shared": "0.1.0"},
+  "label": "Grok Bot user-configured official Routine webhook",
+  "runtime": "python>=3.11",
+  "entrypoint": "main.py",
+  "session_kinds": ["routine-webhook-target"],
+  "supported_modes": ["queue"],
+  "native_validation": "requires-user-routine-configuration-and-local-validation",
+  "completion": "native-execution-report"
+}

@@ -32,7 +32,7 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 | 模式 | 目标关系 | 接收约束 |
 | --- | --- | --- |
 | `queue` | 新独立任务 | 已核实会话空闲、没有未完成或不确定的交接、资源可用后投递 |
-| `steer` | 为现有运行补充方向 | 必须填写 `target_run_id`，原运行保持进行，原生驱动必须支持引导 |
+| `steer` | 为现有运行补充方向 | 必须填写 `target_run_id`，原运行保持进行，原生 Client 必须支持引导 |
 | `interrupt` | 请求停止现有运行 | 必须填写 `target_run_id`；收到实际 `interrupted` 回执才释放旧运行资源 |
 
 不支持的模式明确拒绝，无自动替换。停止成功不代表已经启动替代任务；恢复暂停也不是当前协议的能力。模式可按每条消息指定，客户端能力配置约束允许的模式，当前默认方式为 `queue`。
@@ -67,7 +67,7 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 
 ## 投递与返回
 
-投递状态独立记录：`pending → dispatching → delivered / uncertain / failed`。Client 领取时先持久化 `dispatching`。驱动成功仅确认 `delivered`；原生执行回执才确认接手和业务状态。重启后未确认投递转为 `uncertain`，保留资源占用，不自动重发。
+投递状态独立记录：`pending → dispatching → delivered / uncertain / failed`。Client 领取时先持久化 `dispatching`。原生传输成功仅确认 `delivered`；原生执行回执才确认接手和业务状态。只有 Client 重启时，已有 claim 保持 `dispatching`；Hub 重启后遗留 `dispatching` 转为 `uncertain`。两者都保留资源占用，不自动重发。
 
 正式结果生成一条 `kind=result` 消息，返回任务的原入口。它不是新任务，不重新执行，不产生新交接。结果投递状态与业务成功状态独立；原入口暂不可用时保留成果和待返回消息。
 
@@ -81,9 +81,14 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 | `POST /v1/tasks` | 提交完整任务 JSON | 管理 |
 | `POST /v1/leader` | 设置后续任务 leader | 管理 |
 | `POST /v1/session` | 核实并更新会话状态 | 管理 |
+| `GET /v1/endpoint?endpoint=ID` | 查询自身协议版本、会话绑定及状态 | 对应 endpoint 或管理 |
 | `POST /v1/inbox?endpoint=ID` | 原子领取下一条可处理消息 | 对应 endpoint 或管理 |
 | `POST /v1/delivery?endpoint=ID` | 汇报投递证据 | 对应 endpoint 或管理 |
 | `POST /v1/report?endpoint=ID` | 汇报原生执行及结果 | 对应 endpoint 或管理 |
 | `GET /v1/events?endpoint=ID` | SSE 变更提示 | 对应 endpoint 或管理 |
 
-SSE 首次连接发送一次变更提示，随后按事件推送；完整状态和消息通过授权接口读取。连接保活不轮询业务任务。外部 Client 应先订阅、再领取，重连后重新领取持久化 inbox；已经领取但投递不确定的消息不会被重新领取。当前内置 Client 同进程消费变更事件。
+SSE 首次连接发送一次变更提示，随后按事件推送；完整状态和消息通过授权接口读取。连接保活不轮询业务任务。独立 Client 应先订阅、再领取，重连后只领取仍为 `pending` 且满足条件的消息；已经领取但投递不确定的消息不会被重新领取。Hub 没有内置助手执行器，也不把 SSE 断开当作原生操作失败的证据。
+
+Client 在连接与领取前先读取自身 `/v1/endpoint`。返回 `protocol_version: 1`、该 `endpoint` 和 `session`，不返回其他会话、任务或凭据。Client 校验产品类型、支持模式及原生会话 ID 与私有配置一致；不兼容协议或目标错配时拒绝消费，不能以不同会话执行后再冒认原绑定。
+
+Client 和 Hub 约定协议版本 `1`。当前 Client 的 manifest 描述协议、会话类型与发送模式，Hub 不自动加载它或因此扩大 endpoint 的能力。每个 endpoint 使用一个 Client 进程；不同 Client 可以用不同语言实现，必须遵守领取后不盲重发、回执去重和授权边界。原生配置与凭据属于 Client 的私有文件，不能加入 Envelope 或 Hub 配置。详见 [独立 Client](CLIENTS.md)。
