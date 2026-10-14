@@ -36,7 +36,7 @@ def delivery_confirmed(response: bytes) -> bool:
 class WorkBuddyAdapter:
     def __init__(self, config: dict):
         native = config["native"]
-        if set(native) - {"access_token", "oauth_scopes", "timeout_seconds"}:
+        if set(native) - {"transport", "access_token", "oauth_scopes", "timeout_seconds"} or native.get("transport", "openapi") != "openapi":
             raise ConfigurationError("invalid_workbuddy_native_fields")
         self.endpoint = config["endpoint"]
         self.token = native.get("access_token", "")
@@ -54,6 +54,8 @@ class WorkBuddyAdapter:
     def validate_binding(self, binding: dict) -> None:
         if binding.get("driver") != "workbuddy" or binding.get("session_id") != "localassistant":
             raise ConfigurationError("workbuddy_requires_localassistant_binding")
+        if binding.get("modes") != ["queue"]:
+            raise ConfigurationError("workbuddy_openapi_requires_queue_only_binding")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
         if envelope["mode"] != "queue":
@@ -63,3 +65,10 @@ class WorkBuddyAdapter:
             MESSAGE_URL, body, {"Authorization": "Bearer " + self.token}, self.timeout,
             response_validator=delivery_confirmed,
         )
+
+
+def create_adapter(config: dict):
+    if config["native"].get("transport", "openapi") == "cli":
+        from workbuddy.cli_adapter import WorkBuddyCLIAdapter
+        return WorkBuddyCLIAdapter(config)
+    return WorkBuddyAdapter(config)

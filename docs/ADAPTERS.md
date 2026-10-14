@@ -6,8 +6,8 @@
 
 | 目录 | 原生入口 | 支持模式 | 当前验证 |
 | --- | --- | --- | --- |
-| `clients/codex` | 指定已有线程的 `codex queue` | `queue` | 本地模拟参数与进程行为；真实原生会话闭环待验收 |
-| `clients/workbuddy` | 官方本地助理 OpenAPI | `queue` | 本地模拟 HTTP 与 OAuth 配置检查；本机正式授权和闭环待验收 |
+| `clients/codex` | 已有线程 queue / 官方 app-server 结果引导 | `queue` / 结果专用 | 宿主内官方工具引导已实测；独立 proxy 当前宿主未开放，不等于无人值守返回 |
+| `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 自动领取、主动回报与文件校验已通过；Codex 宿主内工具实际返回结果，独立 proxy 自动返回与 WorkBuddy 桌面继承未通过，OpenAPI 未授权 |
 | `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
 
 Hub 没有内置助手驱动。每个 Client 使用 Python 3.11+ 标准库作为独立进程运行；原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现也可使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
@@ -32,6 +32,7 @@ codex queue --thread <native session ID> --message <complete notification>
     "session_id": "",
     "enabled": false,
     "idle_wake_verified": false,
+    "result_queue_while_busy_verified": false,
     "modes": ["queue"],
     "driver": "codex"
   },
@@ -45,7 +46,9 @@ codex queue --thread <native session ID> --message <complete notification>
 
 官方 `codex queue` 支持已有会话的 UUID 或精确名称；名称重名时应使用 UUID，不支持图片附件。当前 Client 只实现本机默认连接，不暴露 `--remote` 参数。[官方 queue 文档](https://learn.chatgpt.com/docs/cli/reference)
 
-官方 App Server 有 `thread/resume`、`turn/start`、`turn/steer`、`turn/interrupt` 与执行事件，且 steer 需匹配活跃 turn。此项目尚未实现 App Server Adapter；独立启动 App Server 并不证明复用了桌面既有会话或其原生工具。[官方 App Server](https://learn.chatgpt.com/docs/app-server)
+官方 App Server 有 `thread/resume`、`turn/start`、`turn/steer`、`turn/interrupt` 与执行事件，且 steer 需匹配活跃 turn。本项目已实现结果专用 App Server 分支并通过协议模拟；当前宿主未开放独立 proxy，普通任务控制和外部桌面引导未验收通过。独立启动 App Server 并不证明复用了桌面既有会话或其原生工具。[官方 App Server](https://learn.chatgpt.com/docs/app-server)
+
+本次两个 WorkBuddy 结果由正在运行的 Codex 入口调用官方桌面 `send_message_to_thread` 工具，以 `send-now` 实际引导回已有聊天；原入口收到结果，没有 GUI 手动点击或用 queue 冒充这项返回证据。这是宿主内工具的已验证路径。独立 Python proxy 在当前宿主没有可用外部控制 socket，尚未接通；不能据此宣称 App Server 的外部 `steer`、自动唤醒或独立边车无人值守返回已通过。
 
 ## Webhook / Grok Routine
 
@@ -72,7 +75,9 @@ Webhook URL 和请求体必须来自用户已核实的实际平台配置，Clien
 
 增加一个助手目录，实现本机协议消费和对应的原生 Adapter；无需向 Go Hub 添加产品分支。当前 Python Client 用 `validate_binding(binding)` 核对真实目标，再由 `deliver(envelope) -> (outcome, detail)` 执行一次投递，可复用公共运行时。Hub 不执行来自配置的任意命令，也不自动加载陌生模块。
 
-要声明 `steer` 或 `interrupt`，必须先确认原生入口定位的是绑定会话和目标运行，支持该语义，并能回传对应 `run_id` 与实际执行回执。内核要求 `target_run_id` 匹配活跃的边车管理运行。把控制文本当普通 queue 消息发送，不构成这些能力。已提供的三个 Client 尚未实现这些模式。
+要声明 `steer` 或 `interrupt`，必须先确认原生入口定位的是绑定会话和目标运行，支持该语义，并能回传对应 `run_id` 与实际执行回执。内核要求 `target_run_id` 匹配活跃的边车管理运行。把控制文本当普通 queue 消息发送，不构成这些能力。已提供的三个 Client 尚无这些模式的原生验收通过记录，候选代码或本地模拟测试不代替实际验证。
+
+`result_queue_while_busy_verified` 另行声明忙时接收 `kind=result` 的投递能力，默认关闭；它不是 `steer` 或 `interrupt`。普通任务、未知状态、未决投递和资源协调仍遵守 [消息协议](PROTOCOL.md) 的约束。
 
 进程未成功启动为 `failed`；成功启动后非零退出、超时或取消为 `uncertain`；退出成功仅表示传输完成。原生任务完成仍要 Report 与成果验证。
 
@@ -86,7 +91,21 @@ Code 会话向 hooks/Bash 导出每会话收件地址和 token，可作为注册
 
 插件支持不等于外部唤醒：普通 Chat 不运行 hooks、subagents 或本地 MCP；Cowork 与 Code 另有运行条件。Channels 是明确的外部事件机制，但处于研究预览、需要会话打开和按会话启用，还受插件白名单约束。只安装 MCP 不会获得推送能力。本项目尚未实现 Claude Client。[插件范围](https://support.claude.com/en/articles/13837440-use-plugins-in-claude)、[Channels](https://code.claude.com/docs/en/channels)
 
-## WorkBuddy 官方本地助理
+## WorkBuddy：CLI 与官方本地助理
+
+Client `0.2.0` 显式选择 `native.transport="cli"` 或 `"openapi"`，两种入口不自动切换。旧配置省略 `transport` 时保持 OpenAPI 行为。CLI 为已有普通会话的恢复候选；其工作环境、桌面身份和工具保留须单独验收，不能将独立 CLI 执行直接称为接通 WorkBuddy 桌面。[配置与运行](../clients/workbuddy/README.md)
+
+### CLI 会话恢复候选
+
+CLI 使用官方本人登录与用户配置的绝对程序路径、工作目录、配置目录和会话 ID，只传 `--resume ID --print --output-format json --input-format text`。完整通知经 stdin 普通文件传入，完整 stdout 经普通文件解析；可用实际 `node.exe` 与官方 JavaScript 入口替代 Windows `.cmd` 包装器，不经 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，续聊默认持久化。官方模式见 [无头执行](https://www.workbuddy.cn/docs/cli/headless)。
+
+本机正式登录的私有 CLI 配置目录中，首个 MQ 任务确认原生明确拒绝且未执行后，修正了技能读取、真实工作区文件访问和专属报告 helper 的窄范围配置及绝对工作目录，再恢复原任务。第二个任务由 SSE 自动领取，默认 `resume` 同一既有独立 CLI，在未传工具或权限覆盖参数的情况下首次执行即完成。两次均有原生 `accepted/running/succeeded` 和 SHA-256 一致的成果文件；任务执行 ID 不同、结果关联正确，重复提交与回执去重，终态资源释放已核对。
+
+原 WorkBuddy 桌面配置根与原会话 ID 的默认恢复仍返回 `Authentication required`。此前关闭工具的历史复述诊断，以及本次独立 CLI 的执行成功，都不证明继承了原桌面身份、连接器、企业微信工具或桌面新消息同步。
+
+默认持久化的失败尝试可能追加会话历史；本次已核对原历史前缀完整保留，不能将失败解释为没有任何原会话变化。因此不盲目重发，保留实际结果核对。本次窄范围技能、报告和文件配置已通过独立 CLI 执行验收，不代表其他目录或命令已获授权。本人登录可能使用产品共享认证存储，配置目录隔离不构成凭据隔离；不读取或复制受保护 token。[本机验证记录](NATIVE-VALIDATION.md)
+
+### 官方持续本地助理 OpenAPI
 
 官方 Open API 提供本地助理状态、消息投递与历史查询：
 
@@ -106,7 +125,7 @@ HTTP 成功后还要核对官方 JSON 中严格整数 `code=0` 和合法非空 `
 
 原生助手还需安装 [报告技能](SKILLS.md) 并验证实际接手和回报。技能解决消息解释和报告，Client 解决外部消费和唤醒，两者不能相互替代。Computer Use 可以做人工监督的原生入口验证，不能因此宣称官方 API 已授权或普通桌面任务具备后台唤醒能力。
 
-本机 WorkBuddy 技能发现与普通桌面任务的原生只读查询基线已通过。官方 CodeBuddy CLI 2.161.0 完成本人登录后，独立会话续聊通过；完整与随包 CLI 使用原配置根、工作目录及 ID 时，无工具恢复原历史也通过。但开启 `Bash,Read` 的对照测试均返回需要登录，没有实际重新执行企微查询。因此 CLI 尚未通过原生工具保留与桌面消息同步验收，未启用为 WorkBuddy 原生 Client；当前实现保留官方本地助理 OpenAPI 方案。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
+本机 WorkBuddy 技能发现与普通桌面任务的原生只读查询基线已通过，独立 CLI 的 MQ 执行、主动回报及成果校验也已有实际证据。两个结果通过 Codex 宿主内官方工具返回原入口；独立 proxy 自动返回与 WorkBuddy 原桌面企微接入尚未通过。当前 Client 保留 CLI 和 OpenAPI 的显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
 
 ## 原生接入验收
 

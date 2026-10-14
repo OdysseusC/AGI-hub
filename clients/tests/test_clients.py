@@ -220,6 +220,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("Example:", text)
         self.assertIn('"kind":"result"', text)
 
+    def test_execution_hint_is_per_task_and_not_the_fixed_conversation(self):
+        first = envelope()
+        second = dict(first, task_id="another-task")
+        def hint(value):
+            text = notification("endpoint-test", value)
+            line = next(line for line in text.splitlines() if line.startswith('{"event_id":'))
+            return json.loads(line)["run_id"]
+        self.assertEqual(hint(first), hint(first))
+        self.assertNotEqual(hint(first), hint(second))
+        self.assertTrue(hint(first).startswith("hubrun-"))
+
+    def test_busy_result_verification_requires_boolean(self):
+        api = Mock(endpoint="endpoint-test")
+        binding = registered_binding()
+        api.get.return_value = binding
+        adapter = Mock()
+        for invalid in ("true", 1, None):
+            binding["endpoint"]["result_queue_while_busy_verified"] = invalid
+            with self.assertRaisesRegex(ConfigurationError, "invalid_hub_busy_result_verification"):
+                verify_binding(api, adapter)
+        adapter.validate_binding.assert_not_called()
+
 
 class CrossClientCompatibilityTests(unittest.TestCase):
     def test_each_adapter_requires_registered_native_session_and_driver(self):
@@ -239,6 +261,10 @@ class CrossClientCompatibilityTests(unittest.TestCase):
                 ):
                     with self.assertRaises(ConfigurationError):
                         adapter.validate_binding(wrong["endpoint"])
+                unsupported = registered_binding(driver=driver, session_id=session_id)
+                unsupported["endpoint"]["modes"] = ["queue", "steer"]
+                with self.assertRaises(ConfigurationError):
+                    adapter.validate_binding(unsupported["endpoint"])
 
     def test_grok_keeps_http_transport_evidence_separate_from_workbuddy_receipt(self):
         def callback(handler):

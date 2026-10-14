@@ -27,6 +27,24 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 
 `max_handoffs` 在 V0 固定为 1，一次交接后仅返回结果。没有自动递归转派。`deadline` 限制尚未投递的消息；不会自行停止已经执行的原生任务，也不表示已落实 Token 或费用预算。
 
+## 消息关联与会话标识
+
+Hub 把提交转换为完整 Envelope，原生入口接收并保留以下字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `message_id` | 这一条消息的独立标识；原交接与返回结果分别拥有不同值 |
+| `task_id` | 所属任务，跨交接、回执与结果保持一致 |
+| `correlation_id` | 对话链的关联标识；V0 等于原任务 ID |
+| `reply_to` | 正在回答的消息 ID；原任务消息省略，结果指向原任务的 `message_id` |
+| `sender` / `recipient` | 本次消息的 endpoint；结果由执行端返回任务保存的原入口 |
+| `kind` | `task`、`control` 或 `result`，决定是否执行任务、请求原生控制或只展示结果 |
+| `content` | 完整 Submission 或终态 Task 的 JSON 文本，包含必要上下文与成果引用 |
+
+例如原交接的 `message_id=task:task-example-001`、`task_id=correlation_id=task-example-001`；结果的 `message_id=result:task-example-001`，`reply_to=task:task-example-001`，仍保留相同任务和关联 ID。结果收件人由 Hub 从已保存任务确定；接收助手不自行切换入口或创建新任务来回复。
+
+`Endpoint.session_id` 是固定的原生目的会话，`Report.run_id` 是该任务的一次执行。多个任务可以进入同一会话，但不能把固定 `session_id` 用作多个任务的 `run_id`。优先使用宿主实际公开的 run/turn ID；没有公开时，可使用通知提供的任务专属 `hubrun-...`，明确它是 Hub 执行标识而非原生 ID。同一任务的所有执行回执须保持该标识一致；控制任务仍要求实际匹配目标运行的 `target_run_id`，Hub 标识本身不证明原生控制能力。
+
 ## 消息发送模式
 
 | 模式 | 目标关系 | 接收约束 |
@@ -36,6 +54,8 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 | `interrupt` | 请求停止现有运行 | 必须填写 `target_run_id`；收到实际 `interrupted` 回执才释放旧运行资源 |
 
 不支持的模式明确拒绝，无自动替换。停止成功不代表已经启动替代任务；恢复暂停也不是当前协议的能力。模式可按每条消息指定，客户端能力配置约束允许的模式，当前默认方式为 `queue`。
+
+Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wake_verified` 分别核实。它仅表示该原生入口已验证能在 `busy` 或 `needs_user` 状态接收 `kind=result` 的队列通知。开启后，Hub 可投递这类结果，但仍阻止未决的 `dispatching/uncertain` 传输，不启动忙时普通任务、不释放业务资源、不改变当前运行；`unknown` 状态仍等待核对。这是结果投递能力声明，不等于已实现引导、打断、即时展示或自动处理权限提示。Codex App Server 尚未通过原生验证，不能因新增字段就声称通过。
 
 ## 执行回执
 
@@ -69,7 +89,15 @@ V0 使用同一套 JSON 协议登记会话、领取消息和汇报结果。通�
 
 投递状态独立记录：`pending → dispatching → delivered / uncertain / failed`。Client 领取时先持久化 `dispatching`。原生传输成功仅确认 `delivered`；原生执行回执才确认接手和业务状态。只有 Client 重启时，已有 claim 保持 `dispatching`；Hub 重启后遗留 `dispatching` 转为 `uncertain`。两者都保留资源占用，不自动重发。
 
+接收端已用稳定运行标识主动报告执行后，迟到的传输超时或退出失败不能把已确认投递降级；匹配任务接收方和原生执行证据时按幂等空操作处理。仅传输确认、无运行标识的失败和结果投递冲突仍拒绝，不能吞掉所有错误回执。
+
 正式结果生成一条 `kind=result` 消息，返回任务的原入口。它不是新任务，不重新执行，不产生新交接。结果投递状态与业务成功状态独立；原入口暂不可用时保留成果和待返回消息。
+
+原生权限可能允许会话收件，却阻止读取技能元数据、执行报告或生成文件。本轮首个 WorkBuddy 独立 CLI 任务确认原生明确拒绝且未执行后，修正窄范围报告与文件权限、真实绝对工作目录并恢复；第二个任务则由 SSE 自动领取，默认恢复同一既有 CLI 会话，首次执行即完成。两次均有原生 `accepted/running/succeeded` 和 SHA-256 核验一致的真实文件，不能仅由传输回执推导这些状态。报告通道可用时由原生会话回报 `needs_user`；否则保留已有投递记录与原生提示供用户核对，不伪造业务状态。
+
+两个任务的 `run_id` 不同，两个结果分别使用独立 `message_id`、正确的 `reply_to` 与同任务关联 ID；重复同一 Submission 或已保存 Report 去重，不追加消息或再次执行。原生终态后资源释放已核对。
+
+本次两个结果由正在运行的 Codex 入口通过官方桌面 `send_message_to_thread` 工具的 `send-now` 方式实际引导回原聊天。独立 Python proxy 在该宿主尚无可用外部控制 socket，这证明宿主内工具的返回效果，未证明外部 Client 可无人值守地完成整个返回阶段。WorkBuddy 的桌面身份与企业微信工具继承也未因此通过。
 
 ## 本机 API
 

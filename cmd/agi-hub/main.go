@@ -120,7 +120,7 @@ func run(args []string) error {
 		result := map[string]any{"platform": runtime.GOOS + "/" + runtime.GOARCH, "device_id": cfg.DeviceID, "bindings": []any{}, "note": "No native messages sent. Wake verification is a configuration assertion until tested in the specified native session."}
 		rows := []any{}
 		for _, b := range cfg.Bindings {
-			rows = append(rows, map[string]any{"endpoint": b.Endpoint.ID, "enabled": b.Endpoint.Enabled, "session_bound": b.Endpoint.SessionID != "", "idle_wake_declared_verified": b.Endpoint.IdleWakeVerified, "driver": b.Endpoint.Driver, "client_kind": b.Driver.Type})
+			rows = append(rows, map[string]any{"endpoint": b.Endpoint.ID, "enabled": b.Endpoint.Enabled, "session_bound": b.Endpoint.SessionID != "", "idle_wake_declared_verified": b.Endpoint.IdleWakeVerified, "busy_result_delivery_declared_verified": b.Endpoint.ResultQueueWhileBusyVerified, "driver": b.Endpoint.Driver, "client_kind": b.Driver.Type})
 		}
 		result["bindings"] = rows
 		return output(result)

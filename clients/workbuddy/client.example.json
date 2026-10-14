@@ -3,8 +3,16 @@
   "endpoint": "workbuddy",
   "endpoint_token": "<scoped endpoint token issued by this Hub>",
   "native": {
-    "access_token": "<short-lived access_token from the user's official OAuth grant>",
-    "oauth_scopes": ["user.localassistant.invokable"],
-    "timeout_seconds": 30
+    "transport": "cli",
+    "command": "/absolute/path/to/codebuddy",
+    "cwd": "/absolute/path/to/workspace",
+    "config_dir": "/absolute/path/to/private/official-cli-profile",
+    "session_id": "<existing CLI session ID also registered in Hub>",
+    "timeout_seconds": 120,
+    "environment": {
+      "CODEBUDDY_FORCE_LITE_WB_BUNDLE": "0",
+      "DISABLE_AUTOUPDATER": "1",
+      "CODEBUDDY_INTERNET_ENVIRONMENT": "internal"
+    }
   }
 }

@@ -171,6 +171,8 @@ def verify_binding(api: HubAPI, adapter: Adapter) -> None:
         raise ConfigurationError("hub_endpoint_requires_queue_mode")
     if type(binding.get("idle_wake_verified")) is not bool:
         raise ConfigurationError("invalid_hub_wake_verification")
+    if type(binding.get("result_queue_while_busy_verified", False)) is not bool:
+        raise ConfigurationError("invalid_hub_busy_result_verification")
     session = registered.get("session")
     if not isinstance(session, dict) or session.get("state") not in ("unknown", "idle", "busy", "needs_user"):
         raise ConfigurationError("invalid_hub_session_state")

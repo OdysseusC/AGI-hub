@@ -42,15 +42,77 @@ func TestSubmissionInputsAreAccessibleOnTheDeclaredDevice(t *testing.T) {
 
 func TestExecutionReceiptWinsOverLateTransportTimeout(t *testing.T) {
 	f := newBrokerFixture(t)
-	task := submitTask(t, f.b, testSubmission("receipt-race", "worker"))
+	submission := testSubmission("receipt-race", "worker")
+	submission.Resources = []string{"workspace:work"}
+	task := submitTask(t, f.b, submission)
 	env := dispatchTask(t, f.b, "worker", task.ID)
 	if err := f.b.Report(Report{EventID: "early-accept", TaskID: task.ID, Endpoint: "worker", State: "accepted", RunID: "receipt-run"}); err != nil {
 		t.Fatal(err)
 	}
-	_ = f.b.Delivery(env.ID, "uncertain", "late transport timeout")
+	before := f.b.Snapshot()
+	info, err := os.Stat(filepath.Join(f.dir, journalName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range []string{"uncertain", "failed"} {
+		if err := f.b.Delivery(env.ID, outcome, "late transport timeout or exit failure"); err != nil {
+			t.Fatalf("native-confirmed late receipt must be an acknowledged no-op: %v", err)
+		}
+		if !sameJSON(before, f.b.Snapshot()) {
+			t.Fatal("late transport receipt changed stronger native execution evidence or locks")
+		}
+	}
+	afterInfo, err := os.Stat(filepath.Join(f.dir, journalName))
+	if err != nil || afterInfo.Size() != info.Size() {
+		t.Fatal("an acknowledged no-op appended a journal mutation")
+	}
 	state := f.b.Snapshot()
 	if state.Messages[env.ID].Delivery != "delivered" || state.Tasks[task.ID].Execution != "accepted" {
 		t.Fatal("late timeout replaced execution evidence")
+	}
+	if err := f.b.Report(Report{EventID: "early-success", TaskID: task.ID, Endpoint: "worker", State: "succeeded", RunID: "receipt-run", Summary: "Already completed before the transport exit"}); err != nil {
+		t.Fatal(err)
+	}
+	completed := f.b.Snapshot()
+	if err := f.b.Delivery(env.ID, "uncertain", "late process timeout after completion"); err != nil {
+		t.Fatal(err)
+	}
+	if !sameJSON(completed, f.b.Snapshot()) || len(resultMessages(f.b.Snapshot(), task.ID)) != 1 {
+		t.Fatal("late receipt changed native completion or created another result")
+	}
+}
+
+func TestConflictingDeliveryWithoutNativeRunEvidenceIsRejected(t *testing.T) {
+	f := newBrokerFixture(t)
+	task := submitTask(t, f.b, testSubmission("transport-only", "worker"))
+	envelope := dispatchTask(t, f.b, "worker", task.ID)
+	if err := f.b.Delivery(envelope.ID, "delivered", "transport-only queue confirmation"); err != nil {
+		t.Fatal(err)
+	}
+	before := f.b.Snapshot()
+	for _, outcome := range []string{"uncertain", "failed"} {
+		if err := f.b.Delivery(envelope.ID, outcome, "contradictory transport evidence"); err == nil {
+			t.Fatal("transport-only confirmation swallowed a conflicting receipt")
+		}
+	}
+	if !sameJSON(before, f.b.Snapshot()) {
+		t.Fatal("conflicting transport receipt changed state")
+	}
+	if err := f.b.Report(Report{EventID: "no-run-failure", TaskID: task.ID, Endpoint: "worker", State: "failed", Summary: "No accepted native execution was established"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.Delivery(envelope.ID, "uncertain", "receipt without any accepted run"); err == nil {
+		t.Fatal("a report without native run evidence qualified for the late-receipt exception")
+	}
+	result := dispatchTask(t, f.b, "origin", task.ID)
+	if result.Kind != "result" {
+		t.Fatal("expected a result message")
+	}
+	if err := f.b.Delivery(result.ID, "delivered", "origin transport confirmation"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.Delivery(result.ID, "uncertain", "conflicting result transport evidence"); err == nil {
+		t.Fatal("a result receipt qualified for native task acceptance")
 	}
 }
 
@@ -183,6 +245,9 @@ func TestDeliveryAndReceiptAreNotCompletionAndResultIsUnique(t *testing.T) {
 	f := newBrokerFixture(t)
 	task := submitTask(t, f.b, testSubmission("receipt", "worker"))
 	env := dispatchTask(t, f.b, "worker", task.ID)
+	if env.CorrelationID != task.ID || env.ReplyTo != "" {
+		t.Fatalf("new task must begin its own correlation without claiming a reply: %+v", env)
+	}
 	var payload Submission
 	if err := json.Unmarshal([]byte(env.Content), &payload); err != nil || payload.ID != task.ID || payload.Goal != task.Goal {
 		t.Fatalf("task envelope must preserve the JSON submission: payload=%+v err=%v", payload, err)
@@ -231,6 +296,9 @@ func TestDeliveryAndReceiptAreNotCompletionAndResultIsUnique(t *testing.T) {
 	}
 	if results[0].Recipient != task.Origin || results[0].Delivery != "pending" {
 		t.Fatalf("result must return to the original entry point: %+v", results[0])
+	}
+	if results[0].ID == env.ID || results[0].ID != resultMessageID(task.ID) || results[0].TaskID != task.ID || results[0].ReplyTo != env.ID || results[0].CorrelationID != env.CorrelationID {
+		t.Fatalf("result must use a distinct stable message ID and retain task/reply/correlation links: task=%+v result=%+v", env, results[0])
 	}
 }
 
@@ -335,6 +403,9 @@ func TestLeaderSwitchAffectsNewWorkAndKeepsOldOrigin(t *testing.T) {
 	if len(results) != 1 || results[0].Recipient != "origin" {
 		t.Fatalf("old result did not return to its original entry point: %+v", results)
 	}
+	if results[0].TaskID != old.ID || results[0].ReplyTo != taskMessageID(old.ID) || results[0].CorrelationID != old.ID {
+		t.Fatalf("leader switch changed old result's message links: %+v", results[0])
+	}
 }
 
 func TestQueueWaitsWhileSessionIsBusy(t *testing.T) {
@@ -423,7 +494,7 @@ func TestSteerIsAnAuditedControlAndKeepsTheOriginalRunReserved(t *testing.T) {
 	controlSubmission.TargetRunID = runID
 	control := submitTask(t, f.b, controlSubmission)
 	env := dispatchTask(t, f.b, "worker", control.ID)
-	if env.Kind != "control" || env.Mode != "steer" || env.TargetRunID != runID {
+	if env.Kind != "control" || env.Mode != "steer" || env.TargetRunID != runID || env.CorrelationID != control.ID || env.ReplyTo != "" {
 		t.Fatalf("steer envelope lost its control/run association: %+v", env)
 	}
 	if err := f.b.Delivery(env.ID, "delivered", "guidance accepted by native session"); err != nil {
@@ -447,6 +518,10 @@ func TestSteerIsAnAuditedControlAndKeepsTheOriginalRunReserved(t *testing.T) {
 	}
 	if len(resultMessages(snapshot, original.ID)) != 0 || len(resultMessages(snapshot, control.ID)) != 1 {
 		t.Fatal("steer result was confused with the original task's result")
+	}
+	result := resultMessages(snapshot, control.ID)[0]
+	if result.ID == env.ID || result.ReplyTo != env.ID || result.CorrelationID != control.ID || result.TaskID != control.ID {
+		t.Fatalf("control result must answer its own control message: control=%+v result=%+v", env, result)
 	}
 }
 
@@ -702,6 +777,69 @@ func TestJournalRepairsTornTailButRejectsCompleteCorruption(t *testing.T) {
 	})
 }
 
+func TestLegacyJournalWithoutMessageLinksLoadsWithoutMigration(t *testing.T) {
+	f := newBrokerFixture(t)
+	task := submitTask(t, f.b, testSubmission("legacy-message", "worker"))
+	legacy := f.b.Snapshot()
+	for id, envelope := range legacy.Messages {
+		envelope.ReplyTo = ""
+		envelope.CorrelationID = ""
+		legacy.Messages[id] = envelope
+	}
+	// Already unknown sessions need no ordinary restart recovery record, so
+	// this specifically checks that omitted optional links do not migrate data.
+	for id, session := range legacy.Sessions {
+		session.State = "unknown"
+		legacy.Sessions[id] = session
+	}
+	if err := f.b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.b = nil
+	path := filepath.Join(f.dir, journalName)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = appendSnapshot(file, legacy); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte(`"reply_to":`)) || bytes.Contains(before, []byte(`"correlation_id":`)) {
+		t.Fatal("legacy fixture contains new optional fields")
+	}
+	f.b, err = Open(f.dir, testDevice, map[string]string{"work": f.workspace})
+	if err != nil {
+		t.Fatalf("legacy journal failed validation: %v", err)
+	}
+	loaded := f.b.Snapshot().Messages[taskMessageID(task.ID)]
+	if loaded.TaskID != task.ID || loaded.ReplyTo != "" || loaded.CorrelationID != "" {
+		t.Fatalf("loading changed legacy message links: %+v", loaded)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("loading optional fields rewrote the legacy ledger")
+	}
+	if err := f.b.SetSession("worker", "idle", ""); err != nil {
+		t.Fatal(err)
+	}
+	runID := startTask(t, f.b, task)
+	if err := f.b.Report(Report{EventID: "legacy-done", TaskID: task.ID, Endpoint: task.Recipient, State: "succeeded", RunID: runID, Summary: "Legacy task completed"}); err != nil {
+		t.Fatal(err)
+	}
+	results := resultMessages(f.b.Snapshot(), task.ID)
+	if len(results) != 1 || results[0].ID != resultMessageID(task.ID) || results[0].ReplyTo != loaded.ID || results[0].CorrelationID != task.ID {
+		t.Fatalf("new legacy-task result lost its reply links: %+v", results)
+	}
+}
+
 func TestSubscribeWakesOnNewWorkWithoutPolling(t *testing.T) {
 	f := newBrokerFixture(t)
 	changes, unsubscribe := f.b.Subscribe()
@@ -716,5 +854,138 @@ func TestSubscribeWakesOnNewWorkWithoutPolling(t *testing.T) {
 	// treating a coalesced notification as the task payload itself.
 	if len(f.b.Snapshot().Tasks) != 1 {
 		t.Fatal("event did not correspond to durable queued work")
+	}
+}
+
+func TestVerifiedBusyResultReturnDoesNotDispatchOrdinaryTasks(t *testing.T) {
+	for _, sessionState := range []string{"busy", "needs_user"} {
+		t.Run(sessionState, func(t *testing.T) {
+			f := newBrokerFixture(t)
+			origin := f.b.Snapshot().Endpoints["origin"]
+			origin.IdleWakeVerified = false
+			origin.ResultQueueWhileBusyVerified = true
+			if err := f.b.Register(origin); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.b.SetLeader("origin"); err != nil {
+				t.Fatalf("verified busy return path must qualify as an entry: %v", err)
+			}
+			if err := f.b.SetSession("origin", sessionState, "observed-origin-run"); err != nil {
+				t.Fatal(err)
+			}
+			queuedSubmission := testSubmission("ordinary-origin-task", "origin")
+			queuedSubmission.Resources = []string{"desktop:origin"}
+			queued := submitTask(t, f.b, queuedSubmission)
+			workerTask := submitTask(t, f.b, testSubmission("busy-return-task", "worker"))
+			runID := startTask(t, f.b, workerTask)
+			if err := f.b.Report(Report{EventID: "busy-return-done", TaskID: workerTask.ID, Endpoint: "worker", State: "succeeded", RunID: runID, Summary: "Result for the busy original entry"}); err != nil {
+				t.Fatal(err)
+			}
+			envelope := dispatchTask(t, f.b, "origin", workerTask.ID)
+			if envelope.Kind != "result" || envelope.Recipient != workerTask.Origin {
+				t.Fatalf("busy entry may receive only the result: %+v", envelope)
+			}
+			snapshot := f.b.Snapshot()
+			if snapshot.Messages[taskMessageID(queued.ID)].Delivery != "pending" || snapshot.Tasks[queued.ID].Execution != "waiting" {
+				t.Fatal("busy-result verification dispatched ordinary work")
+			}
+			if snapshot.Sessions["origin"] != (Session{State: sessionState, RunID: "observed-origin-run"}) {
+				t.Fatal("result dispatch changed the observed native run")
+			}
+			if _, locked := snapshot.ResourceOwners["desktop:origin"]; locked {
+				t.Fatal("result dispatch acquired resources for waiting work")
+			}
+			if err := f.b.Delivery(envelope.ID, "delivered", "verified native busy result queue"); err != nil {
+				t.Fatal(err)
+			}
+			assertNoMessage(t, f.b, "origin")
+		})
+	}
+}
+
+func TestBusyResultReturnRequiresTheVerifiedModeAndKnownSession(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		state              string
+		idleVerified       bool
+		busyResultVerified bool
+	}{
+		{name: "busy-without-result-verification", state: "busy", idleVerified: true},
+		{name: "unknown-with-result-verification", state: "unknown", busyResultVerified: true},
+		{name: "busy-verification-does-not-prove-idle-wake", state: "idle", busyResultVerified: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newBrokerFixture(t)
+			origin := f.b.Snapshot().Endpoints["origin"]
+			origin.IdleWakeVerified = tc.idleVerified
+			origin.ResultQueueWhileBusyVerified = tc.busyResultVerified
+			if err := f.b.Register(origin); err != nil {
+				t.Fatal(err)
+			}
+			run := ""
+			if tc.state == "busy" {
+				run = "observed-origin-run"
+			}
+			if err := f.b.SetSession("origin", tc.state, run); err != nil {
+				t.Fatal(err)
+			}
+			workerTask := submitTask(t, f.b, testSubmission("blocked-result", "worker"))
+			runID := startTask(t, f.b, workerTask)
+			if err := f.b.Report(Report{EventID: "blocked-result-done", TaskID: workerTask.ID, Endpoint: "worker", State: "succeeded", RunID: runID, Summary: "The result remains available"}); err != nil {
+				t.Fatal(err)
+			}
+			assertNoMessage(t, f.b, "origin")
+			if f.b.Snapshot().Messages[resultMessageID(workerTask.ID)].Delivery != "pending" {
+				t.Fatal("unverified return path claimed a result")
+			}
+		})
+	}
+}
+
+func TestOriginAndLeaderRequireAtLeastOneVerifiedReturnPath(t *testing.T) {
+	f := newBrokerFixture(t)
+	origin := f.b.Snapshot().Endpoints["origin"]
+	origin.IdleWakeVerified = false
+	origin.ResultQueueWhileBusyVerified = false
+	if err := f.b.Register(origin); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.SetLeader("origin"); err == nil {
+		t.Fatal("unverified endpoint became leader")
+	}
+	if _, err := f.b.Submit(testSubmission("unverified-origin", "worker")); err == nil {
+		t.Fatal("unverified origin accepted work without a return path")
+	}
+	if len(f.b.Snapshot().Tasks) != 0 {
+		t.Fatal("rejected unverified-origin task was stored")
+	}
+}
+
+func TestBusyResultVerificationDoesNotBypassUncertainDispatch(t *testing.T) {
+	f := newBrokerFixture(t)
+	origin := f.b.Snapshot().Endpoints["origin"]
+	origin.ResultQueueWhileBusyVerified = true
+	if err := f.b.Register(origin); err != nil {
+		t.Fatal(err)
+	}
+	uncertainSubmission := testSubmission("uncertain-origin-work", "origin")
+	uncertainSubmission.Resources = []string{"desktop:origin"}
+	uncertain := submitTask(t, f.b, uncertainSubmission)
+	dispatch := dispatchTask(t, f.b, "origin", uncertain.ID)
+	if err := f.b.Delivery(dispatch.ID, "uncertain", "native acceptance must be reconciled"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.SetSession("origin", "busy", "observed-origin-run"); err != nil {
+		t.Fatal(err)
+	}
+	workerTask := submitTask(t, f.b, testSubmission("return-behind-uncertain", "worker"))
+	runID := startTask(t, f.b, workerTask)
+	if err := f.b.Report(Report{EventID: "return-behind-uncertain-done", TaskID: workerTask.ID, Endpoint: "worker", State: "succeeded", RunID: runID, Summary: "Result awaits safe delivery"}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoMessage(t, f.b, "origin")
+	snapshot := f.b.Snapshot()
+	if snapshot.ResourceOwners["desktop:origin"] != uncertain.ID || snapshot.Messages[dispatch.ID].Delivery != "uncertain" || snapshot.Messages[resultMessageID(workerTask.ID)].Delivery != "pending" {
+		t.Fatal("busy result path bypassed an unresolved dispatch reservation")
 	}
 }

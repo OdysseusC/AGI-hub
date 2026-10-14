@@ -14,7 +14,7 @@ from shared.transport import ConfigurationError
 class CodexAdapter:
     def __init__(self, config: dict):
         native = config["native"]
-        if set(native) - {"thread_id", "executable", "timeout_seconds"}:
+        if set(native) - {"transport", "thread_id", "executable", "timeout_seconds"} or native.get("transport", "queue") != "queue":
             raise ConfigurationError("invalid_codex_native_fields")
         self.endpoint = config["endpoint"]
         self.thread = native.get("thread_id", "")
@@ -36,6 +36,8 @@ class CodexAdapter:
     def validate_binding(self, binding: dict) -> None:
         if binding.get("driver") != "codex" or binding.get("session_id") != self.thread:
             raise ConfigurationError("codex_native_binding_mismatch")
+        if binding.get("modes") != ["queue"]:
+            raise ConfigurationError("codex_client_requires_queue_only_binding")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
         if envelope["mode"] != "queue":
@@ -56,3 +58,10 @@ class CodexAdapter:
         if code != 0:
             return "uncertain", "Codex dispatch process exited unsuccessfully; reconcile before retrying"
         return "delivered", "Codex queue transport completed; native acceptance and business completion remain unverified"
+
+
+def create_adapter(config: dict):
+    if config["native"].get("transport", "queue") == "app-server":
+        from codex.app_server_adapter import CodexAppServerAdapter
+        return CodexAppServerAdapter(config)
+    return CodexAdapter(config)

@@ -42,6 +42,8 @@ sequenceDiagram
     B->>U: 通过原入口 Client 发送 result
 ```
 
+固定 `session_id` 标识长期协调会话，每个任务的 `run_id` 单独生成；终态回复使用新的 `message_id`、指向原请求的 `reply_to`，并继承 `task_id / correlation_id`。
+
 所有变更先持久化，再通知订阅者。结果通知是信息交付，不会再次执行原任务，也不要求对原任务再发送接手回执。当前没有自动递归任务创建。
 
 ## 两层状态
@@ -62,15 +64,17 @@ sequenceDiagram
 
 | 模式 | 内核语义 | 当前投递边界 |
 | --- | --- | --- |
-| `queue` | 作为后续工作排队；会话已核对为 idle，且没有边车管理的未完成运行 | 已提供三个独立 Client，仍需原生验证 |
+| `queue` | 普通工作等待核对为 idle，且没有边车管理的未完成运行；终态成果允许显式验证的忙时返回 | 各 Client 按实际原生接入投递 |
 | `steer` | 对匹配的活跃管理运行提供引导；必须带 `target_run_id` | 当前没有已实现的原生 Client |
 | `interrupt` | 请求中断匹配的活跃管理运行；完成须有实际 `interrupted` 回执 | 当前没有已实现的原生 Client |
 
-三个模式都需要 endpoint 声明支持。当前 Codex、WorkBuddy 和 Grok Routine Client 只投递 `queue`；另外两种模式需要实现并验证对应的原生 Adapter，不能降级成普通消息后假称已控制运行。
+三个模式都需要 endpoint 声明支持。普通任务的 `steer / interrupt` 控制仍未接入。Codex 的可选 app-server Client 仅将 `kind=result` 通知通过官方 `turn/steer` 送入当前原生轮次；这是成果返回的投递方式，不代表能够控制任意 Hub 任务。WorkBuddy CLI 仅在核对空闲的既有会话执行默认 `--resume`，不覆盖工具或权限。
 
 `resources` 是用户声明的互斥资源 ID，例如 `workspace:daily-work` 或 `desktop:this-device`。边车在领取任务时占用资源，在终态释放。未声明的原生人工操作不受此机制管理，因此初期应使用专属会话并主动协调桌面操作。
 
 `authorized_actions` 传递本任务已有的授权范围，是元数据约定。它不会改变原生权限，也不会形成操作系统沙盒。接手助手不能代表用户批准工具审批、提升权限或扩大任务范围。
+
+`result_queue_while_busy_verified` 是额外的成果投递能力声明：仅在已核对 busy/needs_user 时允许该 endpoint 领取结果；unknown 仍等待。普通任务与资源互斥规则不变，dispatching/uncertain 不会被绕过。它本身不能证明已自动引导，原生 Adapter 的确认需另验；WorkBuddy CLI 拒绝该声明，避免并发恢复同一会话。
 
 当前每个用户任务 `max_handoffs=1`，只生成一个 task/control 和一个 result，不自动规划下一轮。`deadline` 只在投递前判断是否过期，不能终止原生已运行的任务。
 

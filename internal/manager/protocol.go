@@ -2,13 +2,14 @@ package manager
 
 // Endpoint is a user-configured binding to one native assistant session.
 type Endpoint struct {
-	ID               string   `json:"id"`
-	DeviceID         string   `json:"device_id"`
-	SessionID        string   `json:"session_id"`
-	Enabled          bool     `json:"enabled"`
-	IdleWakeVerified bool     `json:"idle_wake_verified"`
-	Modes            []string `json:"modes"`
-	Driver           string   `json:"driver"`
+	ID                           string   `json:"id"`
+	DeviceID                     string   `json:"device_id"`
+	SessionID                    string   `json:"session_id"`
+	Enabled                      bool     `json:"enabled"`
+	IdleWakeVerified             bool     `json:"idle_wake_verified"`
+	ResultQueueWhileBusyVerified bool     `json:"result_queue_while_busy_verified,omitempty"`
+	Modes                        []string `json:"modes"`
+	Driver                       string   `json:"driver"`
 }
 
 type Session struct {
@@ -40,16 +41,18 @@ type Submission struct {
 }
 
 type Envelope struct {
-	ID          string `json:"message_id"`
-	TaskID      string `json:"task_id"`
-	Kind        string `json:"kind"` // task, control, result
-	Sender      string `json:"sender"`
-	Recipient   string `json:"recipient"`
-	Mode        string `json:"mode"`
-	TargetRunID string `json:"target_run_id,omitempty"`
-	Content     string `json:"content"`
-	Delivery    string `json:"delivery"` // pending, dispatching, delivered, uncertain, failed
-	Detail      string `json:"detail,omitempty"`
+	ID            string `json:"message_id"`
+	TaskID        string `json:"task_id"`
+	ReplyTo       string `json:"reply_to,omitempty"`       // message being answered
+	CorrelationID string `json:"correlation_id,omitempty"` // V0 keeps the originating task ID
+	Kind          string `json:"kind"`                     // task, control, result
+	Sender        string `json:"sender"`
+	Recipient     string `json:"recipient"`
+	Mode          string `json:"mode"`
+	TargetRunID   string `json:"target_run_id,omitempty"`
+	Content       string `json:"content"`
+	Delivery      string `json:"delivery"` // pending, dispatching, delivered, uncertain, failed
+	Detail        string `json:"detail,omitempty"`
 }
 
 type Task struct {

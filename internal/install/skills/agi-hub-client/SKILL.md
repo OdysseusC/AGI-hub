@@ -11,7 +11,7 @@ description: "通过用户配置的 AGI Hub 边车，接手当前原生 AI 助�
 
 ## 收到消息
 
-- 核对 Envelope 的 `recipient` 等于本机 `endpoint_id`，保留 `message_id`、`task_id` 和 `kind`。`content` 是 JSON 文本，先解析再按其中明确的目标、上下文、文件归属、资源和已有授权执行。
+- 核对 Envelope 的 `recipient` 等于本机 `endpoint_id`，保留 `message_id`、`task_id`、`correlation_id`、`reply_to` 和 `kind`。`content` 是 JSON 文本，先解析再按其中明确的目标、上下文、文件归属、资源和已有授权执行。
 - `kind=result` 只向原入口展示真实摘要与成果引用，不重做任务，不为已结束任务补发 `accepted/running`，不自动生成下一轮交接。
 - `kind=task` 实际接手后回报 `accepted`，开始执行回报 `running`；需要用户判断或处理原生权限提示时回报 `needs_user` 并说明具体事项，用户处理后再恢复执行。
 - `kind=control` 仅在原生接口实际支持相应 `steer/interrupt`、且 `target_run_id` 匹配当前运行时处理。不把普通文本投递冒充引导或打断；只有实际停止成功才能回报 `interrupted`。
@@ -26,7 +26,7 @@ description: "通过用户配置的 AGI Hub 边车，接手当前原生 AI 助�
 <binary_path> report --data <data_dir> --endpoint <endpoint_id> --file <本机回执 JSON 绝对路径>
 ```
 
-尖括号是要从安装元数据或实际文件替换的参数，不是文字命令。支持 stdin 时也可以把完整 JSON 送入同一命令，省略 `--file`。回执与必要成果保存在用户选择的本机私有目录或任务工作区，不提交到开源仓库。
+尖括号是要从安装元数据或实际文件替换的参数，不是文字命令。优先通过原生文件工具保存回执，再直接运行该程序的 `report --file`；窄范围的原生命令权限通常不包含 `printf`、管道、`sh` 或另一个解释器包装。支持且已授权 stdin 时也可以把完整 JSON 送入同一命令，省略 `--file`。工作区 ID 不是本机目录名，使用任务明确提供的本机映射，不猜目录或读取含凭据的管理配置。回执与必要成果保存在用户选择的本机私有目录或任务工作区，不提交到开源仓库。
 
 ```json
 {
@@ -41,6 +41,8 @@ description: "通过用户配置的 AGI Hub 边车，接手当前原生 AI 助�
 ```
 
 每个新回报生成并保存新的稳定 `event_id`；重试同一事件时全部内容与 ID 保持不变。同一任务的 `run_id` 始终一致，优先使用实际原生运行 ID；宿主不公开此 ID 时保存任务专属执行标识并明确该限制，不冒称原生 ID。不要另选 endpoint 冒充其他助手。
+
+固定的 `session_id` 是长期协调会话，不是每次任务的 `run_id`；不要跨任务复用它来冒充一次执行。通知提供的 `hubrun-...` 可作为该任务的执行标识，明确它属于 Hub，不是宿主公开的原生运行 ID。最终回报通过 MQ 客户端发布回复，由 Hub 分配独立的 `message_id`，填写指向原消息的 `reply_to` 并继承 `task_id`、`correlation_id`，仍返回任务保存的原入口。接收技能无需自行选择其他收件人或创建新任务绕过当前交接。
 
 只有实际完成并核对结果后才能回报 `succeeded`，填写真实 `summary`；失败则回报 `failed` 与原因。任务要求成果文件时，成功回报包含 `artifacts`，每项填写 `device_id`、`workspace_id`、工作区内 `/` 分隔的相对 `path` 与可选 `sha256`。文件必须实际存在于已配置的对应设备和工作区，不能把本机绝对路径当作远程文件引用。摘要只传必要结果，不复制全部聊天历史或原始密钥。
 

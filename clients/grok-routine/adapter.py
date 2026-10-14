@@ -69,6 +69,8 @@ class GrokRoutineAdapter:
     def validate_binding(self, binding: dict) -> None:
         if binding.get("driver") != "grok-routine" or binding.get("session_id") != self.routine_id:
             raise ConfigurationError("grok_native_binding_mismatch")
+        if binding.get("modes") != ["queue"]:
+            raise ConfigurationError("grok_routine_requires_queue_only_binding")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
         if envelope["mode"] != "queue":

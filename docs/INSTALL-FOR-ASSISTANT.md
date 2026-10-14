@@ -46,7 +46,7 @@ go build -o agi-hub.exe ./cmd/agi-hub
 
 例如工作区映射可以是 `"daily-work": "/absolute/local/workspace"`，Windows 可使用 `"daily-work": "C:\\Users\\you\\work"`。这些是示例，须替换为本机现有目录。文件引用采用 `inputs/source.txt` 这样的正斜杠相对路径。
 
-绑定核对 `endpoint.id / device_id / session_id / driver / modes`。产品连接参数分别保存在仓库外的 `client.json`；Hub 配置不再存可执行文件、Webhook URL 或原生凭据。Client 在领取前核对 Hub 返回的自身绑定，Codex 的 thread 必须与 session_id 一致。WorkBuddy 官方本地助理使用专用标识 `localassistant`，不表示可定位普通 Chat。[独立 Client](CLIENTS.md) 提供配置格式。
+绑定核对 `endpoint.id / device_id / session_id / driver / modes`。产品连接参数分别保存在仓库外的 `client.json`；Hub 配置不再存可执行文件、Webhook URL 或原生凭据。Client 在领取前核对 Hub 返回的自身绑定，Codex 的 thread 必须与 session_id 一致。WorkBuddy 官方本地助理使用专用标识 `localassistant`，不表示可定位普通 Chat；CLI 分支要求绑定已验证的既有会话 ID、工作目录及配置目录，独立 CLI 与桌面会话须分别标注。[独立 Client](CLIENTS.md) 提供配置格式。
 
 初始化的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
 
@@ -95,7 +95,7 @@ Hub 不自动启动 Client；同一 endpoint 只运行一个消费者。每个 C
 ./agi-hub leader --endpoint codex
 ```
 
-以上 endpoint 名称须存在于自己的配置。`busy / needs_user` 声明还需 `--target-run <真实运行 ID>`；不要把尚未核对的会话设为 idle。leader 必须启用、验证过空闲唤醒并支持 queue。当前边车不自动识别当前交谈助手。
+以上 endpoint 名称须存在于自己的配置。`busy / needs_user` 声明还需 `--target-run <真实运行 ID>`；不要把尚未核对的会话设为 idle。leader 必须启用、支持 queue，并验证过空闲唤醒或忙时接收成果。忙时成果能力不能替代普通任务的空闲唤醒验收。当前边车不自动识别当前交谈助手。
 
 ## 4. 提交任务
 
@@ -134,7 +134,7 @@ CLI 默认采用当前 leader 为 origin、queue 模式、一次交接和提交�
 
 输入必须已经存在于同机 allowlist 工作区；也可提供 `sha256` 要求匹配。边车传引用，不自动复制或冻结输入。需要重试同一提交时保存并复用完全相同的 JSON（包括 deadline），不要换 ID 规避未解决的投递状态。
 
-`steer / interrupt` 只有经过实际验证的 endpoint 模式才可使用，还必须指定匹配的活跃 `--target-run`。当前三个独立 Client 只支持 queue。[协议边界](ARCHITECTURE.md)
+`steer / interrupt` 只有经过实际验证的 endpoint 模式才可使用，还必须指定匹配的活跃 `--target-run`。普通任务控制尚未接入；Codex 可选 app-server 只对成果通知使用原生引导，详见各 Client 的实际支持范围。[协议边界](ARCHITECTURE.md)
 
 ## 5. 接手助手回报
 

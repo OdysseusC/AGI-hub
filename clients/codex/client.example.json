@@ -3,6 +3,9 @@
   "endpoint": "codex",
   "endpoint_token": "<scoped endpoint token issued by this Hub>",
   "native": {
+    "transport": "app-server",
+    "result_mode": "steer",
+    "idle_start_verified": false,
     "thread_id": "<existing native desktop thread ID>",
     "executable": "codex",
     "timeout_seconds": 30

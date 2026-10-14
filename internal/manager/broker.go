@@ -259,8 +259,8 @@ func (b *Broker) SetLeader(endpoint string) error {
 		return err
 	}
 	registered, ok := b.state.Endpoints[endpoint]
-	if !ok || !registered.Enabled || !registered.IdleWakeVerified || !supports(registered, "queue") {
-		return errors.New("leader must be enabled, idle-wake verified, and support queue")
+	if !ok || !canReceiveResults(registered) {
+		return errors.New("leader must be enabled, support queue, and have a verified idle or busy result-return path")
 	}
 	if b.state.Leader == endpoint {
 		return nil
@@ -328,8 +328,8 @@ func (b *Broker) Submit(submission Submission) (Task, error) {
 	if !validMode(submission.Mode) {
 		return Task{}, errors.New("unsupported delivery mode")
 	}
-	if origin, ok := b.state.Endpoints[submission.Origin]; !ok || !origin.Enabled || !origin.IdleWakeVerified || !supports(origin, "queue") {
-		return Task{}, errors.New("origin must be enabled, idle-wake verified, and support queue so results can return")
+	if origin, ok := b.state.Endpoints[submission.Origin]; !ok || !canReceiveResults(origin) {
+		return Task{}, errors.New("origin must be enabled, support queue, and have a verified idle or busy result-return path")
 	}
 	recipient, ok := b.state.Endpoints[submission.Recipient]
 	if !ok || !recipient.Enabled {
@@ -381,7 +381,7 @@ func (b *Broker) Submit(submission Submission) (Task, error) {
 	if submission.Mode != "queue" {
 		kind = "control"
 	}
-	envelope := Envelope{ID: taskMessageID(submission.ID), TaskID: submission.ID, Kind: kind, Sender: submission.Origin, Recipient: submission.Recipient, Mode: submission.Mode, TargetRunID: submission.TargetRunID, Content: string(content), Delivery: "pending"}
+	envelope := Envelope{ID: taskMessageID(submission.ID), TaskID: submission.ID, CorrelationID: submission.ID, Kind: kind, Sender: submission.Origin, Recipient: submission.Recipient, Mode: submission.Mode, TargetRunID: submission.TargetRunID, Content: string(content), Delivery: "pending"}
 	next := cloneSnapshot(b.state)
 	next.Tasks[task.ID] = task
 	next.Messages[envelope.ID] = envelope
@@ -435,12 +435,24 @@ func (b *Broker) Next(endpoint string) (*Envelope, error) {
 			continue
 		}
 		if envelope.Mode == "queue" {
-			if queueBlocked {
-				continue
-			}
-			if !registered.IdleWakeVerified || b.state.Sessions[endpoint].State != "idle" || endpointBusy(b.state, endpoint) {
-				queueBlocked = true
-				continue
+			session := b.state.Sessions[endpoint]
+			busyResult := envelope.Kind == "result" && registered.ResultQueueWhileBusyVerified && (session.State == "busy" || session.State == "needs_user")
+			if busyResult {
+				// Results may enter a verified native busy return path. An unresolved
+				// transport attempt still reserves the endpoint; business resource
+				// locks and ordinary queued work are unaffected.
+				if deliveryInFlight(b.state, endpoint) {
+					queueBlocked = true
+					continue
+				}
+			} else {
+				if queueBlocked {
+					continue
+				}
+				if !registered.IdleWakeVerified || session.State != "idle" || endpointBusy(b.state, endpoint) {
+					queueBlocked = true
+					continue
+				}
 			}
 			conflict := false
 			if envelope.Kind != "result" {
@@ -516,6 +528,14 @@ func (b *Broker) Delivery(messageID, outcome, detail string) error {
 		return nil
 	}
 	if envelope.Delivery == "delivered" && outcome != "delivered" {
+		// The native assistant can report while its transport process is still
+		// running. Its accepted execution is stronger evidence than that process's
+		// late timeout or exit status. Only that task recipient's run-backed report
+		// qualifies; a transport-only delivery or a result receipt still conflicts.
+		task, exists := b.state.Tasks[envelope.TaskID]
+		if exists && envelope.Kind != "result" && envelope.ID == taskMessageID(task.ID) && task.Recipient == envelope.Recipient && task.RunID != "" && validExecutionReport(task.Execution) {
+			return nil
+		}
 		return errors.New("confirmed delivery cannot become uncertain or failed")
 	}
 	if envelope.Delivery == "failed" && outcome != "failed" {
@@ -790,6 +810,9 @@ func supports(endpoint Endpoint, mode string) bool {
 	}
 	return false
 }
+func canReceiveResults(endpoint Endpoint) bool {
+	return endpoint.Enabled && supports(endpoint, "queue") && (endpoint.IdleWakeVerified || endpoint.ResultQueueWhileBusyVerified)
+}
 func terminal(state string) bool {
 	return state == "succeeded" || state == "failed" || state == "interrupted"
 }
@@ -852,6 +875,10 @@ func endpointBusy(state Snapshot, endpoint string) bool {
 			return true
 		}
 	}
+	return deliveryInFlight(state, endpoint)
+}
+
+func deliveryInFlight(state Snapshot, endpoint string) bool {
 	for _, message := range state.Messages {
 		if message.Recipient == endpoint && (message.Delivery == "dispatching" || message.Delivery == "uncertain") {
 			return true
@@ -876,7 +903,7 @@ func addResult(state *Snapshot, task Task) {
 		return
 	}
 	content, _ := json.Marshal(task)
-	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending"}
+	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, ReplyTo: taskMessageID(task.ID), CorrelationID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending"}
 }
 func resolveInterruptControls(state *Snapshot, original Task) {
 	for id, task := range state.Tasks {

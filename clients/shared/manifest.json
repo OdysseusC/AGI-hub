@@ -7,5 +7,5 @@
   "runtime": "python>=3.11",
   "dependencies": [],
   "standalone_consumer": false,
-  "modules": ["runtime", "transport", "notification", "report"]
+  "modules": ["runtime", "transport", "notification", "report", "native_report"]
 }
