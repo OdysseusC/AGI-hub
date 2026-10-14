@@ -10,7 +10,7 @@
 | 普通桌面任务的企微只读能力 | 经原生界面提交用户指定的单个联系人查询；返回匹配结果与工具说明 | 原生查询基线通过；不是 MQ 自动闭环 |
 | 本地助理空闲接收诊断 | 原生界面接收消息并显示运行结束，回复正文为空，未返回指定校验串 | 不能标记唤醒或接手验证通过 |
 | 官方后台触发 | `localassistant/message` 有文档；本机尚无第三方应用与 OAuth 授权 | Client 实现存在，接入未配置 |
-| CLI 投递现有桌面聊天 | 本版本随包提供 CodeBuddy Code CLI；帮助和公开实现未找到按桌面 task/thread 投递命令 | 没有已验证的 Codex queue 等价路径 |
+| CLI 续聊实际验收 | 定位本次桌面验收任务的目录与会话 ID；随包及完整官方 CLI 2.161.0 分别执行 `resume + prompt`，都返回需要 `/login` | 原桌面登录未被本次直接 CLI 调用复用，没有 ACK 或原会话变化，未通过接入验收 |
 
 查询测试未发送消息、修改联系人或扩大原生权限。普通任务的工具与官方持续本地助理的工具能否保持一致，仍需分别验证。
 
@@ -23,7 +23,19 @@ CODEBUDDY_FORCE_LITE_WB_BUNDLE=1 \
   /Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy --help
 ```
 
-这是当前 macOS 安装包的检查方法，不是通用安装或唤醒命令。帮助确认 `--resume / --session-id / --serve / --bg / attach / respawn / agents` 等能力；没有公开 `queue --thread` 等价命令。安装包公开实现中，恢复为后台 job 的路径创建一个新的 CLI 执行进程，不能据此认定注入现有桌面会话。
+这是当前 macOS 安装包的检查方法，不是通用安装或唤醒命令。帮助确认 `--resume / --session-id / --serve / --bg / attach / respawn / agents` 等能力。官方明确支持 `codebuddy --resume SESSION_ID "新消息" -p`，可恢复 CLI 历史并执行新一轮；可交互后台 job 也可以 attach 后输入。`respawn` 本身不接收新消息。[官方无头模式](https://www.workbuddy.cn/docs/cli/headless)
+
+桌面安装包的公开启动实现使用 `--session-id conversationId`，目标任务的本地历史也具有对应文件名；这提供了 ID 映射依据，仍不能证明外部进程保留桌面登录和工具。
+
+### `resume + prompt` 实测结果
+
+本次只定位用户授权的验收任务，未扫描其他聊天正文。使用官方支持的 `CODEBUDDY_CONFIG_DIR` 指向该用户的 WorkBuddy 配置目录，工作目录与目标任务保持一致。[自定义配置目录](https://www.codebuddy.cn/docs/cli/installation#自定义配置目录)
+
+两个执行入口分别测试：桌面随包 CLI，以及在仓库外私有测试目录安装的同版本完整官方 CLI。安装未替换桌面应用，未全局安装或自动更新。诊断关闭工具和 MCP，采用 `--no-session-persistence` 与一轮上限，要求返回固定 ACK 并核对原记录的大小与修改时间。
+
+两者都在模型执行前返回：`Authentication required. Please use /login command to sign in to your account`。虽然退出码为 0，但 stdout 为空，没有 ACK；原记录没有变化，原桌面聊天也没有新回复。接手、上下文恢复、原生工具保留和后台唤醒均未获得成功证据。
+
+随包 `ps` 另有 `/internal/ps` 映射缺失；这是独立诊断，不能拿来解释上述登录错误。本项目不调用未知内部路由，也没有提取桌面 token 或 IPC ticket 来绕过登录。后续如验证 CLI 本人登录，需要单独完成正式登录流程，再继续核对桌面同步和企业微信原生能力，不能将独立 CLI 执行自动算作接通桌面助手。
 
 官方 [CodeBuddy HTTP API](https://www.codebuddy.cn/docs/cli/http-api) 提供向等待输入的 CLI job 回复与事件订阅。它适合作为独立 CLI 会话适配候选，不能冒称已保留 WorkBuddy 桌面聊天的企微登录及工具。官方 [WorkBuddy 任务对话](https://www.workbuddy.cn/docs/workbuddy/Conversation) 明确提供桌面排队和提前引导；这些 UI 能力仍需要可验证的外部入口才能供独立 Client 使用。
 
