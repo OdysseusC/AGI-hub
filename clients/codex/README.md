@@ -10,7 +10,15 @@
 
 官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
-完整忙时闭环也已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。该证据只覆盖本机已验证的宿主与忙时结果返回；空闲唤醒、普通任务控制与其他平台仍须分别验收。
+完整忙时闭环也已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。两轮完整 MQ 回路均只验证本机忙时结果返回。随后同一官方 Desktop MCP 通道已另行通过一次空闲启动诊断，详见下节；idle 下完整 MQ 回路、普通任务控制及其他平台仍未验收。
+
+### 单次空闲原聊天启动诊断
+
+2026-10-15，上一轮结束后，独立官方 Node 程序只延时一次，并在唤醒前仅调用一次 `read_thread`，确认 `thread.status.type=idle`、前一轮次为 `completed`。随后只调用一次官方 Desktop MCP `send_message_to_thread`，取得 `isError=false` 与匹配目标聊天的 ACK。
+
+原聊天实际收到消息并开始新轮次，新 turn ID 与前一个 completed turn 不同；官方桌面 `read_thread` 工具仍可调用，未换成独立 CLI/SDK 会话。没有重复唤醒、手工转发或新建 MQ 业务任务。
+
+该单次诊断证明相同官方 MCP 传输在本机能启动空闲原聊天；不能把它写成第三次 MQ 业务闭环或 idle 下完整 MQ 回路通过。两轮完整 MQ 验收仍是 busy 返回。[分段证据](../../docs/NATIVE-VALIDATION.md)
 
 Desktop MCP 和 App Server proxy 是两个独立入口。前者由官方 server 使用宿主提供的桥接环境；后者连接 `app-server-control.sock`。当前宿主未开放 proxy 控制 socket，不代表 Desktop MCP 也不可用。
 
@@ -67,7 +75,7 @@ App Server 使用 `thread/read` 排除正文、`thread/turns/list` 只取元信�
 {"transport":"app-server","thread_id":"<verified native thread ID>","executable":"codex","timeout_seconds":30,"result_mode":"steer","idle_start_verified":false}
 ```
 
-App Server 的空闲 `turn/start` 仅在原线程工具保留及空闲启动单独通过后显式开启；不自动 resume 未加载线程。旧 queue 配置为：
+App Server 自己的空闲 `turn/start` 仍未实测，不能由 Desktop MCP 的单次空闲启动替它通过；仅在此 App Server 分支单独核实原线程工具保留及空闲启动后显式开启；不自动 resume 未加载线程。旧 queue 配置为：
 
 ```json
 {"transport":"queue","thread_id":"<verified native thread ID>","executable":"codex","timeout_seconds":30}

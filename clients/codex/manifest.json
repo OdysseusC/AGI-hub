@@ -12,7 +12,7 @@
   "native_validation": "per-transport-host-and-platform-verification-required",
   "completion": "native-execution-report",
   "transports": {
-    "desktop-mcp": {"default": true, "message_kinds": ["result"], "native_tool": "send_message_to_thread", "requires": "official-server-and-host-provided-environment", "native_validation": "macos-busy-result-return-via-sse-and-official-desktop-mcp-verified", "idle_wake": "not-yet-verified", "queue_fallback": false},
+    "desktop-mcp": {"default": true, "message_kinds": ["result"], "native_tool": "send_message_to_thread", "requires": "official-server-and-host-provided-environment", "native_validation": "macos-busy-mq-result-return-and-independent-idle-wake-verified", "idle_wake": "macos-independent-original-thread-wake-verified", "queue_fallback": false},
     "queue": {"native_validation": "requires-native-host-and-tool-retention-verification"},
     "app-server": {"message_kinds": ["result"], "result_mode": "steer", "requires": "official-proxy-to-the-running-native-daemon", "idle_start": "explicit-native-verification-required", "queue_fallback": false}
   }

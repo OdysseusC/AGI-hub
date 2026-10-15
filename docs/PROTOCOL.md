@@ -97,7 +97,7 @@ Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wa
 
 两个任务的 `run_id` 不同，两个结果分别使用独立 `message_id`、正确的 `reply_to` 与同任务关联 ID；重复同一 Submission 或已保存 Report 去重，不追加消息或再次执行。原生终态后资源释放已核对。
 
-2026-10-14 的两个结果经 Codex 宿主内官方工具实际引导回原聊天。2026-10-15，独立 Node 进程通过官方 Desktop MCP 完成 initialize/tools/list，发现 57 个工具，并真实调用 `send_message_to_thread`：`isError=false`、thread ID 匹配，且消息作为 `codex_delegation` 即时进入忙碌原聊天，无人工点击、未用 native queue。随后常驻 Node Client 已在先订阅、后提交的新任务中，自动完成领取、固定独立 WorkBuddy CLI 会话的默认恢复、真实执行回报、文件与 SHA-256 核对，以及独立 MCP 向忙碌原聊天返回关联结果；无手工转发或人工点击，资源已释放。该本机忙时闭环已通过，空闲唤醒另行验收。App Server proxy 缺少控制 socket 和 Python 父链签名校验失败是分别观测到的问题，不能推出 Desktop MCP 不可用。
+2026-10-14 的两个结果经 Codex 宿主内官方工具实际引导回原聊天。2026-10-15，独立 Node 进程通过官方 Desktop MCP 完成 initialize/tools/list，发现 57 个工具，并真实调用 `send_message_to_thread`：`isError=false`、thread ID 匹配，且消息作为 `codex_delegation` 即时进入忙碌原聊天，无人工点击、未用 native queue。随后常驻 Node Client 已在先订阅、后提交的新任务中，自动完成领取、固定独立 WorkBuddy CLI 会话的默认恢复、真实执行回报、文件与 SHA-256 核对，以及独立 MCP 向忙碌原聊天返回关联结果；无手工转发或人工点击，资源已释放。本机两轮 MQ 忙时返回已通过。随后相同 Desktop MCP 的一次独立空闲诊断，先确认原聊天 idle、旧轮次 completed，再仅发送一次，实际启动不同的新轮次且官方桌面 read_thread 仍可调用；这确认该传输的本机空闲启动，不是第三条 MQ 业务任务，也不验证 idle 下完整 MQ 回路。App Server proxy 缺少控制 socket 和 Python 父链签名校验失败是分别观测到的问题，不能推出 Desktop MCP 不可用。
 
 同日原 WorkBuddy 会话的两次默认认证续聊已通过。新联系人搜索先被本地 Bash/Read 拒绝；修正精确命令规则后，已用官方随包 wecom-cli 在原会话实际执行，原始工具结果返回远端 `850003 / authorization expired`，未取得联系人数据。当前需要该机器人创建者恢复通讯录授权；不能继续停留在“只卡本地权限”的旧结论，也不能从调用完成推导数据获取成功或完整桌面工具继承。
 

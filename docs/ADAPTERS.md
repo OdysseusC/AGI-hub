@@ -20,7 +20,7 @@ Client 不读取其他助手的登录凭据或历史。原生参数只从用户�
 
 同机 Python 父进程链因 macOS 签名校验失败；官方 Node 启动链成功。该限制与语言的一般能力不同，必须保留实际宿主环境和官方启动链的验证边界，不复制凭据或拼装未公开 IPC。发现全部工具也不代表 Hub 获准调用全部工具；目标 thread 和允许的发送工具由用户固定。
 
-这条证据来自独立进程真实调用，不是让模型内部工具代发。随后常驻 Node MQ Client 0.2.0 在先订阅、后提交的新任务中完成 MQ → 固定独立 WorkBuddy CLI 会话 → 原生回报与文件核验 → 关联 result → 独立 Desktop MCP 的真实闭环。结果直接进入忙碌原聊天，没有手工转发、native queue 或人工点击，资源已释放。本机忙时返回已通过；空闲启动另行验证。[本机记录](NATIVE-VALIDATION.md)
+这条证据来自独立进程真实调用，不是让模型内部工具代发。随后常驻 Node MQ Client 0.2.0 在先订阅、后提交的新任务中完成 MQ → 固定独立 WorkBuddy CLI 会话 → 原生回报与文件核验 → 关联 result → 独立 Desktop MCP 的真实闭环。结果直接进入忙碌原聊天，没有手工转发、native queue 或人工点击，资源已释放。本机两轮 MQ 忙时返回已通过；随后同一官方 MCP 通道的一次独立诊断也启动了空闲原聊天，旧轮次 completed、新轮次不同且官方 read_thread 仍可用。空闲诊断没有新增 MQ 任务，idle 下完整 MQ 回路仍未验收。[本机记录](NATIVE-VALIDATION.md)
 
 ## Codex 队列
 
@@ -56,7 +56,7 @@ codex queue --thread <native session ID> --message <complete notification>
 
 官方 App Server 有 `thread/resume`、`turn/start`、`turn/steer`、`turn/interrupt` 与执行事件，且 steer 需匹配活跃 turn。本项目已实现结果专用 App Server 分支并通过协议模拟；当前宿主未开放独立 proxy，普通任务控制和外部桌面引导未验收通过。独立启动 App Server 并不证明复用了桌面既有会话或其原生工具。[官方 App Server](https://learn.chatgpt.com/docs/app-server)
 
-2026-10-14 的两个 WorkBuddy 结果经 Codex 宿主内官方工具 send-now 实际引导回原聊天。随后独立 Desktop MCP 已有上文的新证据；它与 App Server proxy 不是同一入口。proxy 所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用；Desktop MCP 成功也不能反过来证明 proxy 已接通。后续常驻 Node Client 已通过完整 MQ 忙时返回；普通任务控制与空闲启动仍分别验收。
+2026-10-14 的两个 WorkBuddy 结果经 Codex 宿主内官方工具 send-now 实际引导回原聊天。随后独立 Desktop MCP 已有上文的新证据；它与 App Server proxy 不是同一入口。proxy 所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用；Desktop MCP 成功也不能反过来证明 proxy 已接通。常驻 Node Client 已通过完整 MQ 忙时返回，同一 Desktop MCP 的单次空闲启动诊断也已通过；这不验证 App Server proxy 的空闲 turn/start。普通任务控制和其他平台仍分别验收。
 
 ## Webhook / Grok Routine
 
@@ -133,7 +133,7 @@ HTTP 成功后还要核对官方 JSON 中严格整数 `code=0` 和合法非空 `
 
 原生助手还需安装 [报告技能](SKILLS.md) 并验证实际接手和回报。技能解决消息解释和报告，Client 解决外部消费和唤醒，两者不能相互替代。Computer Use 可以做人工监督的原生入口验证，不能因此宣称官方 API 已授权或普通桌面任务具备后台唤醒能力。
 
-本机 WorkBuddy 技能发现、此前普通桌面单联系人查询基线、独立 CLI 的 MQ 执行与成果校验，以及原配置原会话的默认认证续聊，分别有实际证据。本轮新企微搜索已越过本地权限阶段并实际执行，目前远端机器人通讯录授权过期，未取得联系人数据；没有据此验收完整桌面工具注入。Codex 的独立 Desktop MCP 发送和常驻 MQ 忙时全链路返回均已实测；空闲启动仍待验证。CLI 与 OpenAPI 保持显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
+本机 WorkBuddy 技能发现、此前普通桌面单联系人查询基线、独立 CLI 的 MQ 执行与成果校验，以及原配置原会话的默认认证续聊，分别有实际证据。本轮新企微搜索已越过本地权限阶段并实际执行，目前远端机器人通讯录授权过期，未取得联系人数据；没有据此验收完整桌面工具注入。Codex 的常驻 MQ 忙时全链路返回及相同 Desktop MCP 的单次空闲原聊天启动均已实测；两轮 MQ 仍是 busy 返回，空闲诊断不是第三条业务任务，也未验证 idle 下完整 MQ 回路或 App Server proxy。CLI 与 OpenAPI 保持显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
 
 ## 原生接入验收
 
