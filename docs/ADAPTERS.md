@@ -7,7 +7,7 @@
 | 目录 | 原生入口 | 支持模式 | 当前验证 |
 | --- | --- | --- | --- |
 | `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
-| `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 回报和成果校验已通过；原 WorkBuddy 会话与配置的默认认证续聊已通过；新企微搜索已实际执行，远端通讯录授权过期，未取得数据；OpenAPI 未授权 |
+| `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 已通过；用户重新授权、入口核对并显式续接一次后，原会话的单联系人新查询、主动回报和自动忙时回传已通过；完整桌面工具继承及 OpenAPI 未验收 |
 | `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
 
 Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
@@ -101,15 +101,15 @@ Code 会话向 hooks/Bash 导出每会话收件地址和 token，可作为注册
 
 ## WorkBuddy：CLI 与官方本地助理
 
-Client `0.2.0` 显式选择 `native.transport="cli"` 或 `"openapi"`，两种入口不自动切换。旧配置省略 `transport` 时保持 OpenAPI 行为。CLI 为已有普通会话的恢复候选；其工作环境、桌面身份和工具保留须单独验收，不能将独立 CLI 执行直接称为接通 WorkBuddy 桌面。[配置与运行](../clients/workbuddy/README.md)
+Client `0.2.1` 显式选择 `native.transport="cli"` 或 `"openapi"`，两种入口不自动切换。旧配置省略 `transport` 时保持 OpenAPI 行为。CLI 为已有普通会话的恢复候选；其工作环境、桌面身份和工具保留须单独验收，不能将独立 CLI 执行直接称为接通 WorkBuddy 桌面。[配置与运行](../clients/workbuddy/README.md)
 
 ### CLI 会话恢复候选
 
-CLI 使用官方本人登录与用户配置的绝对程序路径、工作目录、配置目录和会话 ID，只传 `--resume ID --print --output-format json --input-format text`。完整通知经 stdin 普通文件传入，完整 stdout 经普通文件解析；可用实际 `node.exe` 与官方 JavaScript 入口替代 Windows `.cmd` 包装器，不经 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，续聊默认持久化。官方模式见 [无头执行](https://www.workbuddy.cn/docs/cli/headless)。
+CLI 使用官方本人登录与用户配置的绝对程序路径、工作目录、配置目录和会话 ID，传 `--resume ID --print --output-format json --input-format text`，并附 Client 固定的简短当前交接 positional 指令。完整通知经 stdin 普通文件传入，任务正文不进入命令行，完整 stdout 经普通文件解析；可用实际 `node.exe` 与官方 JavaScript 入口替代 Windows `.cmd` 包装器，不经 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，续聊默认持久化。固定指令不扩大用户授权。官方模式见 [无头执行](https://www.workbuddy.cn/docs/cli/headless)。
 
 本机正式登录的私有 CLI 配置目录中，首个 MQ 任务确认原生明确拒绝且未执行后，修正了技能读取、真实工作区文件访问和专属报告 helper 的窄范围配置及绝对工作目录，再恢复原任务。第二个任务由 SSE 自动领取，默认 `resume` 同一既有独立 CLI，在未传工具或权限覆盖参数的情况下首次执行即完成。两次均有原生 `accepted/running/succeeded` 和 SHA-256 一致的成果文件；任务执行 ID 不同、结果关联正确，重复提交与回执去重，终态资源释放已核对。
 
-2026-10-14 原 WorkBuddy 配置根与原会话 ID 的默认恢复曾返回 `Authentication required`。2026-10-15 使用原配置与原会话，两次默认只读认证续聊成功，未传工具、权限或 MCP 覆盖参数；旧登录错误不再是当前结论。新的企微查询最初被本地非交互 Bash/Read 权限拒绝；修正精确命令规则的 JSON/shell 外层引号归一化后，原会话已用官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径实际搜索。原始工具结果为调用完成、远端 `850003 / authorization expired`，未取得联系人数据。当前 CLI 路径的机器人通讯录授权过期，需该机器人创建者在企微工作台的智能机器人恢复授权；认证续聊、新查询实际执行与联系人数据获取分别记录。
+2026-10-14 原 WorkBuddy 配置根与原会话的默认恢复曾返回 `Authentication required`。10 月 15 日原配置与原会话的两次默认只读认证续聊成功；新联系人查询先受本地 Bash/Read 限制，修正精确规则后，官方随包 wecom-cli `1.3.4-workbuddy-local.281` 实际执行并返回远端 `850003 / authorization expired`。这些是历史阶段。用户随后重新授权，本次原 endpoint、会话、工作目录和 `.workbuddy` 的新联系人查询已成功返回候选，字段与成果一致，并完成原生 `accepted/running/succeeded`、Core 文件核验及独立 Node Desktop MCP 自动忙时回传。首轮已投递但未接手，核对零工具、文件和 Report 后，仅由入口核对并显式续接一次，保留同任务与资源锁，未 requeue 或伪造回执；原历史前缀完整。不能将它写成首轮即自动执行成功。
 
 默认持久化的失败尝试可能追加会话历史；10 月 14 日已核对原历史前缀完整保留，不能将失败解释为没有任何原会话变化。因此不盲目重发，保留实际结果核对。本次窄范围技能、报告和文件配置已通过独立 CLI 执行验收，不代表其他目录或命令已获授权。本人登录可能使用产品共享认证存储，配置目录隔离不构成凭据隔离；不读取或复制受保护 token。[本机验证记录](NATIVE-VALIDATION.md)
 
@@ -133,7 +133,7 @@ HTTP 成功后还要核对官方 JSON 中严格整数 `code=0` 和合法非空 `
 
 原生助手还需安装 [报告技能](SKILLS.md) 并验证实际接手和回报。技能解决消息解释和报告，Client 解决外部消费和唤醒，两者不能相互替代。Computer Use 可以做人工监督的原生入口验证，不能因此宣称官方 API 已授权或普通桌面任务具备后台唤醒能力。
 
-本机 WorkBuddy 技能发现、此前普通桌面单联系人查询基线、独立 CLI 的 MQ 执行与成果校验，以及原配置原会话的默认认证续聊，分别有实际证据。本轮新企微搜索已越过本地权限阶段并实际执行，目前远端机器人通讯录授权过期，未取得联系人数据；没有据此验收完整桌面工具注入。Codex 的常驻 MQ 忙时全链路返回及相同 Desktop MCP 的单次空闲原聊天启动均已实测；两轮 MQ 仍是 busy 返回，空闲诊断不是第三条业务任务，也未验证 idle 下完整 MQ 回路或 App Server proxy。CLI 与 OpenAPI 保持显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
+本机 WorkBuddy 独立 CLI 的 MQ 执行与成果校验、原会话的认证续聊，以及重新授权后原会话的单联系人业务与自动忙时回传，分别有实际证据。最后一项需要由入口核对后显式续接一次，只验证返回候选匹配，不代表全通讯录唯一、全部企微业务或完整桌面工具注入；临时四条查询许可已移除，四条窄范围报告安装许可保留。Codex 的常驻 MQ 忙时返回及相同 Desktop MCP 的单次空闲原聊天启动均已实测；空闲诊断本身不新增业务任务，idle 下完整 MQ 回路与 App Server proxy 仍未验收。CLI 与 OpenAPI 保持显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
 
 ## 原生接入验收
 

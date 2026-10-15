@@ -1,16 +1,18 @@
 # WorkBuddy Client
 
-版本 `0.2.0`，Hub 协议 `1`，依赖同级 `shared` runtime `0.1.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
+版本 `0.2.1`，Hub 协议 `1`，依赖同级 `shared` runtime `0.1.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
 
-Client 明确选择官方 CLI 会话恢复或官方持续本地助理 OpenAPI，只支持 `queue`。2026-10-14，本机正式登录的独立 CLI 会话通过真实 MQ 自动领取、原生回报和成果校验；2026-10-15，原 WorkBuddy 会话 ID 与原 `.workbuddy` 配置的默认认证续聊也两次成功，未传工具、权限或 MCP 覆盖参数。新企微搜索随后已在原会话实际执行，原始工具结果返回远端 `850003 / authorization expired`，未取得联系人数据。CLI 登录和新查询执行通道已通过，当前阻点是该机器人通讯录授权过期；不能由此声称完整桌面工具注入继承。manifest 的通用验证声明保持 `unverified`，实际结论限定为具体本机入口。[本机验证记录](../../docs/NATIVE-VALIDATION.md)
+Client 明确选择官方 CLI 会话恢复或官方持续本地助理 OpenAPI，只支持 `queue`。本机独立 CLI 的真实 MQ 已通过；2026-10-15 用户重新授权后，原 WorkBuddy 会话、工作目录及原 `.workbuddy` 的一次单联系人新查询也完成原生回报、成果核验和自动忙时返回。首轮未接手，需要由入口核对后显式续接一次；候选字段与成果一致，不代表全通讯录唯一或全部桌面工具继承。manifest 按传输、宿主和平台分别要求验证，`cli_validation` 记录本机原会话经显式续接后的联系人与主动回报证据，`desktop_inheritance_verified=false` 保留；OpenAPI 仍未验收。[本机验证记录](../../docs/NATIVE-VALIDATION.md)
 
 首个验收任务确认原生明确拒绝且未执行后，完成技能 `Read`、真实工作区 `Read/Write`、专属报告 helper `Bash` 的窄范围配置及绝对工作目录修正，再恢复原任务；原生主动报告 `accepted/running/succeeded` 并生成 SHA-256 核验一致的文件。第二个任务由 SSE 自动领取，默认 `resume` 同一既有 CLI，会话首次执行即发出三种原生回执并写入新版本成果，SHA-256 一致；未传工具或权限覆盖参数。
 
-两个任务的执行标识不同，结果关联正确；重复 Submission 和已保存 Report 去重，终态资源已释放。10 月 14 日的两个成果经 Codex 宿主内工具返回原聊天。10 月 15 日又验证独立 Node 通过官方 Desktop MCP 发送：匹配 thread ID 的成功 ACK 与忙碌原聊天的即时 `codex_delegation` 入站均已观测，无人工点击、未用 native queue。随后常驻 Node MQ Client 0.2.0 在已订阅后自动完成新的真实任务：恢复固定独立 CLI 协调会话，接收原生 accepted/running/succeeded，核对文件与 SHA-256，再将关联 result 经独立 Desktop MCP 即时送回忙碌原聊天。两轮完整 MQ 忙时返回均通过，第二轮交付修正了“Report → Hub 核验及 result → Client 消费 → Desktop MCP 回传”的说明顺序。两份当前文件与 Core SHA-256 匹配，任务使用不同 hubrun，四条对应消息均 delivered，资源已释放。随后同一 Codex 官方 Desktop MCP 通道的一次独立诊断已启动空闲原聊天，旧轮次 completed、新轮次不同且 read_thread 仍可用；该诊断未新增 MQ 任务，两轮完整 MQ 回路仍只验证忙时返回，idle 下完整 MQ 回路未验收。App Server proxy 缺少控制 socket 不代表 Desktop MCP 不可用。
+两个任务的执行标识不同，结果关联正确；重复 Submission 和已保存 Report 去重，终态资源已释放。10 月 14 日的两个成果经 Codex 宿主内工具返回原聊天。10 月 15 日又验证独立 Node 通过官方 Desktop MCP 发送：匹配 thread ID 的成功 ACK 与忙碌原聊天的即时 `codex_delegation` 入站均已观测，无人工点击、未用 native queue。随后常驻 Node MQ Client 0.2.0 在已订阅后自动完成新的真实任务：恢复固定独立 CLI 协调会话，接收原生 accepted/running/succeeded，核对文件与 SHA-256，再将关联 result 经独立 Desktop MCP 即时送回忙碌原聊天。两轮完整 MQ 忙时返回均通过，第二轮交付修正了“Report → Hub 核验及 result → Client 消费 → Desktop MCP 回传”的说明顺序。两份当前文件与 Core SHA-256 匹配，任务使用不同 hubrun，四条对应消息均 delivered，资源已释放。随后同一 Codex 官方 Desktop MCP 通道的一次独立诊断已启动空闲原聊天，旧轮次 completed、新轮次不同且 read_thread 仍可用；该诊断未新增 MQ 任务；此前两轮独立 CLI 的完整 MQ 回路验证忙时返回，idle 下完整 MQ 回路未验收。App Server proxy 缺少控制 socket 不代表 Desktop MCP 不可用。
 
-原 WorkBuddy 配置路径在 10 月 14 日曾报需要登录，不能继续作为 10 月 15 日的当前结论。本轮新查询最初受本地非交互 Bash/Read 限制；修正精确规则的 JSON/shell 外层引号归一化后，原会话已实际执行搜索，调用完成但远端返回 `850003 / authorization expired`。当前 CLI 路径的机器人通讯录授权过期，未取得联系人数据，需该机器人创建者在企微工作台的智能机器人恢复授权。此前桌面界面的单联系人查询仅作原生基线；新查询执行成功不等于取得联系人数据或完整桌面工具继承。
+原 WorkBuddy 配置路径在 10 月 14 日曾报需要登录；10 月 15 日认证续聊两次成功。新查询先受本地非交互 Bash/Read 限制，修正精确规则后实际执行，但当时远端返回 `850003 / authorization expired`。用户随后重新授权，本次业务直接绑定原 `workbuddy` endpoint、原会话、原工作目录和原 `.workbuddy`，并未借用独立 CLI 测试会话。首轮已送达但模型受旧诊断限制未接手，已核对零工具、文件和 Report；stdin 本就是新的 user message，未接手不等于 CLI 重放历史。
 
-本次选择官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径；默认 PATH 中另一个 `1.1.0` 版本不作为本条执行入口。随包 1.3 不支持 `auth` 子命令，不能用 1.1 的 `auth status` 充当它的登录证据。临时五条精确 allow 规则已恢复 settings 原字节；公开解析器的离线反例确认追加命令、改关键词和重定向仍被拒绝。未读取或复制桌面私有 env/auth/ticket，没有禁用 sandbox，也没有盲重试远端搜索。
+由入口核对并显式续接一次，随后保留同一任务与锁，仅在已有 `delivered` detail 登记 operator continuation，没有 requeue、新建 ID 或伪造回执。Client 加入固定的当前交接 positional 指令，完整 Envelope 仍走 stdin。原生随后真实回报 `accepted/running/succeeded`，只执行一次新版官方随包联系人 search，原始工具结果成功返回 `users`，候选的姓名、部门、职务与成果一致。Core 核对 device、workspace、相对路径和 SHA-256 后生成关联 result，由独立 Node Desktop MCP 自动引导回忙碌原入口；锁已释放，原历史前缀完整。该次由当前入口在已有用户授权下核对后显式续接，不是用户再次点确认或 Broker 自动重试，不能写成原会话首轮即自动执行成功，也不覆盖全通讯录唯一、全部企微业务或完整桌面工具注入。
+
+本次选择官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径；默认 PATH 中另一个 `1.1.0` 版本不作为本条执行入口。随包 1.3 不支持 `auth` 子命令，不能用 1.1 的 `auth status` 充当它的登录证据。较早远端授权错误诊断的临时五条精确 allow 规则已恢复 settings 原字节；公开解析器的离线反例确认追加命令、改关键词和重定向仍被拒绝。本次受管技能使用固定 endpoint-scoped `/v1/report` helper 和独立成果工作区，四条报告安装许可只覆盖技能、成果目录及指定 helper。临时四条单查询许可已移除，仅保留四条报告安装许可。未读取或复制桌面私有 env/auth/ticket，没有禁用 sandbox，也没有盲重试远端搜索。
 
 ## 配置与运行
 
@@ -48,16 +50,16 @@ Windows 使用 `py -3` 和该电脑的绝对路径。个人配置放在仓库外
 调用参数固定为：
 
 ```text
-<command> [<entry_script>] --resume <session_id> --print --output-format json --input-format text
+<command> [<entry_script>] --resume <session_id> --print --output-format json --input-format text <fixed-current-handoff-instruction>
 ```
 
-完整 Envelope 与报告指引通过 stdin 临时普通文件传入，stdout 也通过临时普通文件完整读取；不把任务正文拼入命令行或 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，也不关闭会话持久化；使用目标 CLI 会话的默认工作环境，续聊默认持久化。官方依据见 [无头模式](https://www.workbuddy.cn/docs/cli/headless)。
+末尾 positional 是 Client 内置的固定简短指令，要求按已有授权处理本轮交接；它不包含任务正文、不扩大权限。完整 Envelope 与报告指引通过 stdin 临时普通文件传入，stdout 也通过临时普通文件完整读取；不把任务正文拼入命令行或 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，也不关闭会话持久化；使用目标 CLI 会话的默认工作环境，续聊默认持久化。官方依据见 [无头模式](https://www.workbuddy.cn/docs/cli/headless)。
 
 默认持久化的失败尝试仍可能追加历史。2026-10-14 原桌面 ID 的一次默认恢复返回需要登录，却追加了原历史，原有前缀经核对完整保留；10 月 15 日同一原路径的默认认证续聊已通过。不能把失败视为没有会话变化，也不能因后续成功就忽略此前不确定尝试。保留不确定状态并核对原生记录，不盲目再次执行。
 
 Client 核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错误结果后，仅记录 `delivered`。登录错误、超时、残缺或不匹配输出保留 `uncertain`，不重发。退出码 `0`、结果 `success`、模型拒绝或 `UNKNOWN` 都不能代替原生接手与完成 Report；成果仍须核对。临时输出可能含旧历史，Client 不把历史正文公开为诊断。
 
-安装技能不自动授予非交互执行权限。须在官方 CLI 自身配置中核实技能元数据读取、指定报告程序执行和本次成果工作区的文件权限；Client 不追加权限覆盖参数或替用户批准。独立 CLI 已通过窄范围配置与真实文件生成验收，该配置不代表其他工作区或命令已获授权；原 WorkBuddy 会话的新企微搜索已执行，但远端机器人通讯录授权过期，未取得数据；此前本地权限拒绝仅是较早阶段。报告通道可用时以 `needs_user` 说明原生权限问题；通道也被拦时保留原生提示与已有投递证据，不能伪造回执。
+安装技能不自动授予非交互执行权限。须在官方 CLI 自身配置中核实技能元数据读取、指定报告程序执行和本次成果工作区的文件权限；Client 不追加权限覆盖参数或替用户批准。独立 CLI 已通过窄范围配置与真实文件生成验收，该配置不代表其他工作区或命令已获授权。原 WorkBuddy 会话也在重新授权并由入口核对并显式续接一次后，完成单联系人查询与回报，临时查询许可已移除；此前本地拒绝与远端授权过期保留为历史，不再作为当前阻点。报告通道可用时以 `needs_user` 说明原生权限问题；通道也被拦时保留原生提示与已有投递证据，不能伪造回执。
 
 原生终态 Report 核对通过后，Hub 分配独立的结果 `message_id`，令 `reply_to` 指向原交接消息，并保留 `task_id`、`correlation_id` 返回保存的原入口。`kind=result` 只展示结果，不再次执行任务。可选的 `result_queue_while_busy_verified` 仅声明原生忙时接收结果的已验证能力，默认关闭；它不意味着 WorkBuddy CLI 已能引导或打断忙碌运行，当前没有将其标记为验证通过。
 

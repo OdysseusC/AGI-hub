@@ -1,7 +1,7 @@
 {
   "protocol": 1,
   "id": "workbuddy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "dependencies": {"shared": "0.1.0"},
   "label": "WorkBuddy official CLI resume / local assistant OpenAPI",
   "runtime": "python>=3.11",
@@ -9,7 +9,8 @@
   "session_kinds": ["cli-resumed-session", "official-local-assistant"],
   "native_transports": ["cli", "openapi"],
   "supported_modes": ["queue"],
-  "native_validation": "unverified",
+  "native_validation": "per-transport-host-and-platform-verification-required",
+  "cli_validation": "macos-original-session-contact-and-active-reports-verified-after-explicit-continuation",
   "openapi_required_oauth_scopes": ["user.localassistant.invokable"],
   "completion": "native-execution-report",
   "cli_session_targeting": true,

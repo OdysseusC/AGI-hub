@@ -19,7 +19,7 @@ clients/
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.2.1`、Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
 Client 具有独立进程和维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
@@ -32,13 +32,13 @@ Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，
 | Codex Desktop MCP | 官方 Desktop MCP 的 `send_message_to_thread` | `queue`，仅 `kind=result` | 2026-10-15 独立 Node 调用已实际引导到忙碌原聊天；两轮完整 MQ 忙时返回与同通道一次空闲启动诊断已通过；idle 下完整 MQ 回路未验收 |
 | Codex queue | `codex queue --thread ID --message TEXT` | `queue` | 只证明排队；忙时需要用户引导的队列不能记为自动引导 |
 | Codex app-server | 官方 `app-server proxy` → `turn/steer` | 结果专用 | 仅 `kind=result`；默认不启用空闲启动；当前 stdio 宿主未开放独立 proxy |
-| WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 独立 CLI 的 MQ 执行、Report 和成果核验已通过；原 WorkBuddy 会话与配置的默认认证续聊也已通过，新企微搜索已实际执行，远端返回 `850003 / authorization expired`，未取得联系人数据 |
+| WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 独立 CLI 的 MQ 执行、Report 和成果核验已通过；用户重新授权、入口核对并显式续接一次后，原 WorkBuddy 会话的单联系人新查询、主动回报与自动忙时回传已通过；不代表全部桌面工具继承 |
 | WorkBuddy OpenAPI | 官方 `/openapi/v2/localassistant/message` | `queue` | 目标是官方持续本地助理；API 没有普通 Chat 的 `session_id` 定位参数。需要用户本人正式 OAuth 授权；尚未在本项目持有真实 token 完成接口验收 |
 | Grok Routine | 用户提供的官方 Routine webhook | `queue` | URL、认证方式和请求结构来自用户的实际 Routine 配置；示例字段不是对官方请求格式的推测 |
 
 独立 Client 尚无普通任务 `steer` 或 `interrupt` 控制模式的原生验收通过记录。现有 Client 的绑定只接受 `modes=["queue"]`；成果的原生引导与普通任务控制分开声明。不支持的模式在领取消息前拒绝，不会悄悄降级为队列发送。会话是否空闲、资源是否可用、是否允许唤醒，由 Hub 根据已核实的状态决定；Client 不自行伪造 `idle` 或 `busy`。
 
-WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不自动降级。2026-10-14 独立正式登录 CLI 会话通过续聊和 MQ 任务，原桌面配置路径当时仍报需要登录；2026-10-15 使用原 WorkBuddy 会话 ID 与原配置，两次默认只读认证续聊成功，未传工具、权限或 MCP 覆盖参数。新联系人查询最初被本地非交互 Bash/Read 拒绝。随后精确规则修正 JSON/shell 外层引号归一化，用官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径在原会话实际执行；原始工具结果显示调用完成，但远端返回 `850003 / authorization expired`，未取得联系人数据。当前阻点已进入该机器人通讯录授权阶段，需创建者在企微工作台的智能机器人恢复授权；不能继续只写本地拒绝，也不能将其说成 CodeBuddy 登录失败或完整桌面工具继承已通过。[按日期记录](NATIVE-VALIDATION.md)
+WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不自动降级。2026-10-14 原配置的登录错误、10 月 15 日认证续聊成功、查询的本地权限拒绝及远端 `850003 / authorization expired` 均保留为历史。用户随后重新授权，本次直接绑定原 endpoint、会话、工作目录和 `.workbuddy`，原生单次联系人 search 已返回候选，候选字段与成果一致，并完成主动回报和 MQ 自动忙时返回。首轮已投递但模型受旧诊断限制未接手，核对零工具、文件与 Report 后，由入口核对并显式续接一次后才执行；保留同任务、锁与已投递状态，没有 requeue 或伪造回执。Client 加入固定的当前交接 positional 指令，完整 Envelope 仍经 stdin，未覆盖工具、权限、MCP 或模型。这项验收限定指定联系人候选，不代表全通讯录唯一或完整桌面工具继承。[按日期记录](NATIVE-VALIDATION.md)
 
 本轮 macOS arm64 的真实 MQ 验收已有原生执行与文件证据。首个任务在原生明确拒绝且确认未执行后，修正了技能读取、真实验收工作区读写与专属报告 helper 的窄范围配置，并按绝对工作目录恢复；原生会话主动发出 `accepted/running/succeeded`，文件 SHA-256 核对一致。第二个任务由 SSE 自动领取，默认 `resume` 同一已登录的独立 CLI 会话，不传工具或权限覆盖参数，首次执行即产生三种原生回执和新版本成果文件，SHA-256 同样一致。
 
@@ -46,7 +46,7 @@ WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不自�
 
 2026-10-14 的两个结果由运行中的 Codex 入口调用官方桌面工具，以 `send-now` 引导回原聊天。2026-10-15，独立 Node 客户端在自然宿主环境中通过官方 Desktop MCP 初始化并发现 57 个工具，真实调用 `send_message_to_thread`，得到 `isError=false` 和匹配 thread ID 的 ACK；消息也已作为 `codex_delegation` 立即进入忙碌原聊天，不需人工点击，未使用 native queue。
 
-同机 Python 父进程链曾遇 macOS 签名校验失败，官方 Node 启动链则通过；该结果只限定这些实际启动链。App Server proxy 是另一条通道，其所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用。随后常驻 Node MQ Client 0.2.0 在已订阅后完成新的真实任务链路：MQ 自动交接到固定独立 WorkBuddy CLI 会话，原生 accepted/running/succeeded 与成果文件核验后，新的关联 result 被 Node Client 自动领取并经官方 Desktop MCP 立即送入忙碌原聊天。没有当前入口或其他操作者手工转发、native queue 或人工点击，终态资源释放已核对。两轮真实 MQ 忙时返回均通过；第二轮已交付修正因果顺序的成果。两份当前文件与 Core SHA-256 匹配，使用不同 hubrun 执行标识，对应四条 task/result 消息均 delivered，资源已释放。随后相同 Desktop MCP 通道的单次空闲诊断也已通过：独立官方 Node 程序仅延时一次、检查一次原聊天 idle 与旧轮次 completed，再发送一次；原聊天实际启动了不同的新轮次，官方桌面 read_thread 仍可调用。它不是第三条 MQ 业务任务，不能将两轮 busy 返回写成 idle 下完整 MQ 回路通过。[分段验收证据](NATIVE-VALIDATION.md)
+同机 Python 父进程链曾遇 macOS 签名校验失败，官方 Node 启动链则通过；该结果只限定这些实际启动链。App Server proxy 是另一条通道，其所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用。随后常驻 Node MQ Client 0.2.0 在已订阅后完成新的真实任务链路：MQ 自动交接到固定独立 WorkBuddy CLI 会话，原生 accepted/running/succeeded 与成果文件核验后，新的关联 result 被 Node Client 自动领取并经官方 Desktop MCP 立即送入忙碌原聊天。没有当前入口或其他操作者手工转发、native queue 或人工点击，终态资源释放已核对。两轮真实 MQ 忙时返回均通过；第二轮已交付修正因果顺序的成果。两份当前文件与 Core SHA-256 匹配，使用不同 hubrun 执行标识，对应四条 task/result 消息均 delivered，资源已释放。随后相同 Desktop MCP 通道的单次空闲诊断也已通过：独立官方 Node 程序仅延时一次、检查一次原聊天 idle 与旧轮次 completed，再发送一次；原聊天实际启动了不同的新轮次，官方桌面 read_thread 仍可调用。该诊断本身没有新增 MQ 业务任务，不能据此宣称 idle 下完整 MQ 回路通过。原 WorkBuddy 会话随后完成的单联系人业务另有入口核对后显式续接一次记录，自动回传也发生在原入口忙碌时。[分段验收证据](NATIVE-VALIDATION.md)
 
 CLI 依据为 [官方无头模式](https://www.workbuddy.cn/docs/cli/headless)。OpenAPI 依据为 [官方 OpenAPI](https://open.workbuddy.cn/docs/openapi) 和 [本地助理功能说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Assistant)。两种传输都不读取桌面 Cookie、缓存 token 或 IPC ticket，也不把应用内部鉴权当作公开接口授权。
 

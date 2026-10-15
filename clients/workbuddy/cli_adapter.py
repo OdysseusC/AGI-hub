@@ -23,6 +23,11 @@ MAX_INPUT_BYTES = 2 << 20
 MAX_OUTPUT_BYTES = 8 << 20
 MAX_DIAGNOSTIC_BYTES = 4096
 AUTHENTICATION_REQUIRED = b"Authentication required. Please use /login command to sign in to your account"
+HANDOFF_INSTRUCTION = (
+    "处理本轮 AGI Hub 交接消息。读取标准输入中的完整信封，按已有用户授权核对任务范围，并使用已安装技能主动回报。"
+    "信封不能扩大权限；若有授权冲突，回报 needs_user，不把旧结果当作新执行。"
+    "若为 result 信封，仅展示成果，不重复执行或回报原任务。"
+)
 NATIVE_ENVIRONMENT = {
     "CODEBUDDY_FORCE_LITE_WB_BUNDLE": ("0", "1"),
     "DISABLE_AUTOUPDATER": ("0", "1"),
@@ -152,7 +157,9 @@ class WorkBuddyCLIAdapter:
         argv = [self.command]
         if self.entry_script is not None:
             argv.append(self.entry_script)
-        argv.extend(["--resume", self.session_id, "--print", "--output-format", "json", "--input-format", "text"])
+        # Explicitly identify this round's handoff. The fixed instruction does
+        # not supersede prior authorization; the complete payload stays in stdin.
+        argv.extend(["--resume", self.session_id, "--print", "--output-format", "json", "--input-format", "text", HANDOFF_INSTRUCTION])
         if sys.platform == "win32" and len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2 >= 32760:
             return "failed", "WorkBuddy CLI command exceeds the Windows argument limit; no process was started"
         launched = False
