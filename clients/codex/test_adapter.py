@@ -4,6 +4,8 @@ import sys
 import contextlib
 import io
 import json
+import os
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -14,6 +16,7 @@ from unittest.mock import Mock, patch
 import subprocess
 from codex.adapter import CodexAdapter, create_adapter
 from codex.app_server_adapter import CodexAppServerAdapter, ProxyError, ProxyRPC
+from codex.desktop_mcp_adapter import CodexDesktopMcpAdapter, DesktopMcpRPC, McpError, PROTOCOL_VERSION
 from shared.transport import ConfigurationError
 from tests.support import envelope
 
@@ -221,6 +224,230 @@ class AppServerAdapterTests(unittest.TestCase):
                 with self.assertRaisesRegex(ProxyError, "proxy_timeout"):
                     rpc.call("initialize", {})
                 rpc.expire()  # A later timer callback must not kill twice.
+            finally:
+                rpc.close()
+        launch.assert_called_once()
+        process.kill.assert_called_once()
+
+
+class DesktopMcpAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.launcher = self.root / "launch_codex_app_tools_mcp"
+        self.launcher.write_text("official launcher fixture, never executed")
+        self.launcher.chmod(0o700)
+        self.server = self.root / "server.mjs"
+        self.server.write_text("public server fixture, never executed")
+        self.native = {
+            "transport": "desktop-mcp", "command": str(self.launcher),
+            "args": [str(self.server)], "cwd": str(self.root),
+            "thread_id": "bound-original-thread", "timeout_seconds": 2,
+        }
+        self.host = {
+            "CODEX_THREAD_ID": "official-host-caller", "CODEX_APP_TOOLS_PIPE_PATH": "official-host-provided-path",
+            "HOME": str(self.root), "PATH": "/usr/bin:/bin", "CODEX_MCP_NODE_PATH": "/public/runtime/node",
+            "SECRET_TOKEN": "must-not-be-inherited", "NODE_OPTIONS": "must-not-be-inherited",
+            "CODEX_APP_TOOLS_CALLER_HOST_ID": "not-in-approved-environment",
+        }
+
+    def adapter(self, **changes):
+        native = dict(self.native, **changes)
+        with patch.dict(os.environ, self.host, clear=True):
+            return create_adapter({"endpoint": "endpoint-test", "native": native})
+
+    def initialization(self):
+        return {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {}}, "serverInfo": {"name": "codex-app-tools", "version": "0.1.0"}}
+
+    def tool_list(self):
+        return {"tools": [{"name": "send_message_to_thread", "inputSchema": {
+            "type": "object", "required": ["threadId", "prompt"],
+            "properties": {"threadId": {"type": "string"}, "prompt": {"type": "string"}, "model": {"type": "string"}},
+        }}]}
+
+    def acknowledgement(self, thread="bound-original-thread"):
+        return {"content": [{"type": "text", "text": json.dumps({"threadId": thread})}], "isError": False}
+
+    def test_mcp_result_uses_fixed_tool_target_and_official_host_caller_once(self):
+        adapter = self.adapter()
+        self.assertIsInstance(adapter, CodexDesktopMcpAdapter)
+        rpc = Mock()
+        rpc.call.side_effect = [self.initialization(), self.tool_list(), self.acknowledgement()]
+        message = envelope(kind="result")
+        message["caller_thread_id"] = "untrusted-envelope-caller"
+        with patch("codex.desktop_mcp_adapter.DesktopMcpRPC", return_value=rpc) as connect, contextlib.redirect_stdout(io.StringIO()) as output:
+            outcome, detail = adapter.deliver(message)
+        self.assertEqual(outcome, "delivered")
+        connect.assert_called_once_with(adapter.command, adapter.cwd, adapter.environment, 2)
+        self.assertEqual([call.args[0] for call in rpc.call.call_args_list], ["initialize", "tools/list", "tools/call"])
+        rpc.notify.assert_called_once_with("notifications/initialized")
+        params = rpc.call.call_args_list[-1].args[1]
+        self.assertEqual(params["name"], "send_message_to_thread")
+        self.assertEqual(set(params["arguments"]), {"threadId", "prompt"})
+        self.assertEqual(params["arguments"]["threadId"], "bound-original-thread")
+        self.assertIn("kind=result, not a new task", params["arguments"]["prompt"])
+        self.assertIn('"caller_thread_id":"untrusted-envelope-caller"', params["arguments"]["prompt"])
+        self.assertEqual(params["_meta"]["threadId"], "official-host-caller")
+        self.assertEqual(set(params["_meta"]), {"threadId", "callId"})
+        self.assertNotIn("official-host-provided-path", output.getvalue() + detail)
+        rpc.close.assert_called_once()
+
+    def test_mcp_stdio_is_jsonrpc_no_shell_and_filters_environment(self):
+        adapter = self.adapter()
+        captured = []
+        class Capture(io.BytesIO):
+            def close(self):
+                captured.append(self.getvalue())
+                super().close()
+        values = [
+            {"jsonrpc": "2.0", "method": "notifications/private", "params": {"private": "SECRET NATIVE HISTORY"}},
+            {"jsonrpc": "2.0", "id": 1, "result": self.initialization()},
+            {"jsonrpc": "2.0", "id": 2, "result": self.tool_list()},
+            {"jsonrpc": "2.0", "id": 3, "result": self.acknowledgement()},
+        ]
+        process = Mock()
+        process.stdin = Capture()
+        process.stdout = io.BytesIO(b"".join(json.dumps(value).encode() + b"\n" for value in values))
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        with patch("codex.desktop_mcp_adapter.subprocess.Popen", return_value=process) as launch, contextlib.redirect_stdout(io.StringIO()) as output:
+            outcome, detail = adapter.deliver(envelope(kind="result"))
+        self.assertEqual(outcome, "delivered")
+        launch.assert_called_once()
+        self.assertEqual(launch.call_args.args[0], [str(self.launcher.resolve()), str(self.server.resolve())])
+        self.assertFalse(launch.call_args.kwargs["shell"])
+        self.assertEqual(launch.call_args.kwargs["cwd"], str(self.root.resolve()))
+        self.assertEqual(launch.call_args.kwargs["stderr"], subprocess.DEVNULL)
+        environment = launch.call_args.kwargs["env"]
+        self.assertEqual(environment["CODEX_APP_TOOLS_PIPE_PATH"], self.host["CODEX_APP_TOOLS_PIPE_PATH"])
+        self.assertNotIn("SECRET_TOKEN", environment)
+        self.assertNotIn("NODE_OPTIONS", environment)
+        self.assertNotIn("CODEX_APP_TOOLS_CALLER_HOST_ID", environment)
+        sent = [json.loads(line) for line in captured[0].splitlines()]
+        self.assertEqual([request["method"] for request in sent], ["initialize", "notifications/initialized", "tools/list", "tools/call"])
+        self.assertTrue(all(request["jsonrpc"] == "2.0" for request in sent))
+        self.assertNotIn("SECRET NATIVE HISTORY", detail + output.getvalue() + json.dumps(sent))
+        self.assertNotIn("official-host-provided-path", json.dumps(sent))
+
+    def test_mcp_discovery_failure_never_attempts_native_input(self):
+        wrong_protocol = dict(self.initialization(), protocolVersion="incompatible")
+        wrong_schema = self.tool_list()
+        wrong_schema["tools"][0]["inputSchema"]["required"].append("permissionOverride")
+        for replies in (
+            [McpError("desktop_mcp_rpc_unconfirmed")],
+            [wrong_protocol],
+            [self.initialization(), McpError("desktop_mcp_closed")],
+            [self.initialization(), {"tools": []}],
+            [self.initialization(), wrong_schema],
+        ):
+            rpc = Mock()
+            rpc.call.side_effect = replies
+            with self.subTest(replies=len(replies)), patch("codex.desktop_mcp_adapter.DesktopMcpRPC", return_value=rpc):
+                outcome, _ = self.adapter().deliver(envelope(kind="result"))
+            self.assertEqual(outcome, "failed")
+            self.assertNotIn("tools/call", [call.args[0] for call in rpc.call.call_args_list])
+            rpc.close.assert_called_once()
+
+    def test_mcp_attempted_error_missing_or_wrong_ack_is_uncertain_without_fallback(self):
+        for acknowledgement in (
+            McpError("desktop_mcp_timeout"), self.acknowledgement("different-thread"),
+            {"content": [], "isError": False},
+            {"content": [{"type": "text", "text": "private rejection"}], "isError": True},
+            {"content": [{"type": "text", "text": "private non-JSON"}], "isError": False},
+            {"content": [{"type": "text", "text": '{"threadId":"wrong","threadId":"bound-original-thread"}'}], "isError": False},
+        ):
+            rpc = Mock()
+            rpc.call.side_effect = [self.initialization(), self.tool_list(), acknowledgement]
+            with self.subTest(ack=type(acknowledgement).__name__), patch("codex.desktop_mcp_adapter.DesktopMcpRPC", return_value=rpc) as connect, patch("codex.adapter.subprocess.Popen") as queue_launch, contextlib.redirect_stdout(io.StringIO()) as output:
+                outcome, detail = self.adapter().deliver(envelope(kind="result"))
+            self.assertEqual(outcome, "uncertain")
+            connect.assert_called_once()
+            queue_launch.assert_not_called()
+            self.assertEqual(sum(call.args[0] == "tools/call" for call in rpc.call.call_args_list), 1)
+            self.assertNotIn("private", output.getvalue() + detail)
+            rpc.close.assert_called_once()
+
+    def test_mcp_requires_host_identity_and_explicit_launcher_configuration(self):
+        for missing in ("CODEX_THREAD_ID", "CODEX_APP_TOOLS_PIPE_PATH"):
+            host = {key: value for key, value in self.host.items() if key != missing}
+            with self.subTest(missing=missing), patch.dict(os.environ, host, clear=True), self.assertRaises(ConfigurationError):
+                create_adapter({"endpoint": "endpoint-test", "native": self.native})
+        shell = self.root / "sh"
+        shell.write_text("not an allowed launcher")
+        shell.chmod(0o700)
+        for changes in (
+            {"command": str(shell)}, {"args": ["server.mjs"]},
+            {"args": [str(self.server), "--interaction-client-id"]}, {"cwd": "."},
+            {"thread_id": "\nspoofed"}, {"timeout_seconds": float("nan")},
+            {"environment": {"CODEX_THREAD_ID": "caller override"}},
+        ):
+            with self.subTest(changes=list(changes)), self.assertRaises(ConfigurationError):
+                self.adapter(**changes)
+
+    def test_mcp_windows_node_exe_uses_server_path_and_rejects_cmd(self):
+        node = self.root / "node.exe"
+        node.write_bytes(b"public executable fixture")
+        wrapper = self.root / "node.cmd"
+        wrapper.write_text("wrapper fixture")
+        with patch("codex.desktop_mcp_adapter.sys.platform", "win32"):
+            adapter = self.adapter(command=str(node))
+            self.assertEqual(adapter.command, [str(node.resolve()), str(self.server.resolve())])
+            with self.assertRaisesRegex(ConfigurationError, "requires_actual_exe"):
+                self.adapter(command=str(wrapper))
+
+    def test_mcp_binding_and_result_only_enforcement_before_connection(self):
+        adapter = self.adapter()
+        adapter.validate_binding({"driver": "codex", "session_id": adapter.thread, "modes": ["queue"]})
+        for binding in (
+            {"driver": "workbuddy", "session_id": adapter.thread, "modes": ["queue"]},
+            {"driver": "codex", "session_id": "different", "modes": ["queue"]},
+            {"driver": "codex", "session_id": adapter.thread, "modes": ["steer"]},
+        ):
+            with self.assertRaises(ConfigurationError):
+                adapter.validate_binding(binding)
+        foreign = envelope(kind="result")
+        foreign["recipient"] = "another-endpoint"
+        with patch("codex.desktop_mcp_adapter.DesktopMcpRPC") as connect:
+            for message in (envelope(), envelope(kind="control"), envelope(kind="result", mode="interrupt"), foreign):
+                self.assertEqual(adapter.deliver(message)[0], "failed")
+        connect.assert_not_called()
+
+    def test_mcp_truncated_invalid_frames_and_deadline_stop_only_helper(self):
+        for raw in (b'{"jsonrpc":"2.0","id":1,"result":{}}', b"private output\n", b'{"id":1,"result":{}}\n'):
+            process = Mock()
+            process.stdin = io.BytesIO()
+            process.stdout = io.BytesIO(raw)
+            process.poll.return_value = None
+            process.wait.return_value = 0
+            with self.subTest(raw=raw), patch("codex.desktop_mcp_adapter.subprocess.Popen", return_value=process):
+                rpc = DesktopMcpRPC(["/public/node", "/public/server.mjs"], "/public", {}, 2)
+                try:
+                    with self.assertRaises(McpError):
+                        rpc.call("initialize", {})
+                finally:
+                    rpc.close()
+        released = threading.Event()
+        class BlockedOutput:
+            def readline(self, _limit):
+                released.wait(1)
+                return b""
+            def close(self):
+                released.set()
+        process = Mock()
+        process.stdin = io.BytesIO()
+        process.stdout = BlockedOutput()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        process.kill.side_effect = released.set
+        with patch("codex.desktop_mcp_adapter.subprocess.Popen", return_value=process) as launch:
+            rpc = DesktopMcpRPC(["/public/node", "/public/server.mjs"], "/public", {}, 5)
+            rpc.timer.cancel()
+            rpc.deadline = 0
+            try:
+                with self.assertRaisesRegex(McpError, "desktop_mcp_timeout"):
+                    rpc.call("initialize", {})
+                rpc.expire()
             finally:
                 rpc.close()
         launch.assert_called_once()

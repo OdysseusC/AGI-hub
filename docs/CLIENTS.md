@@ -2,48 +2,51 @@
 
 每个 AI 助手有自己的 Client 进程，通过本机 Hub 的 REST / SSE 协议领取任务、报告投递。Go Hub 保存消息和状态；Client 只翻译该助手实际支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
 
-这是一种进程级插件接口。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Python 是当前 Client 实现的一种可选运行时，后续 Client 可以使用其他语言，只要遵循同一协议。
+这是一种进程级插件接口。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Client 可以使用不同语言，只要遵循同一协议；当前已有 Python 实现，Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。
 
 ## 目录和技术栈
 
 ```text
 clients/
   shared/             # 标准库 HTTP、SSE、回执与通知格式
-  codex/              # 桌面 queue 兼容 / 结果专用 app-server 引导
+  codex/              # 官方 Desktop MCP / queue 兼容 / 结果专用 app-server
   workbuddy/          # 官方 CLI 会话恢复 / localassistant OpenAPI
   grok-routine/       # 用户配置的官方 Routine webhook
   tests/              # 本地模拟传输测试，不调用真实助手
 ```
 
-每个助手目录有 `manifest.json`、`main.py`、`adapter.py` 和 `client.example.json`。`manifest` 声明协议版本、启动入口、会话类型和允许的发送模式；它不是原生能力的验证报告。Client 必须先在用户的具体电脑、助手版本和目标会话中完成唤醒和回传验收，才能把对应 Hub endpoint 的 `idle_wake_verified` 设为 `true`。
+现有 Python Client 在各助手目录维护 `manifest.json`、`main.py`、`adapter.py` 和 `client.example.json`；其他语言实现维护自己的入口。`manifest` 声明协议版本、启动入口、会话类型和允许的发送模式，不是原生能力的验证报告。Client 必须在用户的具体电脑、助手版本和目标会话中完成空闲唤醒验收，才能把对应 Hub endpoint 的 `idle_wake_verified` 设为 `true`；忙时结果收件单独验证。
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 版本为 `0.2.0`，Codex 与 Grok Routine Client 为 `0.1.0`；都使用协议 `1`，manifest 固定依赖 shared `0.1.0`。`clients/shared/manifest.json` 单独记录运行库版本。Shared 是库，不能作为一个助手 Client 启动。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
-Client 具有独立的进程和维护边界，但目前一个助手目录不能脱离 shared 单独运行。单独复制或发布 Client 时，必须一起提供其指定版本的 `clients/shared`，并保持两者在同一父目录下；建议固定仓库提交以得到完整匹配的源码。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
+Client 具有独立进程和维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
-Go Hub 本身不需要 Python。启动这里的 Client 需要 Python 3.11 或更新版本，不需要安装第三方 Python 包。当前没有自动安装 Python、后台服务托管或自动 OAuth 续期；这些是安装体验的后续工作，不应影响 Hub 的协议。
+Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，没有第三方 Python 包依赖；Codex Desktop MCP Client 使用 Node 22+，本机 macOS 验证还要求已核实的官方已签名 Node 与自然宿主启动链。当前没有自动安装运行时、后台服务托管或自动 OAuth 续期；这些是安装体验的后续工作，不改变 Hub 协议。
 
 ## 接入范围
 
 | Client | 原生入口 | 发送模式 | 本实现的实际限制 |
 | --- | --- | --- | --- |
+| Codex Desktop MCP | 官方 Desktop MCP 的 `send_message_to_thread` | `queue`，仅 `kind=result` | 2026-10-15 独立 Node 调用已实际引导到忙碌原聊天；完整 MQ 忙时返回已通过，空闲启动仍待验收 |
 | Codex queue | `codex queue --thread ID --message TEXT` | `queue` | 只证明排队；忙时需要用户引导的队列不能记为自动引导 |
 | Codex app-server | 官方 `app-server proxy` → `turn/steer` | 结果专用 | 仅 `kind=result`；默认不启用空闲启动；当前 stdio 宿主未开放独立 proxy |
-| WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 本机独立 CLI 的自动领取、执行、主动 Report 和成果核验已通过；桌面身份、连接器及企微工具继承未通过，独立边车自动返回 Codex 仍未接通 |
+| WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 独立 CLI 的 MQ 执行、Report 和成果核验已通过；原 WorkBuddy 会话与配置的默认认证续聊也已通过，新企微搜索已实际执行，远端返回 `850003 / authorization expired`，未取得联系人数据 |
 | WorkBuddy OpenAPI | 官方 `/openapi/v2/localassistant/message` | `queue` | 目标是官方持续本地助理；API 没有普通 Chat 的 `session_id` 定位参数。需要用户本人正式 OAuth 授权；尚未在本项目持有真实 token 完成接口验收 |
 | Grok Routine | 用户提供的官方 Routine webhook | `queue` | URL、认证方式和请求结构来自用户的实际 Routine 配置；示例字段不是对官方请求格式的推测 |
 
-独立 Client 尚无 `steer` 或 `interrupt` 的外部原生验收通过记录。现有 Client 的绑定只接受 `modes=["queue"]`；成果的原生引导与普通任务控制分开声明。不支持的模式在领取消息前拒绝，不会悄悄降级为队列发送。会话是否空闲、资源是否可用、是否允许唤醒，由 Hub 根据已核实的状态决定；Client 不自行伪造 `idle` 或 `busy`。
+独立 Client 尚无普通任务 `steer` 或 `interrupt` 控制模式的原生验收通过记录。现有 Client 的绑定只接受 `modes=["queue"]`；成果的原生引导与普通任务控制分开声明。不支持的模式在领取消息前拒绝，不会悄悄降级为队列发送。会话是否空闲、资源是否可用、是否允许唤醒，由 Hub 根据已核实的状态决定；Client 不自行伪造 `idle` 或 `busy`。
 
-WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不会在二者之间自动降级。CLI 是普通会话恢复的候选入口；本机已正式登录的私有 CLI 配置目录中，默认执行环境的续聊有成功证据，WorkBuddy 桌面配置根的默认执行仍返回需要登录。原生工具、桌面身份与连接器继承仍未验收，不能把独立 CLI 成功称为接通桌面助手。具体证据见 [本机验证记录](NATIVE-VALIDATION.md)。
+WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不自动降级。2026-10-14 独立正式登录 CLI 会话通过续聊和 MQ 任务，原桌面配置路径当时仍报需要登录；2026-10-15 使用原 WorkBuddy 会话 ID 与原配置，两次默认只读认证续聊成功，未传工具、权限或 MCP 覆盖参数。新联系人查询最初被本地非交互 Bash/Read 拒绝。随后精确规则修正 JSON/shell 外层引号归一化，用官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径在原会话实际执行；原始工具结果显示调用完成，但远端返回 `850003 / authorization expired`，未取得联系人数据。当前阻点已进入该机器人通讯录授权阶段，需创建者在企微工作台的智能机器人恢复授权；不能继续只写本地拒绝，也不能将其说成 CodeBuddy 登录失败或完整桌面工具继承已通过。[按日期记录](NATIVE-VALIDATION.md)
 
 本轮 macOS arm64 的真实 MQ 验收已有原生执行与文件证据。首个任务在原生明确拒绝且确认未执行后，修正了技能读取、真实验收工作区读写与专属报告 helper 的窄范围配置，并按绝对工作目录恢复；原生会话主动发出 `accepted/running/succeeded`，文件 SHA-256 核对一致。第二个任务由 SSE 自动领取，默认 `resume` 同一已登录的独立 CLI 会话，不传工具或权限覆盖参数，首次执行即产生三种原生回执和新版本成果文件，SHA-256 同样一致。
 
 两个任务使用不同的任务执行 ID；结果分别有新的 `message_id`、正确的 `reply_to` 和 `correlation_id`。重复提交同一 Submission 与已保存的原生 Report 均去重，没有新消息或重复执行，终态资源已释放。`delivered` 仍不等于业务成功；此次业务成功依据是原生回执和真实文件核验。
 
-两个结果本次由正在运行的 Codex 入口调用官方桌面 `send_message_to_thread` 工具，以 `send-now` 引导回现有聊天，原入口已实际收到；没有通过手动界面点击或 queue 充当返回证据。独立 Python proxy 在当前宿主没有可用的外部控制 socket，尚未接通，因此这是宿主内工具返回，不能称为独立边车端到端、无人值守自动返回。Codex App Server 候选分支也未通过外部原生接入验收。[分段验收证据](NATIVE-VALIDATION.md)
+2026-10-14 的两个结果由运行中的 Codex 入口调用官方桌面工具，以 `send-now` 引导回原聊天。2026-10-15，独立 Node 客户端在自然宿主环境中通过官方 Desktop MCP 初始化并发现 57 个工具，真实调用 `send_message_to_thread`，得到 `isError=false` 和匹配 thread ID 的 ACK；消息也已作为 `codex_delegation` 立即进入忙碌原聊天，不需人工点击，未使用 native queue。
+
+同机 Python 父进程链曾遇 macOS 签名校验失败，官方 Node 启动链则通过；该结果只限定这些实际启动链。App Server proxy 是另一条通道，其所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用。随后常驻 Node MQ Client 0.2.0 在已订阅后完成新的真实任务链路：MQ 自动交接到固定独立 WorkBuddy CLI 会话，原生 accepted/running/succeeded 与成果文件核验后，新的关联 result 被 Node Client 自动领取并经官方 Desktop MCP 立即送入忙碌原聊天。没有当前入口或其他操作者手工转发、native queue 或人工点击，终态资源释放已核对。两轮真实 MQ 忙时返回均通过；第二轮已交付修正因果顺序的成果。两份当前文件与 Core SHA-256 匹配，使用不同 hubrun 执行标识，对应四条 task/result 消息均 delivered，资源已释放。空闲启动仍需单独验证。[分段验收证据](NATIVE-VALIDATION.md)
 
 CLI 依据为 [官方无头模式](https://www.workbuddy.cn/docs/cli/headless)。OpenAPI 依据为 [官方 OpenAPI](https://open.workbuddy.cn/docs/openapi) 和 [本地助理功能说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Assistant)。两种传输都不读取桌面 Cookie、缓存 token 或 IPC ticket，也不把应用内部鉴权当作公开接口授权。
 
@@ -89,7 +92,7 @@ agi-hub client-config --endpoint workbuddy --file /absolute/path/to/private/work
 
 `base_url` 必须使用数字形式的本机 loopback 地址，不接受局域网地址、DNS 域名、嵌入凭据或额外路径。`endpoint_token` 只访问该 endpoint 的收件箱、事件和回执，不能切换 leader 或创建管理任务。请求明确设置 Hub 要求的 Host、Origin 和 Authorization；不使用环境代理，也不跟随 HTTP 重定向。
 
-在仓库根目录启动所需的 Client：
+在仓库根目录启动所需的 Python Client；Codex Node Desktop MCP 的启动方式见 [Codex Client](../clients/codex/README.md)，macOS 应使用该宿主已验证的官方签名 Node 绝对路径，不把 PATH 中任意 Node 当作相同启动链：
 
 ```sh
 python3 clients/codex/main.py --config /path/to/private/codex/client.json
@@ -101,7 +104,7 @@ Windows 可以使用 `py -3` 替换 `python3`，并提供该电脑上的绝对�
 
 ### WorkBuddy CLI 配置
 
-[WorkBuddy 示例](../clients/workbuddy/client.example.json) 使用 `native.transport="cli"`。先在用户选择的 CLI 配置目录通过官方流程完成本人登录并建立会话，再填写配置；Client 只恢复已有 ID，不自动创建会话。`command` 是一个绝对可执行文件路径，不是命令字符串或 argv 数组。`cwd`、`config_dir` 均须为本机已存在目录的绝对路径；`session_id` 与 Hub 绑定完全一致。`timeout_seconds` 默认 `120`，接受 `1` 至 `600` 秒。
+[WorkBuddy 示例](../clients/workbuddy/client.example.json) 使用 `native.transport="cli"`。先核实用户选择的 CLI 配置目录和既有会话是否可用；需要登录时走官方本人登录流程，再填写配置。Client 只恢复已有 ID，不自动创建会话。`command` 是一个绝对可执行文件路径，不是命令字符串或 argv 数组。`cwd`、`config_dir` 均须为本机已存在目录的绝对路径；`session_id` 与 Hub 绑定完全一致。`timeout_seconds` 默认 `120`，接受 `1` 至 `600` 秒。
 
 Client 将完整 Envelope 与报告指引写入本机临时普通文件，作为 stdin 传给 CLI；stdout 也使用临时普通文件接收，完整解析后删除。不把任务正文放进命令行或 shell。调用参数固定为：
 
@@ -111,7 +114,7 @@ Client 将完整 Envelope 与报告指引写入本机临时普通文件，作为
 
 实现不传工具开关、权限设置、MCP、模型或 profile 覆盖参数，也不传 `--no-session-persistence`；使用配置目录与会话的默认工作环境，续聊默认持久化。Client 设置 `CODEBUDDY_CONFIG_DIR`，但配置目录隔离不等于凭据存储隔离，官方 CLI 可能使用产品自己的共享认证存储。不能把一个 `config_dir` 当成账户安全边界。
 
-失败不代表历史没有变化。原桌面会话的一次默认持久化恢复尝试虽然返回需要登录，仍追加了原历史；本次核对确认原有前缀完整保留。遇到这类情况保留不确定投递记录、核对历史与原生结果，不能据失败或空回复盲目重发。
+失败不代表历史没有变化。2026-10-14 原桌面会话的一次默认持久化恢复尝试虽然返回需要登录，仍追加了原历史；当时核对确认原有前缀完整保留。2026-10-15 同一原配置与会话的默认认证续聊已通过，不能继续把旧登录错误写作当前结论。遇到这类情况保留不确定投递记录、核对历史与原生结果，不能据失败或空回复盲目重发。
 
 可选 `environment` 只接受以下字符串值，不接受任意环境变量：
 
@@ -145,6 +148,12 @@ OpenAPI 使用 `Authorization: Bearer access_token`，发送 `{"content":"完整
 Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 一致。`native.body` 必须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为带报告指引的完整通知。还支持 `{{content}}`、`{{task_id}}`、`{{message_id}}`，但它们不能代替完整消息。替换仅进行一轮，任务内容中的占位符不会被再次解释。对象占位符必须独占整个 JSON 字符串值。
 
 ### Codex 程序配置
+
+Desktop MCP、queue 与 App Server proxy 是不同通道，配置与验收分别进行。2026-10-15 独立 Node 启动链已真实调用官方 Desktop MCP 并向忙碌原聊天即时引导消息；常驻 MQ Client 0.2.0 已提供，使用 Node 22+，启动说明见 Codex 目录，不以内部模型工具调用充当独立 Client 的成功证据。仅使用固定目标会话与允许的发送工具，发现全部工具不等于获得调用它们的授权。
+
+Python 父进程链在本机 macOS 签名校验失败，官方 Node 链通过；不要因 App Server proxy 缺少 daemon socket 推断 Desktop MCP 也不可用。不新建另一套 daemon，不复制登录信息或访问未公开 IPC 来替代目标聊天。
+
+以下为原有 queue/app-server Python 实现的程序配置边界：
 
 Codex 的执行入口在启动 Client 时解析并保存为绝对路径，投递时不会重新从 PATH 查找。Windows 必须配置实际的 `codex.exe`；Client 明确拒绝 `.cmd` / `.bat` 包装器，以避免消息参数经过 shell 解释。Hub 的 `endpoint.session_id` 与 `native.thread_id` 必须指向同一个已核实原生 thread。
 
@@ -184,7 +193,7 @@ python3 clients/shared/report.py --config /path/to/private/workbuddy/client.json
 
 ## 多平台与多电脑
 
-Client 使用 Python 标准库的 HTTP、子进程和文件 API；同一源码可运行在 Windows、macOS、Linux。原生助手的 CLI、接口或安装方式仍须在每个平台单独核实。Go 核心可构建为原生程序，Python 只由需要这些 Client 的用户选择安装。
+Python Client 使用标准库 HTTP、子进程和文件 API；Codex Desktop MCP 的新路径使用 Node runtime。Go 核心可构建为原生程序，各 Client 的运行时由需要它们的用户选择安装。Windows、macOS、Linux 的原生 CLI、官方 MCP 启动链、签名与环境检查分别验收；某一语言或某一宿主启动成功不能直接推广到其他环境。
 
 当前 Hub 接口仅在本机 loopback 使用。另一台电脑的助手需要在那台电脑上运行自己的 Client，并采用后续经过授权的跨设备传输；本机 SSE 不自动成为远程消息服务。文件引用带有 `device_id`、`workspace_id` 和工作区内的相对路径，不会自动复制文件，也不能把本机路径直接交给远程助手使用。
 

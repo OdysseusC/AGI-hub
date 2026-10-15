@@ -8,7 +8,7 @@
 
 项目面向 Codex、WorkBuddy、Claude、Grok Bot 等原生 AI 助手。当前入口可以通过设置 leader 切换，接入由用户控制；每个助手的实际支持范围见适配器说明。程序采用本地边车部署方式。
 
-> 当前是本地开发版：macOS 已验证 MQ 自动交接到正式登录的独立 WorkBuddy/CodeBuddy CLI 既有会话，默认续接、技能主动回报和真实成果校验通过。Codex 宿主内官方工具已将成果直接引导回原聊天；当前宿主未开放独立 Client 的 proxy 连接，边车无人值守返回仍待接通。原 WorkBuddy 桌面企微身份与工具继承未通过，其他平台的原生接入需分别实测。
+> 当前是本地开发版。2026-10-15，macOS 已通过两轮真实 MQ 忙时返回闭环：任务自动交给固定的独立 WorkBuddy/CodeBuddy CLI 会话，原生回报与成果核验后，由常驻 Node Client 经官方 Desktop MCP 即时返回忙碌的 Codex 原聊天；没有手工转发、native queue 或人工点击“引导”。原 WorkBuddy 会话的默认认证续聊和新联系人搜索的实际执行也已通过；搜索返回远端 `850003 / authorization expired`，未取得联系人数据，需该机器人创建者恢复通讯录授权。Codex 空闲唤醒及其他平台原生接入仍分别验收。[完整记录](docs/NATIVE-VALIDATION.md)
 
 ## 首页导览
 
@@ -57,14 +57,14 @@ flowchart LR
 | 项目 | 选择 |
 | --- | --- |
 | 协调内核 | Go 标准库，单个可执行文件，零外部 Go 依赖 |
-| 助手 Client | 各自独立进程；当前用 Python 3.11+ 标准库实现，无第三方 Python 包 |
+| 助手 Client | 各自独立进程；现有 Python Client 使用 Python 3.11+ 标准库，Codex Desktop MCP Client 0.2.0 使用 Node 22+ 标准库，无需 npm 或 Python shared |
 | 消息与状态 | 本地 broker、每 endpoint 的持久化收件箱、统一 JSON 协议 |
 | 持久化 | 追加写入完整状态快照，SHA-256 校验，写入后同步 |
 | 控制接口 | 带授权的 HTTP loopback REST 与 SSE |
 | 界面 | 内置简单状态页，由本机浏览器打开 |
 | 系统目标 | Windows、macOS、Linux；原生适配能力分别验证 |
 
-Hub 不需要 Redis、RabbitMQ、SQLite、Docker 或 Node.js。构建内核需要 Go 1.22+，运行已构建的 Hub 不需要 Go；启用当前提供的独立 Client 需要 Python 3.11+。WorkBuddy CLI 另需官方 CLI 安装，使用 JavaScript 入口时还需 Node.js。Client 可以用其他语言实现，Hub 不嵌入 Python。
+Hub 本身不需要 Redis、RabbitMQ、SQLite、Docker、Python 或 Node.js。构建内核需要 Go 1.22+，运行已构建的 Hub 不需要 Go。Python Client 需要 Python 3.11+；WorkBuddy CLI 还需官方 CLI 安装，JavaScript 入口需要 Node.js。Codex Desktop MCP 的本机验证使用官方 Node runtime 与自然宿主环境，其运行链须单独核实。Client 可以用不同语言实现。
 
 先使用单仓库，每个助手一个目录，分别声明 Client 版本、协议版本、原生会话类型和支持模式。Hub 与 Client 分别更新；兼容协议内替换一个 Client 不需要重新编译 Hub。未来独立维护或发布时可以拆仓库，共享 runtime 固定版本后随 Client 分发。当前支持独立进程的启停与替换；自动托管和无损热更新尚未实现。[维护与更新](docs/CLIENTS.md#单独更新和拔插)
 
@@ -86,7 +86,7 @@ python3 tools/smoke_client.py --hub dist/darwin-arm64/agi-hub
 
 打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含独立 Client 源码、运行说明和空凭据配置示例。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
 
-当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。macOS 上的独立 CLI 消息交接与回报、宿主内工具的忙时成果引导已实测；独立返回 Client、原桌面企微接入，以及 Windows、Linux、macOS amd64 的原生运行尚待验收。
+当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。独立 CLI 的 MQ 执行与回报、原 WorkBuddy 会话的默认认证续聊，以及独立 Node 经官方 Desktop MCP 向 Codex 忙碌原聊天发送消息已有实测。常驻 Node Client 的两轮完整 MQ 忙时返回也已通过，两份成果当前内容与 Core SHA-256 匹配、资源已释放。原会话的新企微搜索已执行但机器人通讯录授权过期，未取得联系人数据；Codex 空闲唤醒及其他目标平台的原生运行仍待验收。
 
 ## 快速开始
 
@@ -147,7 +147,8 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 ## 当前边界
 
 - 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine Client 只实现 `queue`。Claude 接入仍在研究阶段。
-- WorkBuddy Client `0.2.0` 可显式选择官方 CLI 会话恢复或本地助理 OpenAPI。CLI 是独立官方工作环境，不保证继承桌面身份、连接器和原生工具；OpenAPI 需要第三方正式 OAuth。两种入口分别验收，当前尚未通过真实 Hub 闭环。[配置与范围](clients/workbuddy/README.md)
+- WorkBuddy Client `0.2.0` 显式选择官方 CLI 会话恢复或本地助理 OpenAPI。独立 CLI 的 MQ 执行和成果校验、原桌面会话与配置的默认认证续聊已分别通过。新企微搜索已执行，远端返回机器人通讯录授权过期，联系人数据获取仍未通过；这不能证明完整桌面工具注入继承。OpenAPI 需要第三方正式 OAuth，不能由 CLI 登录推导授权。[配置与范围](clients/workbuddy/README.md)
+- Codex Desktop MCP 与 App Server proxy 是不同通道。官方 Desktop MCP 已在独立 Node 启动链验证忙时即时引导；本机 Python 父链曾遇签名校验失败，App Server proxy 则缺少控制 socket。后两项不能推导 Desktop MCP 不可用。本机已分别留下独立发送与完整常驻 MQ 忙时返回的证据，空闲启动尚未验收。
 - 原生接收工具返回成功只代表投递，任务完成须核对回报和要求的成果文件。`uncertain` 不自动重发。
 - 会话排队与资源互斥只覆盖边车管理的运行；人工在原生会话或同一桌面并发操作仍需协调。初期建议使用专属会话。
 - 授权范围作为任务元数据传递，不能提供原生权限沙盒。助手消息不能批准用户的权限提示。

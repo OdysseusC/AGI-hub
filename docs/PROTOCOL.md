@@ -55,7 +55,7 @@ Hub 把提交转换为完整 Envelope，原生入口接收并保留以下字段�
 
 不支持的模式明确拒绝，无自动替换。停止成功不代表已经启动替代任务；恢复暂停也不是当前协议的能力。模式可按每条消息指定，客户端能力配置约束允许的模式，当前默认方式为 `queue`。
 
-Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wake_verified` 分别核实。它仅表示该原生入口已验证能在 `busy` 或 `needs_user` 状态接收 `kind=result` 的队列通知。开启后，Hub 可投递这类结果，但仍阻止未决的 `dispatching/uncertain` 传输，不启动忙时普通任务、不释放业务资源、不改变当前运行；`unknown` 状态仍等待核对。这是结果投递能力声明，不等于已实现引导、打断、即时展示或自动处理权限提示。Codex App Server 尚未通过原生验证，不能因新增字段就声称通过。
+Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wake_verified` 分别核实。它仅表示该原生入口已验证能在 `busy` 或 `needs_user` 状态接收 `kind=result` 的返回通知。开启后，Hub 可投递这类结果，但仍阻止未决的 `dispatching/uncertain` 传输，不启动忙时普通任务、不释放业务资源、不改变当前运行；`unknown` 状态仍等待核对。这是结果投递能力声明，不等于已实现引导、打断、即时展示或自动处理权限提示。能力验证绑定具体传输：2026-10-15 本机独立 Node 经 Desktop MCP 的忙时即时引导已实测，App Server proxy 则因缺少 daemon 控制 socket 尚未接通；不能用一个通道的成功或失败代替另一个，也不能仅凭新增字段声称闭环通过；本机完整 MQ 忙时返回另有后续真实验收记录。
 
 ## 执行回执
 
@@ -97,7 +97,11 @@ Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wa
 
 两个任务的 `run_id` 不同，两个结果分别使用独立 `message_id`、正确的 `reply_to` 与同任务关联 ID；重复同一 Submission 或已保存 Report 去重，不追加消息或再次执行。原生终态后资源释放已核对。
 
-本次两个结果由正在运行的 Codex 入口通过官方桌面 `send_message_to_thread` 工具的 `send-now` 方式实际引导回原聊天。独立 Python proxy 在该宿主尚无可用外部控制 socket，这证明宿主内工具的返回效果，未证明外部 Client 可无人值守地完成整个返回阶段。WorkBuddy 的桌面身份与企业微信工具继承也未因此通过。
+2026-10-14 的两个结果经 Codex 宿主内官方工具实际引导回原聊天。2026-10-15，独立 Node 进程通过官方 Desktop MCP 完成 initialize/tools/list，发现 57 个工具，并真实调用 `send_message_to_thread`：`isError=false`、thread ID 匹配，且消息作为 `codex_delegation` 即时进入忙碌原聊天，无人工点击、未用 native queue。随后常驻 Node Client 已在先订阅、后提交的新任务中，自动完成领取、固定独立 WorkBuddy CLI 会话的默认恢复、真实执行回报、文件与 SHA-256 核对，以及独立 MCP 向忙碌原聊天返回关联结果；无手工转发或人工点击，资源已释放。该本机忙时闭环已通过，空闲唤醒另行验收。App Server proxy 缺少控制 socket 和 Python 父链签名校验失败是分别观测到的问题，不能推出 Desktop MCP 不可用。
+
+同日原 WorkBuddy 会话的两次默认认证续聊已通过。新联系人搜索先被本地 Bash/Read 拒绝；修正精确命令规则后，已用官方随包 wecom-cli 在原会话实际执行，原始工具结果返回远端 `850003 / authorization expired`，未取得联系人数据。当前需要该机器人创建者恢复通讯录授权；不能继续停留在“只卡本地权限”的旧结论，也不能从调用完成推导数据获取成功或完整桌面工具继承。
+
+本轮两次 MQ 忙时回传均完成；不同 hubrun、四条 task/result 消息 delivered、当前成果与 Core SHA-256 一致及资源释放均已核对，第二轮成果更正了上述因果顺序。验收成果成功交付不代表联系人获取成功，也不改变消息去重、来源授权或成果核对契约。[按日期验证记录](NATIVE-VALIDATION.md)
 
 ## 本机 API
 

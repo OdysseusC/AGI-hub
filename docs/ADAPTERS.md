@@ -6,13 +6,21 @@
 
 | 目录 | 原生入口 | 支持模式 | 当前验证 |
 | --- | --- | --- | --- |
-| `clients/codex` | 已有线程 queue / 官方 app-server 结果引导 | `queue` / 结果专用 | 宿主内官方工具引导已实测；独立 proxy 当前宿主未开放，不等于无人值守返回 |
-| `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 自动领取、主动回报与文件校验已通过；Codex 宿主内工具实际返回结果，独立 proxy 自动返回与 WorkBuddy 桌面继承未通过，OpenAPI 未授权 |
+| `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
+| `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 回报和成果校验已通过；原 WorkBuddy 会话与配置的默认认证续聊已通过；新企微搜索已实际执行，远端通讯录授权过期，未取得数据；OpenAPI 未授权 |
 | `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
 
-Hub 没有内置助手驱动。每个 Client 使用 Python 3.11+ 标准库作为独立进程运行；原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现也可使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
+Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
 
 Client 不读取其他助手的登录凭据或历史。原生参数只从用户配置的私有文件获得；程序输出和 HTTP 响应正文不作为公开投递诊断展示。当前同仓库、每个助手一个目录，后续按维护与发布需要拆成独立仓库。
+
+## Codex Desktop MCP
+
+2026-10-15，独立 Node 客户端在自然宿主环境中，经官方 Node runtime 启动官方 Desktop MCP server，完成 initialize 和 tools/list，发现 57 个工具。真实调用 `send_message_to_thread` 后收到 `isError=false` 与匹配 thread ID 的 ACK，消息也已作为 `codex_delegation` 即时进入忙碌原聊天，无人工点“引导”、未使用 native queue。
+
+同机 Python 父进程链因 macOS 签名校验失败；官方 Node 启动链成功。该限制与语言的一般能力不同，必须保留实际宿主环境和官方启动链的验证边界，不复制凭据或拼装未公开 IPC。发现全部工具也不代表 Hub 获准调用全部工具；目标 thread 和允许的发送工具由用户固定。
+
+这条证据来自独立进程真实调用，不是让模型内部工具代发。随后常驻 Node MQ Client 0.2.0 在先订阅、后提交的新任务中完成 MQ → 固定独立 WorkBuddy CLI 会话 → 原生回报与文件核验 → 关联 result → 独立 Desktop MCP 的真实闭环。结果直接进入忙碌原聊天，没有手工转发、native queue 或人工点击，资源已释放。本机忙时返回已通过；空闲启动另行验证。[本机记录](NATIVE-VALIDATION.md)
 
 ## Codex 队列
 
@@ -48,7 +56,7 @@ codex queue --thread <native session ID> --message <complete notification>
 
 官方 App Server 有 `thread/resume`、`turn/start`、`turn/steer`、`turn/interrupt` 与执行事件，且 steer 需匹配活跃 turn。本项目已实现结果专用 App Server 分支并通过协议模拟；当前宿主未开放独立 proxy，普通任务控制和外部桌面引导未验收通过。独立启动 App Server 并不证明复用了桌面既有会话或其原生工具。[官方 App Server](https://learn.chatgpt.com/docs/app-server)
 
-本次两个 WorkBuddy 结果由正在运行的 Codex 入口调用官方桌面 `send_message_to_thread` 工具，以 `send-now` 实际引导回已有聊天；原入口收到结果，没有 GUI 手动点击或用 queue 冒充这项返回证据。这是宿主内工具的已验证路径。独立 Python proxy 在当前宿主没有可用外部控制 socket，尚未接通；不能据此宣称 App Server 的外部 `steer`、自动唤醒或独立边车无人值守返回已通过。
+2026-10-14 的两个 WorkBuddy 结果经 Codex 宿主内官方工具 send-now 实际引导回原聊天。随后独立 Desktop MCP 已有上文的新证据；它与 App Server proxy 不是同一入口。proxy 所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用；Desktop MCP 成功也不能反过来证明 proxy 已接通。后续常驻 Node Client 已通过完整 MQ 忙时返回；普通任务控制与空闲启动仍分别验收。
 
 ## Webhook / Grok Routine
 
@@ -101,9 +109,9 @@ CLI 使用官方本人登录与用户配置的绝对程序路径、工作目录�
 
 本机正式登录的私有 CLI 配置目录中，首个 MQ 任务确认原生明确拒绝且未执行后，修正了技能读取、真实工作区文件访问和专属报告 helper 的窄范围配置及绝对工作目录，再恢复原任务。第二个任务由 SSE 自动领取，默认 `resume` 同一既有独立 CLI，在未传工具或权限覆盖参数的情况下首次执行即完成。两次均有原生 `accepted/running/succeeded` 和 SHA-256 一致的成果文件；任务执行 ID 不同、结果关联正确，重复提交与回执去重，终态资源释放已核对。
 
-原 WorkBuddy 桌面配置根与原会话 ID 的默认恢复仍返回 `Authentication required`。此前关闭工具的历史复述诊断，以及本次独立 CLI 的执行成功，都不证明继承了原桌面身份、连接器、企业微信工具或桌面新消息同步。
+2026-10-14 原 WorkBuddy 配置根与原会话 ID 的默认恢复曾返回 `Authentication required`。2026-10-15 使用原配置与原会话，两次默认只读认证续聊成功，未传工具、权限或 MCP 覆盖参数；旧登录错误不再是当前结论。新的企微查询最初被本地非交互 Bash/Read 权限拒绝；修正精确命令规则的 JSON/shell 外层引号归一化后，原会话已用官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径实际搜索。原始工具结果为调用完成、远端 `850003 / authorization expired`，未取得联系人数据。当前 CLI 路径的机器人通讯录授权过期，需该机器人创建者在企微工作台的智能机器人恢复授权；认证续聊、新查询实际执行与联系人数据获取分别记录。
 
-默认持久化的失败尝试可能追加会话历史；本次已核对原历史前缀完整保留，不能将失败解释为没有任何原会话变化。因此不盲目重发，保留实际结果核对。本次窄范围技能、报告和文件配置已通过独立 CLI 执行验收，不代表其他目录或命令已获授权。本人登录可能使用产品共享认证存储，配置目录隔离不构成凭据隔离；不读取或复制受保护 token。[本机验证记录](NATIVE-VALIDATION.md)
+默认持久化的失败尝试可能追加会话历史；10 月 14 日已核对原历史前缀完整保留，不能将失败解释为没有任何原会话变化。因此不盲目重发，保留实际结果核对。本次窄范围技能、报告和文件配置已通过独立 CLI 执行验收，不代表其他目录或命令已获授权。本人登录可能使用产品共享认证存储，配置目录隔离不构成凭据隔离；不读取或复制受保护 token。[本机验证记录](NATIVE-VALIDATION.md)
 
 ### 官方持续本地助理 OpenAPI
 
@@ -125,7 +133,7 @@ HTTP 成功后还要核对官方 JSON 中严格整数 `code=0` 和合法非空 `
 
 原生助手还需安装 [报告技能](SKILLS.md) 并验证实际接手和回报。技能解决消息解释和报告，Client 解决外部消费和唤醒，两者不能相互替代。Computer Use 可以做人工监督的原生入口验证，不能因此宣称官方 API 已授权或普通桌面任务具备后台唤醒能力。
 
-本机 WorkBuddy 技能发现与普通桌面任务的原生只读查询基线已通过，独立 CLI 的 MQ 执行、主动回报及成果校验也已有实际证据。两个结果通过 Codex 宿主内官方工具返回原入口；独立 proxy 自动返回与 WorkBuddy 原桌面企微接入尚未通过。当前 Client 保留 CLI 和 OpenAPI 的显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
+本机 WorkBuddy 技能发现、此前普通桌面单联系人查询基线、独立 CLI 的 MQ 执行与成果校验，以及原配置原会话的默认认证续聊，分别有实际证据。本轮新企微搜索已越过本地权限阶段并实际执行，目前远端机器人通讯录授权过期，未取得联系人数据；没有据此验收完整桌面工具注入。Codex 的独立 Desktop MCP 发送和常驻 MQ 忙时全链路返回均已实测；空闲启动仍待验证。CLI 与 OpenAPI 保持显式选择，CLI 登录不授予第三方 OpenAPI 权限。[本机验证记录与 CLI 依据](NATIVE-VALIDATION.md)
 
 ## 原生接入验收
 

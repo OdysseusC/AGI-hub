@@ -1,58 +1,91 @@
 # Codex Client
 
-版本 `0.1.0`，Hub 协议 `1`，依赖同级 `shared` runtime `0.1.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持 `clients/codex` 与 `clients/shared` 的相邻结构。
+版本 `0.2.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天返回成果，保留原会话的工具、模型和权限。
 
-本 Client 提供两种明确选择的传输。默认 `native.transport="queue"` 保留 `codex queue --thread ID --message TEXT`；CLI 成功只确认传输，是否仍是目标桌面会话并保留桌面工具，需要在具体宿主中验证。Client 不使用独立 `exec/resume` 来替代桌面会话。
+每个 Hub endpoint 只启动一个消费者。当前只接受 `kind=result / mode=queue`：展示已完成任务的结果，不重新执行任务，不发送业务接手与进度回执。普通任务的 `steer / interrupt` 尚未实现，传输不确定时不会重发或回退到 `codex queue`。
 
-`native.transport="app-server"` 是结果专用入口：通过官方 `codex app-server proxy` 连接已在运行的 daemon，完成握手后只读线程元信息和 turn ID/status，再将 `kind=result` 引导到原线程当前运行的 turn。内部使用 `turn/steer` 的 `expectedTurnId` 防止引导到已变化的运行。该分支不处理普通任务或 interrupt，也绝不回退到 queue。
+## 官方 Desktop MCP
 
-当前本机已通过宿主内官方 `send_message_to_thread` 工具，把两条 MQ 正式结果直接引导到原入口的运行中聊天；消息立即入站，没有让用户点击队列。公共工具实现使用 `send-now` follow-up，忙时进入 steer 分支、空闲时进入 start 分支。本次实测验证了忙时结果引导，不代表空闲唤醒也已验收。
+`native.transport="desktop-mcp"` 调用官方 server 暴露的固定工具 `send_message_to_thread`。客户端先完成 MCP 初始化、核对工具参数，再订阅 Hub SSE，随后领取结果。`threadId` 固定来自私有配置，调用者身份只来自宿主已提供的 `CODEX_THREAD_ID`；Envelope 不能替换目标、调用者、工具、启动参数或权限。
 
-这次调用来自原生 AGI 入口中可用的官方桌面工具。独立 Python proxy 的支持边界仍不同：本机桌面宿主以 stdio 管理自己的 app-server，没有向外开放默认 `app-server-control.sock`，实际 proxy 诊断连接该默认路径失败。因此本项目尚未在这个宿主验证独立 Client 自动返回；不能把宿主内工具验收写成外部 proxy 已接通。不得新建另一个 daemon、复制登录信息或连接未公开的桌面 IPC 来冒充当前聊天。
+官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
-## 配置与运行
+完整忙时闭环也已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。该证据只覆盖本机已验证的宿主与忙时结果返回；空闲唤醒、普通任务控制与其他平台仍须分别验收。
 
-先在 Hub 中注册 `codex` endpoint，并将对应 binding 设置为 `"driver": {"type": "external"}`。导出私有配置：
+Desktop MCP 和 App Server proxy 是两个独立入口。前者由官方 server 使用宿主提供的桥接环境；后者连接 `app-server-control.sock`。当前宿主未开放 proxy 控制 socket，不代表 Desktop MCP 也不可用。
+
+当前 macOS 正式版宿主校验连接进程及父链的签名。实测可用启动链为官方 Node 客户端直接启动官方 Node server；需要从当前已提供官方环境的 Codex 宿主正常执行。Python 父链在这台电脑导致工具发现连接关闭，单独安装一个系统 Node 或脱离宿主后台启动也不能据此保证可用。不要复制桥接票据、持久化 pipe 值、猜测私有 socket 或更改身份来连接。
+
+## 配置与启动
+
+先在 Hub 注册 `codex` endpoint，令 `endpoint.driver="codex"`、`endpoint.session_id` 等于已核实的原生 thread ID，对应 binding 使用 `"driver":{"type":"external"}`。导出仅属于此 endpoint 的私有配置：
 
 ```sh
-agi-hub client-config --endpoint codex --file /absolute/path/to/private/codex/client.json
+agi-hub client-config --endpoint codex --file /absolute/private/codex/client.json
 ```
 
-该命令只导出 endpoint 凭据，`native` 为空，不覆盖已有文件。按 [client.example.json](client.example.json) 填写 transport、`native.thread_id`、`native.executable` 和可选超时。Hub 的 `endpoint.driver` 必须为 `codex`，`endpoint.session_id` 必须与 `native.thread_id` 一致；Client 每次连接先验证这一绑定。必须确认已选择传输在目标原生宿主可用，并指定实际已有 thread ID。默认本机 Hub 为 `http://127.0.0.1:7331`，以导出的真实配置为准。
+导出以私有权限创建文件，不打印凭据或覆盖已有配置。按 [client.example.json](client.example.json) 填写 `native`：
 
-执行入口启动时解析为绝对路径，投递不重新查找 PATH。Windows 应填写实际 `codex.exe` 路径；`.cmd` / `.bat` 包装器会被拒绝，消息参数不会通过 shell 解释。
+| 字段 | 要求 |
+| --- | --- |
+| `transport` | `desktop-mcp` |
+| `command` | 用户已核实的官方 Node 或官方 `launch_codex_app_tools_mcp` 的绝对可执行路径；Windows 必须为实际 `.exe` |
+| `args` | 只包含一个官方 `server.mjs` 的绝对文件路径；不接受 Shell、身份参数或消息文本 |
+| `cwd` | 该官方插件目录的绝对路径，必须是 `server.mjs` 所在目录 |
+| `thread_id` | 已有原生桌面聊天 ID，与 Hub 绑定一致 |
+| `timeout_seconds` | 单次 MCP 请求超时，默认 `30`，范围 `1` 至 `300` 秒 |
 
-app-server 模式的 `native.result_mode` 为 `steer`。Hub Envelope 的 `mode=queue` 表示持久化结果返回，仍须 `kind=result`，不会转成一个新的控制任务。忙时只向当时已核实的 active turn 引导；初始化失败、turn 变化、超时或 ACK 不匹配，都保留 `uncertain`，不会重发。原生输出不进入日志，`thread/read` 排除历史，turn 列表使用 `itemsView=notLoaded`。
+`command`、`args`、`cwd` 必须来自实际安装的官方插件清单与运行环境，不猜目录。客户端只继承正常操作系统变量及官方 Node/桥接变量白名单，不从配置读取桌面凭据。宿主缺少 `CODEX_THREAD_ID` 或 `CODEX_APP_TOOLS_PIPE_PATH` 时，在领取消息前停止；这些变量的值不要复制到 `client.json`、文档或日志。
 
-`native.idle_start_verified` 默认 `false`。仅在同一已加载原线程通过工具保留和空闲启动实测后，才可显式开启 `turn/start` 用于显示返回结果；未加载线程不自动 resume。RPC ACK 只证明原生接收，不能代替业务回执或证明用户已经看到结果。
+在已具备官方宿主环境的入口中，直接启动已核实的官方 Node。POSIX 示例中的 `exec` 让 Node 替代启动 shell，保持实际验证过的父链：
 
-若明确选择旧 queue 兼容传输，使用它自己的最小 native 配置；不要保留 app-server 专用字段：
+```sh
+exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
+```
+
+Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。Windows、Linux 和不同 macOS 宿主的桥接与唤醒须重新验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
+
+首次启动与每次 Hub 重连都会重新核对 endpoint 绑定和 MCP 工具。先订阅 SSE 再领取，keepalive 不触发轮询。断线仅重建连接并扫描 Hub 仍可投递的 pending 消息；已经 `dispatching / uncertain` 的消息不会因此重新发送。客户端不自行宣称会话 idle，不自动处理权限提示。
+
+只有工具返回 `isError=false`，且唯一文本内容可解析为匹配原 thread ID 的 JSON ACK，才记录 `delivered`。工具调用前的初始化或发现失败不会领取消息；调用开始后的超时、断线、工具错误或 ACK 不符记为 `uncertain`。回执保存失败时停止，保留 Hub 领取记录供核对。ACK 只证明原生接收，不能替代业务成功或空闲唤醒验收。
+
+## 保留的 Python 入口
+
+`main.py` 仍使用 Python 3.11+ 标准库，依赖同级 `shared` runtime `0.1.0`。复制或固定 Python Client 版本时须一起保留相邻的 `clients/shared`。Node Desktop MCP 入口不导入 shared；二者采用同一个 Hub 协议。
+
+Python 明确选择以下一种传输，不能同时为同一 endpoint 启动 Node 与 Python 消费者：
+
+| transport | 范围 |
+| --- | --- |
+| `desktop-mcp` | 相同官方 MCP 与配置；当前 macOS Python 父链未通过宿主校验，供其他实际允许的宿主单独验收 |
+| `app-server` | 官方 `codex app-server proxy` 连接已运行 daemon，仅结果返回；本机宿主未开放默认控制 socket |
+| `queue` | 兼容 `codex queue --thread ID --message TEXT`；只证明队列接收，忙时需手点引导的路径不能记为自动返回 |
+
+App Server 使用 `thread/read` 排除正文、`thread/turns/list` 只取元信息，忙时通过 `expectedTurnId` 保护的 `turn/steer` 返回结果；不处理普通任务或 interrupt。其 `native` 示例：
 
 ```json
-{
-  "transport": "queue",
-  "thread_id": "<existing verified native thread ID>",
-  "executable": "codex",
-  "timeout_seconds": 30
-}
+{"transport":"app-server","thread_id":"<verified native thread ID>","executable":"codex","timeout_seconds":30,"result_mode":"steer","idle_start_verified":false}
 ```
 
-当前示例仍明确选择 app-server + steer；其投递不确定时不会自动采用上述 queue 配置。
+App Server 的空闲 `turn/start` 仅在原线程工具保留及空闲启动单独通过后显式开启；不自动 resume 未加载线程。旧 queue 配置为：
 
-在仓库根目录运行：
+```json
+{"transport":"queue","thread_id":"<verified native thread ID>","executable":"codex","timeout_seconds":30}
+```
+
+Python 启动命令：
 
 ```sh
-python3 clients/codex/main.py --config /absolute/path/to/private/codex/client.json
+python3 clients/codex/main.py --config /absolute/private/codex/client.json
 ```
-
-Windows 使用 `py -3` 和本机绝对路径。不要为同一 endpoint 同时启动两个消费者。配置含个人会话及凭据，应放在仓库外。更新、事件消费和不确定投递的处理见 [Client 文档](../../docs/CLIENTS.md)。
 
 ## 维护与测试
 
-Codex 的实现、配置、manifest 和专项测试都放在本目录。单独验证适配器：
+实现、配置、manifest 和专项测试都在本目录。Node 测试仅使用内存 stdio 和本地 HTTP，不启动官方 server 或发送原生消息：
 
 ```sh
+node --test clients/codex/test_desktop_mcp_client.mjs
 python3 clients/codex/test_adapter.py -v
 ```
 
-公共协议及跨 Client 兼容测试在 `clients/tests`，公共夹具在 `clients/tests/support.py`。仓库根目录运行 `python3 -m unittest discover -s clients/tests -v` 会汇总所有助手专项测试；只使用本地模拟，不触发真实助手。
+公共 Python 协议测试位于 `clients/tests`，仓库根目录运行 `python3 -m unittest discover -s clients/tests -v`。更新和不确定投递的处理见 [Client 文档](../../docs/CLIENTS.md)，分段原生证据见 [验收记录](../../docs/NATIVE-VALIDATION.md)。

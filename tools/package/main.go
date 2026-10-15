@@ -142,7 +142,7 @@ func packageBinary(path, binary, name string) (err error) {
 		}
 		// Explicit public-file allowlist: never package client.json credentials,
 		// local caches, logs or arbitrary files alongside an adapter.
-		public := filepath.Ext(source) == ".py" || filepath.Ext(source) == ".md" || d.Name() == "manifest.json" || d.Name() == "client.example.json"
+		public := filepath.Ext(source) == ".py" || filepath.Ext(source) == ".mjs" || filepath.Ext(source) == ".md" || d.Name() == "manifest.json" || d.Name() == "client.example.json"
 		if !public {
 			return nil
 		}

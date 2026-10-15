@@ -61,6 +61,9 @@ class CodexAdapter:
 
 
 def create_adapter(config: dict):
+    if config["native"].get("transport", "queue") == "desktop-mcp":
+        from codex.desktop_mcp_adapter import CodexDesktopMcpAdapter
+        return CodexDesktopMcpAdapter(config)
     if config["native"].get("transport", "queue") == "app-server":
         from codex.app_server_adapter import CodexAppServerAdapter
         return CodexAppServerAdapter(config)
