@@ -10,7 +10,7 @@ Node Client 版本 `0.3.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准
 
 普通任务通知保留完整 Envelope 和既有授权边界，并要求原聊天使用安装时固定、限定 endpoint 的报告 helper 主动提交完整 Report。安装时须提供该 helper 的真实程序路径及允许的报告工作区，不能从 Envelope 读取或覆盖这些配置。任务使用与 `clients/shared/notification.py` 相同的 `hubrun-` 标识：对 endpoint、换行和 task_id 的 UTF-8 字节做 SHA-256，取前 32 位小写十六进制；这只是 Hub 执行标识，不能冒充原生 run ID 或复用固定 session_id。实际接手、执行和完成分别由原聊天报告；Client 只保存传输回执，不自动报告 accepted/running/succeeded，也不读取聊天历史代收结果。
 
-`receive_tasks` 不改变 Hub 的调度门槛。普通任务仍受会话状态、资源与空闲唤醒验证约束，忙时不会因开启此项而投递任务；默认状态仍为 `unknown`，Client 不自行标记 idle。普通任务能力已通过本地模拟测试，真实原生任务闭环须在具体宿主另行验收，不能沿用下面的结果返回证据。
+`receive_tasks` 不改变 Hub 的调度门槛。普通任务仍受会话状态、资源与空闲唤醒验证约束，忙时不会因开启此项而投递任务；默认状态仍为 `unknown`，Client 不自行标记 idle。普通任务能力已通过本地模拟测试，2026-10-16 Windows 本机另已完成 Codex 单入口的原生任务自检；其他会话与跨助手链路须分别验收，不能沿用历史结果返回证据。[Windows 自检范围](../../docs/NATIVE-VALIDATION.md#windows-codex-selfcheck-20261016)
 
 官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
@@ -27,6 +27,12 @@ Node Client 版本 `0.3.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准
 Desktop MCP 和 App Server proxy 是两个独立入口。前者由官方 server 使用宿主提供的桥接环境；后者连接 `app-server-control.sock`。当前宿主未开放 proxy 控制 socket，不代表 Desktop MCP 也不可用。
 
 当前 macOS 正式版宿主校验连接进程及父链的签名。实测可用启动链为官方 Node 客户端直接启动官方 Node server；需要从当前已提供官方环境的 Codex 宿主正常执行。Python 父链在这台电脑导致工具发现连接关闭，单独安装一个系统 Node 或脱离宿主后台启动也不能据此保证可用。不要复制桥接票据、持久化 pipe 值、猜测私有 socket 或更改身份来连接。
+
+### 2026-10-16：Windows Codex 单入口自检
+
+Node `0.3.0` 显式启用 `native.receive_tasks=true`，以 `origin=recipient=codex` 提交自检。真实 Hub SSE → 常驻 Node Client → 官方 Desktop MCP → 原聊天链路完成了任务投递；原聊天主动保存并提交 accepted/running/succeeded 三个稳定事件，实读输入文件中的随机校验值，并实际调用官方桌面 `list_artifacts`。核对目标原聊天匹配、Hub 成果 SHA-256 一致、task 与 result 均 delivered、资源锁释放后，再次核对原聊天最终回复，确认对应 result 已实际消费。
+
+独立空闲唤醒探针已另行通过；本轮未设置 `result_queue_while_busy_verified`，不据此新增 Windows 忙时结果能力声明。这是 Codex 自检，既不是 Grok 发起，也不证明 Grok 跨助手闭环。Grok 配置衔接截至本机 12:13 仍未完成，其唤醒标记保持 false。五份旧传输源码随后已按用户要求删除，历史消息、回执与协议保留；Grok 迁移验收仍未完成。六平台包已重建并核对本版 Node 源码与 manifest，未包含私有 `client.json`；打包不替代各平台的原生验收。[完整分段记录](../../docs/NATIVE-VALIDATION.md#windows-codex-selfcheck-20261016)
 
 ## 配置与启动
 

@@ -1,6 +1,6 @@
 # 本机原生接入记录
 
-既有 Hub 原生记录日期为 2026-10-14 至 2026-10-15，环境为 macOS arm64；2026-10-16 补充 Grok 文件模式的迁移依据与待验收范围。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+既有 Hub 原生记录日期为 2026-10-14 至 2026-10-15，环境为 macOS arm64；2026-10-16 先记录 Grok 文件模式的迁移依据与模拟范围，后续补充 Windows Codex 单入口原生自检、打包核对及 Grok 迁移进度。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID、随机校验值或私有绝对路径。各日期章节保留当时的观察；[Windows 后续记录](#windows-codex-selfcheck-20261016) 不代表所有 Windows 入口或 Linux 已通过，构建也不能替代实测。
 
 ## 2026-10-14：WorkBuddy 默认恢复与历史
 
@@ -107,12 +107,35 @@ Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--
 
 首次原生验收须保留：原会话实际读到新文件的证据；真实 accepted/running/终态 Report 与稳定 run_id；Hub 成果 SHA-256；一次新 result 的 message_id/reply_to/task_id/correlation_id；原入口的实际消费。通知响应丢失时保留 uncertain，重复文件或事件不能使任务执行第二次。[Grok 配置与接收模板](../clients/grok-routine/README.md)
 
+<a id="windows-codex-selfcheck-20261016"></a>
+
+## 2026-10-16：Windows Codex 单入口自检与打包核对
+
+Windows 本机常驻 Node Client `0.3.0` 显式启用 `native.receive_tasks=true`。先前独立原生空闲唤醒探针已确认原聊天实际启动、消费探针并保留所检查的桌面工具；该探针单独记录，不替代下面的 Hub 任务证据。本轮未设置 `result_queue_while_busy_verified`，不新增 Windows 忙时结果接收能力声明。
+
+随后提交 `origin=recipient=codex` 的独立入口自检，真实链路为 Hub SSE → Node Client → 官方 Desktop MCP → 固定原 Codex 聊天。它验证 Codex 作为任务接收方和结果入口的同一条路径，不是 Grok 发起，也不是跨助手验收。依次核对：
+
+1. 原聊天实际接手、执行并完成，保存和提交 accepted/running/succeeded 三个稳定事件；任务关联与执行标识一致，事件 ID 可与 Hub 记录核对。
+2. 随机校验值来自实际读取输入文件；目标原聊天标识匹配，官方桌面 `list_artifacts` 已实际调用成功。这里只证明该检查覆盖的工具可用，不把它写成所有桌面工具逐项验收。
+3. Hub 核验真实 artifact 的工作区归属和 SHA-256，生成一次正确关联的 result；task 与 result 两条消息均为 delivered，资源锁已释放。
+4. 在上述记录之外，再次读取并核对原聊天的最终回复，已明确确认消费对应 result。实际结果消费有独立于传输 ACK 的证据，不仅依据通知接受推导。
+
+六个目标平台的分发包已重新构建。逐包核对其中的 Node Client 源码和 manifest 与当前 `0.3.0` 文件完全一致，未包含私有 `client.json`。这些包检查证明分发内容匹配，不证明其他平台或其他原生入口已完成验收。公开记录不包含个人路径、真实会话 ID、凭据或随机校验值。
+
+## 2026-10-16：Grok 迁移进度（截至本机 12:13）
+
+首个配置衔接 webhook 已被原 Grok Bot 接收，但当时目标本机 C 离线。原 Bot 明确报告失败，没有读取本机文件，也没有在本机执行配置工作；这不是新 Hub 任务成功，更不是文件消费证据。
+
+启动现有本机客户端后，Grok 确认 C 在线。后续使用新的关联请求 ID，原 Bot 已接手并记录 processing；截至本机 12:13，尚未提供配置保存的真实结果、实际读取随机校验值的证明或完成回执。前次失败保留，后续已接手工作不能当作已完成，也不另起第二份执行。
+
+Grok 的完整 Hub 闭环仍未验证，`idle_wake_verified` 保持 false。五份旧传输源码随后已按用户要求删除；旧监听原本已停止，84 份历史 JSON 的 SHA-256 均未改变，消息、回执与协议继续保留。Hub 及两个 Client 均不依赖旧源码，既有 Grok 配置衔接只使用保留的 JSON 和协议。旧传输源码清理已完成，Grok 迁移验收尚未完成；上面的 Codex 自检不能代替 Grok 文件读取、原生 Report、成果核验和结果返回，Webhook 接受或普通回复也不能替代这些证据。
+
 ## 后续验收
 
-- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。idle 下完整 MQ 回路须另行验收；继续核对断线、超时和投递不确定时不重发。
+- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。跨助手工作流的 idle 下完整 MQ 回路须另行验收，不与已通过的 Windows Codex 单入口自检混为一项；继续核对断线、超时和投递不确定时不重发。
 - 其他企微业务与桌面工具分别按用户授权验收，不从单联系人候选匹配推导全部能力或全通讯录唯一。保留本地拒绝、远端 850003 和重新授权后成功的历史，不盲目重试。
 - App Server proxy 的连接与空闲 turn/start 单独验收，不能用 Desktop MCP 已通过的空闲启动替代；权限提示、关联回执和成果核对仍遵循各自通道的记录。
-- 在 Windows、Linux 和其他宿主版本上单独验收官方启动链，不把本机成功推广为全平台支持。
+- Windows 已有上述 Codex 单入口自检证据；Grok、其他 Windows 入口、Linux 和不同宿主版本仍须分别验收，不把单入口成功或六平台打包推广为全平台支持。
 
 WorkBuddy OpenAPI 的 `localassistant/message` 仍是独立候选，需第三方应用与本人 OAuth，当前未配置这条真实授权路径。CLI 正式登录不自动授予 OpenAPI 权限；它也不是普通桌面任意聊天的定位接口。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
 
