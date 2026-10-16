@@ -10,6 +10,8 @@
 
 > 当前是本地开发版。2026-10-15，macOS 已通过两轮独立 WorkBuddy/CodeBuddy CLI 会话的完整 MQ 忙时返回。用户重新授权后，原 WorkBuddy 会话也完成一次真实单联系人查询：首轮未接手，由入口核对并显式续接一次，随后原生主动回报，Core 核验成果，再由独立 Node Client 经官方 Desktop MCP 自动返回忙碌的 Codex 原聊天。联系人候选与成果字段一致；这不代表全通讯录唯一匹配、全部企微业务或全部桌面工具已通过。同一 Desktop MCP 的单次空闲原聊天启动另已实测，idle 下完整 MQ 回路及其他平台仍未验收。[完整记录](docs/NATIVE-VALIDATION.md)
 
+2026-10-16 更新：Windows 本机 Codex↔Grok 的双向 Hub 验收已通过。Codex 派任务后由原 Grok Bot 执行并回传；Grok 也实际调用固定提交入口，由原 Codex 聊天执行并把结果返回 Grok。三项验收任务共 9 份真实执行 Report、3 份成果及 SHA-256、6 条正确关联的 task/result、两端实际结果消费和资源释放均已核对。独立空闲唤醒另已验证，忙时能力标记未改。旧传输源码已删除，历史消息、回执和媒体保留；范围限于当前 Windows 安装与固定会话。[双向验收记录](docs/NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)
+
 ## 首页导览
 
 - [功能与范围](#功能与范围)
@@ -21,6 +23,7 @@
 - [消息协议与回执](docs/PROTOCOL.md)
 - [独立 Client 与版本维护](docs/CLIENTS.md)
 - [自动安装会话技能](docs/SKILLS.md)
+- [Grok 本机文件接入与 Routine 配置](clients/grok-routine/README.md)
 - [本机原生验证记录](docs/NATIVE-VALIDATION.md)
 
 ## 功能与范围
@@ -57,7 +60,7 @@ flowchart LR
 | 项目 | 选择 |
 | --- | --- |
 | 协调内核 | Go 标准库，单个可执行文件，零外部 Go 依赖 |
-| 助手 Client | 各自独立进程；现有 Python Client 使用 Python 3.11+ 标准库，Codex Desktop MCP Client 0.2.0 使用 Node 22+ 标准库，无需 npm 或 Python shared |
+| 助手 Client | 各自独立进程；现有 Python Client 使用 Python 3.11+ 标准库，Codex Node Desktop MCP Client 0.3.0 使用 Node 22+ 标准库，无需 npm 或 Python shared |
 | 消息与状态 | 本地 broker、每 endpoint 的持久化收件箱、统一 JSON 协议 |
 | 持久化 | 追加写入完整状态快照，SHA-256 校验，写入后同步 |
 | 控制接口 | 带授权的 HTTP loopback REST 与 SSE |
@@ -86,7 +89,9 @@ python3 tools/smoke_client.py --hub dist/darwin-arm64/agi-hub
 
 打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含独立 Client 源码、运行说明和空凭据配置示例。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
 
-当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。此前两轮独立 CLI 的完整 MQ 忙时返回已有原生回报、文件校验和资源释放证据。用户重新授权后，原 WorkBuddy 会话的一次单联系人查询也已通过，原始工具结果返回候选，成果字段与返回一致，并自动回传忙碌原入口；该次首轮未接手，需要由入口核对后显式续接一次。同一 Desktop MCP 的空闲原聊天启动已单独实测；idle 下完整 MQ 回路、App Server proxy 的空闲启动与其他平台原生运行仍未验收。
+截至 2026-10-15 的验证记录：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。此前两轮独立 CLI 的完整 MQ 忙时返回已有原生回报、文件校验和资源释放证据。用户重新授权后，原 WorkBuddy 会话的一次单联系人查询也已通过，原始工具结果返回候选，成果字段与返回一致，并自动回传忙碌原入口；该次首轮未接手，需要由入口核对后显式续接一次。同一 Desktop MCP 的空闲原聊天启动已单独实测；idle 下完整 MQ 回路、App Server proxy 的空闲启动与其他平台原生运行当时尚未验收。
+
+2026-10-16，六平台包已重建，逐包核对 Node `0.3.0` 的源码与 manifest 与当前文件一致，未包含私有 `client.json`。当前 Windows 安装另已完成 Codex 独立入口自检和 Codex↔Grok 双向原生任务验收。打包检查不证明六个平台的原生入口都已接通。[分段验证范围](docs/NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)
 
 ## 快速开始
 
@@ -147,8 +152,10 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 ## 当前边界
 
 - 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine Client 只实现 `queue`。Claude 接入仍在研究阶段。
+- Codex Node Desktop MCP `0.3.0` 默认只接收结果；显式设置 `native.receive_tasks=true` 并为固定原聊天配置接手与报告技能后，可接收 queue 任务，仍拒绝 control。当前 Windows 安装的独立入口自检及 Grok 发起的真实任务与结果消费均已通过。Python Desktop MCP/App Server 保持结果专用，Python queue 保留任务接收。[Codex Client](clients/codex/README.md)
 - WorkBuddy Client `0.2.1` 显式选择官方 CLI 会话恢复或本地助理 OpenAPI。独立 CLI 的 MQ 执行和成果校验已通过；用户重新授权后，原 WorkBuddy 会话经入口核对并显式续接一次，已完成单联系人新查询、原生回报和自动忙时回传。此前远端授权过期保留为历史，不再作为当前阻点；这项验收不覆盖全部企微业务或完整桌面工具注入。OpenAPI 需要第三方正式 OAuth，不能由 CLI 登录推导授权。[配置与范围](clients/workbuddy/README.md)
 - Codex Desktop MCP 与 App Server proxy 是不同通道。官方 Desktop MCP 已在独立 Node 启动链验证忙时即时引导；本机 Python 父链曾遇签名校验失败，App Server proxy 则缺少控制 socket。后两项不能推导 Desktop MCP 不可用。本机已有两轮完整 MQ 忙时返回和一次同通道空闲启动诊断的分别证据。空闲诊断确认旧轮次 completed、原聊天 idle 后只发送一次，原聊天已进入不同的新轮次且官方桌面 read_thread 工具仍可用；它不构成 idle 下完整 MQ 回路。
+- Grok Routine Client `0.2.0` 支持 `file-webhook`：本机文件保存完整交接，官方 webhook 仅传 id，Grok 原会话主动提交 Report；省略 transport 保留旧正文模板模式。既有 Windows 文件桥是迁移依据，新 Hub 原生闭环仍需单独验收。[配置与固定接收提示](clients/grok-routine/README.md)
 - 原生接收工具返回成功只代表投递，任务完成须核对回报和要求的成果文件。`uncertain` 不自动重发。
 - 会话排队与资源互斥只覆盖边车管理的运行；人工在原生会话或同一桌面并发操作仍需协调。初期建议使用专属会话。
 - 授权范围作为任务元数据传递，不能提供原生权限沙盒。助手消息不能批准用户的权限提示。

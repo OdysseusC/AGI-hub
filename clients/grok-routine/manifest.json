@@ -1,9 +1,9 @@
 {
   "protocol": 1,
   "id": "grok-routine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "dependencies": {"shared": "0.1.0"},
-  "label": "Grok Bot user-configured official Routine webhook",
+  "label": "Grok Bot file handoff and official Routine webhook",
   "runtime": "python>=3.11",
   "entrypoint": "main.py",
   "session_kinds": ["routine-webhook-target"],

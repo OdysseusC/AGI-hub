@@ -1,6 +1,6 @@
 # 本机原生接入记录
 
-记录日期：2026-10-14 至 2026-10-15，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+既有 Hub 原生记录日期为 2026-10-14 至 2026-10-15，环境为 macOS arm64；2026-10-16 先记录 Grok 文件模式的迁移依据与模拟范围，后续补充 Windows Codex 单入口原生自检、打包核对及 Grok 迁移进度。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID、随机校验值或私有绝对路径。各日期章节保留当时的观察；[Windows 后续记录](#windows-codex-selfcheck-20261016) 不代表所有 Windows 入口或 Linux 已通过，构建也不能替代实测。
 
 ## 2026-10-14：WorkBuddy 默认恢复与历史
 
@@ -95,12 +95,71 @@ Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--
 
 本次未读取或复制桌面私有 env/auth/ticket。临时四条单查询许可已移除，只保留四条窄范围报告安装许可；报告 helper 使用仓库外独立 runtime，不依赖开发 checkout。此前本地拒绝、远端 `850003 / authorization expired` 与重新授权后的成功属于先后阶段；当前单联系人数据获取已通过，不再把旧授权错误列为当前阻点。这项证据覆盖原会话、指定查询、主动回报、成果核验和自动忙时返回，不代表全部企微业务、全部 GUI 工具注入或 WorkBuddy OpenAPI 已验收。
 
+## 2026-10-16：Grok 文件模式的迁移依据与待验收范围
+
+用户已有 Windows 本机 Codex↔Grok 文件桥，通过原子发布完整 JSON、文件事件和仅 id 的 Routine webhook 工作。旧桥已核对原 Codex 聊天忙时引导、空闲自动进入聊天，以及 Grok 读取文件后的正式答复与双方处理回执；定时过渡已结束，现有 Routine 保持 webhook-only。这些是旧桥特定会话与通知服务的证据，不是新 Hub Client 已完成验收的证据。
+
+本次将这套本机文件与事件方式加入已有 Grok Routine Client：Hub SSE 领取后发布独立包，webhook 仅传 id，原 Grok 会话显式提交 Report，由 Hub 核对成果后生成关联 result，再经原入口 Client 返回。它使用自己的 inbox、持久 claim 与接收记录，不消费旧桥消息、不改变旧桥 Routine，也不把旧桥 done 回执转换成 Hub succeeded。
+
+本次 Windows exFAT 上的 `tools/smoke_grok_client.py` 已通过：真实 Hub 与文件 Client 发布包，本地模拟 Routine 核对 webhook 仅含 id、实际读取对应完整文件，再通过固定 endpoint 的报告 launcher 提交 accepted/running/succeeded；Hub 核对成果 SHA-256，生成一次关联 result，重建 Adapter 后没有再次通知。临时配置与数据位于独立测试目录，没有调用真实 Grok webhook、旧桥或用户会话。
+
+这证明本机文件与 Hub 协议的模拟闭环；真实 Routine 的配置、原会话文件和报告能力、空闲唤醒、忙时行为以及最终回到原入口仍待分别验收。HTTP 结果分类、重复与冲突另由本地专项测试覆盖，不能替代原生证据。配置示例、测试与 manifest 都不自动开启已验证能力。
+
+首次原生验收须保留：原会话实际读到新文件的证据；真实 accepted/running/终态 Report 与稳定 run_id；Hub 成果 SHA-256；一次新 result 的 message_id/reply_to/task_id/correlation_id；原入口的实际消费。通知响应丢失时保留 uncertain，重复文件或事件不能使任务执行第二次。[Grok 配置与接收模板](../clients/grok-routine/README.md)
+
+<a id="windows-codex-selfcheck-20261016"></a>
+
+## 2026-10-16：Windows Codex 单入口自检与打包核对
+
+Windows 本机常驻 Node Client `0.3.0` 显式启用 `native.receive_tasks=true`。先前独立原生空闲唤醒探针已确认原聊天实际启动、消费探针并保留所检查的桌面工具；该探针单独记录，不替代下面的 Hub 任务证据。本轮未设置 `result_queue_while_busy_verified`，不新增 Windows 忙时结果接收能力声明。
+
+随后提交 `origin=recipient=codex` 的独立入口自检，真实链路为 Hub SSE → Node Client → 官方 Desktop MCP → 固定原 Codex 聊天。它验证 Codex 作为任务接收方和结果入口的同一条路径，不是 Grok 发起，也不是跨助手验收。依次核对：
+
+1. 原聊天实际接手、执行并完成，保存和提交 accepted/running/succeeded 三个稳定事件；任务关联与执行标识一致，事件 ID 可与 Hub 记录核对。
+2. 随机校验值来自实际读取输入文件；目标原聊天标识匹配，官方桌面 `list_artifacts` 已实际调用成功。这里只证明该检查覆盖的工具可用，不把它写成所有桌面工具逐项验收。
+3. Hub 核验真实 artifact 的工作区归属和 SHA-256，生成一次正确关联的 result；task 与 result 两条消息均为 delivered，资源锁已释放。
+4. 在上述记录之外，再次读取并核对原聊天的最终回复，已明确确认消费对应 result。实际结果消费有独立于传输 ACK 的证据，不仅依据通知接受推导。
+
+六个目标平台的分发包已重新构建。逐包核对其中的 Node Client 源码和 manifest 与当前 `0.3.0` 文件完全一致，未包含私有 `client.json`。这些包检查证明分发内容匹配，不证明其他平台或其他原生入口已完成验收。公开记录不包含个人路径、真实会话 ID、凭据或随机校验值。
+
+## 2026-10-16：Grok 迁移进度（截至本机 12:13）
+
+首个配置衔接 webhook 已被原 Grok Bot 接收，但当时目标本机 C 离线。原 Bot 明确报告失败，没有读取本机文件，也没有在本机执行配置工作；这不是新 Hub 任务成功，更不是文件消费证据。
+
+启动现有本机客户端后，Grok 确认 C 在线。后续使用新的关联请求 ID，原 Bot 已接手并记录 processing；截至本机 12:13，尚未提供配置保存的真实结果、实际读取随机校验值的证明或完成回执。前次失败保留，后续已接手工作不能当作已完成，也不另起第二份执行。
+
+Grok 的完整 Hub 闭环仍未验证，`idle_wake_verified` 保持 false。五份旧传输源码随后已按用户要求删除；旧监听原本已停止，84 份历史 JSON 的 SHA-256 均未改变，消息、回执与协议继续保留。Hub 及两个 Client 均不依赖旧源码，既有 Grok 配置衔接只使用保留的 JSON 和协议。旧传输源码清理已完成，Grok 迁移验收尚未完成；上面的 Codex 自检不能代替 Grok 文件读取、原生 Report、成果核验和结果返回，Webhook 接受或普通回复也不能替代这些证据。
+
+## 2026-10-16：Grok 配置收尾与独立原生唤醒
+
+下午已完成前述配置衔接：原 Bot 提交了正式答复、实读文件的随机校验值和完成回执，Codex 也已核对并消费。此前所谓 memory/profile 审批阻塞，后经原 Bot 澄清，是将已经批准的 Routine 更新卡误认为仍待处理；未找到原始工具错误日志，不把该解释描述为已恢复的审核日志。最小长期指引更新已完成，description 未改。此次配置收尾由入口显式续接，不能冒充自动唤醒验收；旧桥最后一条衔接例外已关闭。
+
+随后单独做了一次原生 webhook 诊断：发送前实际确认固定 Bot 空闲，使用与生产 Client 相同的 ID-only 通知路径。完整诊断文件包含一个此前未知的随机校验值；固定 Routine 自动读取并创建匹配的消费记录，期间没有 UI 续接或人工转述。该包明确标记为诊断，不创建 Hub 业务任务，不伪造 Report。一次性接收分支验证后已退役，诊断文件与单次发送记录保留。
+
+这证明当前 Windows 安装中固定 Routine 的空闲自动触发和真实文件消费；回执未列出精确文件工具方法，主聊天也没有显示新的 turn，因此不扩展为所有工具或主聊天显示行为的证明。核对后仅启用 Grok 的 `idle_wake_verified` 并重启传输进程，忙时能力标记不变。真实跨助手任务、成果核验和结果返回仍须下述独立业务验收，不能用本次诊断代替。
+
+<a id="windows-grok-roundtrip-20261016"></a>
+
+## 2026-10-16：Windows Codex↔Grok 双向 Hub 验收完成
+
+配置收尾与独立唤醒验证后，使用新 ID、新校验文件和独立成果路径，完成三项真实 Hub 任务。此前过期、未提交的验收草稿保留，未复用 ID 或重放旧消息。
+
+1. Codex→Grok：常驻 Client 经 SSE 领取任务并发送仅 ID 的 webhook；固定 Grok Bot 实际接手、执行、读取校验值并提交三个 Report。Hub 核验成果后生成关联 result，官方 Desktop MCP 自动唤醒原 Codex 聊天；该聊天最终回复明确确认消费，时间为本机 16:15:37。
+2. Grok 提交：一个独立控制任务让原 Grok Bot 调用固定 Submission launcher 一次。原生提交回执与 Hub 中新建的 `origin=grok / recipient=codex` 任务匹配；控制任务只记录提交结果，不代做反向执行、不等待反向业务。
+3. Grok→Codex：原 Codex 聊天实际读取另一份未知校验值，核对固定聊天身份，调用一次官方桌面只读工具，并提交 accepted/running/succeeded。Hub 核验成果后将 result 返回 Grok；固定 Routine 于本机 16:21:36 保存完整关联的消费记录。Codex 的反向执行及控制任务结果消费另由官方线程工具核对。
+
+三项任务分别使用三个稳定执行标识；9 份原生 Report 的事件 ID、内容指纹与 Hub 持久记录逐一匹配，3 份成果的工作区和 SHA-256 一致，6 条 task/result 消息关联及投递均正确，相关资源锁已释放。此业务验收没有人工转发任务正文、重发 webhook 或 UI 续接；结果不是从 HTTP 200、聊天普通答复或模拟测试推导。
+
+两端保留原会话与原生工具。Grok 成果记录了本次实际使用的 Shell、CopyToBox 和 Read；Codex 实际调用了官方 `list_artifacts`。这不代表所有工具、其他电脑、休眠恢复或所有宿主版本已验收。重启后会话状态仍为 unknown，验收前依据真实原生状态登记；本轮没有开启忙时能力标记，也没有新增状态轮询服务、定时收件或替代 AI 执行器。
+
+本机已用仓库 Client 替换五份旧传输源码，84 份既有消息及握手 JSON 哈希保持一致；全部历史回执、协议正文、媒体与交付脚本保留。配置失败、显式续接、独立诊断和最终业务验收分别保留证据，不把历史失败改写为成功。
+
 ## 后续验收
 
-- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。idle 下完整 MQ 回路须另行验收；继续核对断线、超时和投递不确定时不重发。
+- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断及上述 Windows Codex↔Grok 双向任务的分别记录。WorkBuddy 的 idle 下完整 MQ 回路仍须另行验收；继续核对断线、超时和投递不确定时不重发。
 - 其他企微业务与桌面工具分别按用户授权验收，不从单联系人候选匹配推导全部能力或全通讯录唯一。保留本地拒绝、远端 850003 和重新授权后成功的历史，不盲目重试。
 - App Server proxy 的连接与空闲 turn/start 单独验收，不能用 Desktop MCP 已通过的空闲启动替代；权限提示、关联回执和成果核对仍遵循各自通道的记录。
-- 在 Windows、Linux 和其他宿主版本上单独验收官方启动链，不把本机成功推广为全平台支持。
+- Windows 已有上述固定 Codex/Grok 入口的独立唤醒与双向任务证据；其他 Windows 入口、Linux 和不同宿主版本仍须分别验收，不把本机成功或六平台打包推广为全平台支持。
 
 WorkBuddy OpenAPI 的 `localassistant/message` 仍是独立候选，需第三方应用与本人 OAuth，当前未配置这条真实授权路径。CLI 正式登录不自动授予 OpenAPI 权限；它也不是普通桌面任意聊天的定位接口。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
 

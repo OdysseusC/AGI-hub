@@ -235,7 +235,8 @@ class DesktopMcpAdapterTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        self.launcher = self.root / "launch_codex_app_tools_mcp"
+        launcher_name = "node.exe" if sys.platform == "win32" else "launch_codex_app_tools_mcp"
+        self.launcher = self.root / launcher_name
         self.launcher.write_text("official launcher fixture, never executed")
         self.launcher.chmod(0o700)
         self.server = self.root / "server.mjs"

@@ -108,7 +108,7 @@ func packageBinary(path, binary, name string) (err error) {
 		_, e = io.Copy(out, in)
 		return e
 	}
-	for source, target := range map[string]string{binary: name, "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json", "tools/smoke_client.py": "tools/smoke_client.py"} {
+	for source, target := range map[string]string{binary: name, "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json", "tools/smoke_client.py": "tools/smoke_client.py", "tools/smoke_grok_client.py": "tools/smoke_grok_client.py"} {
 		if err = add(source, target); err != nil {
 			z.Close()
 			return err
