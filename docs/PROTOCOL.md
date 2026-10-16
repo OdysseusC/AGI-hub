@@ -114,13 +114,34 @@ Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wa
 | `POST /v1/leader` | 设置后续任务 leader | 管理 |
 | `POST /v1/session` | 核实并更新会话状态 | 管理 |
 | `GET /v1/endpoint?endpoint=ID` | 查询自身协议版本、会话绑定及状态 | 对应 endpoint 或管理 |
-| `POST /v1/inbox?endpoint=ID` | 原子领取下一条可处理消息 | 对应 endpoint 或管理 |
+| `POST /v1/inbox?endpoint=ID[&wait_ms=N]` | 原子领取；可等待消息变更，最长 25 秒 | 对应 endpoint 或管理 |
+| `POST /v1/client-lease?endpoint=ID` | 原子获取、续期或释放该 endpoint 的消费者租约 | 对应 endpoint 或管理 |
 | `POST /v1/delivery?endpoint=ID` | 汇报投递证据 | 对应 endpoint 或管理 |
 | `POST /v1/report?endpoint=ID` | 汇报原生执行及结果 | 对应 endpoint 或管理 |
 | `GET /v1/events?endpoint=ID` | SSE 变更提示 | 对应 endpoint 或管理 |
 
 SSE 首次连接发送一次变更提示，随后按事件推送；完整状态和消息通过授权接口读取。连接保活不轮询业务任务。独立 Client 应先订阅、再领取，重连后只领取仍为 `pending` 且满足条件的消息；已经领取但投递不确定的消息不会被重新领取。Hub 没有内置助手执行器，也不把 SSE 断开当作原生操作失败的证据。
 
-Client 在连接与领取前先读取自身 `/v1/endpoint`。返回 `protocol_version: 1`、该 `endpoint` 和 `session`，不返回其他会话、任务或凭据。Client 校验产品类型、支持模式及原生会话 ID 与私有配置一致；不兼容协议或目标错配时拒绝消费，不能以不同会话执行后再冒认原绑定。
+Client 在连接与领取前先读取自身 `/v1/endpoint`。返回 `protocol_version: 1`、该 `endpoint`、`session` 和 `outstanding`；后者只包含该 endpoint 的 `dispatching/uncertain` 消息，供重启核对。它不是可领取列表，不返回其他 endpoint 或管理凭据。Client 校验产品类型、支持模式及原生会话 ID 与私有配置一致；不兼容协议或目标错配时拒绝消费，不能以不同会话执行后再冒认原绑定。
 
-Client 和 Hub 约定协议版本 `1`。当前 Client 的 manifest 描述协议、会话类型与发送模式，Hub 不自动加载它或因此扩大 endpoint 的能力。每个 endpoint 使用一个 Client 进程；不同 Client 可以用不同语言实现，必须遵守领取后不盲重发、回执去重和授权边界。原生配置与凭据属于 Client 的私有文件，不能加入 Envelope 或 Hub 配置。详见 [独立 Client](CLIENTS.md)。
+Client 和 Hub 约定协议版本 `1`。当前 Client 的 manifest 描述协议、会话类型与发送模式，Hub 不自动加载它或因此扩大 endpoint 的能力。每个 endpoint 只有一个活跃消费者，可由独立进程或原生会话内插件承载；不同 Client 可以用不同语言实现，必须遵守领取后不盲重发、回执去重和授权边界。原生配置与凭据属于 Client 的私有文件，不能加入 Envelope 或 Hub 配置。详见 [独立 Client](CLIENTS.md)。
+
+### 事件长轮询
+
+省略 `wait_ms` 时保持原来的即时领取行为；`wait_ms=N` 仅接受一个十进制整数 `1..25000`，空值、重复参数、非整数或越界返回 HTTP 400。已有可处理消息立即返回完整 Envelope，否则订阅 broker 变更、复查后等待；消息到达立即领取，无消息等待至上限后返回 HTTP 200、JSON `null`。客户端断开会取消等待。
+
+长轮询不会重新领取 `dispatching/uncertain`，不会改变资源或会话准入规则。两个等待请求最多一个领取同一条消息。Claude Code mod 无法读取 SSE 流，使用长轮询作为等价事件唤醒；它不查询原生业务历史。其他 Client 可以继续使用 SSE，不需要改动。
+
+### 原子消费者租约
+
+Claude Code endpoint（`driver="claude-code"`）用 Hub 内的原子租约防止同一原会话在桌面与终端被两边同时消费，替代先写后读的非原子文件锁。请求示例只展示结构，不包含真实租约：
+
+```json
+{"owner_id":"consumer-instance-example"}
+```
+
+首次成功返回 `lease_id`、`expires_at` 和 `ttl_ms:60000`。同 owner 的获取幂等；续期提交相同 `owner_id` 和 `lease_id`，释放再加 `"release":true`。租约已被其他 owner 占用、旧代租约过期或 lease_id 不匹配时返回 HTTP 409。owner 是每次客户端加载的实例标识，不能只用固定 session_id。租约只存在于当前 Hub 进程，重启后必须重新取得。
+
+Claude Code 的 inbox、delivery、report 请求必须带 `X-AGI-Hub-Lease: <lease_id>`，Hub 在同一临界区核对有效租约再执行变更；无租约或已失效返回 409。此约束也适用于管理凭据调用，不能用管理权限绕过活跃消费者。其他 driver 保持原有行为。租约不替代 endpoint token，不提供同一 OS 账号内的权限隔离。
+
+客户端每次原生提交前重新确认租约。领取响应丢失、租约失效或本地缺少投递记录时，保留 Hub 的 outstanding 和任务锁供核对；不能重新领取或提交同一 prompt。已保存结果先写持久记录，再发送完全相同的 `outcome + detail`；重启只重发该投递回执。未知原生结果记录 `uncertain`，不把网络错误当作未执行证据。

@@ -143,6 +143,10 @@ func packageBinary(path, binary, name string) (err error) {
 		// Explicit public-file allowlist: never package client.json credentials,
 		// local caches, logs or arbitrary files alongside an adapter.
 		public := filepath.Ext(source) == ".py" || filepath.Ext(source) == ".mjs" || filepath.Ext(source) == ".md" || d.Name() == "manifest.json" || d.Name() == "client.example.json"
+		relative := filepath.ToSlash(source)
+		if strings.HasPrefix(relative, "clients/claude-code/") {
+			public = public || filepath.Ext(source) == ".js" || relative == "clients/claude-code/.claude-plugin/marketplace.json" || relative == "clients/claude-code/agi-hub-endpoint/.claude-plugin/plugin.json" || relative == "clients/claude-code/agi-hub-endpoint/hooks/hooks.json"
+		}
 		if !public {
 			return nil
 		}

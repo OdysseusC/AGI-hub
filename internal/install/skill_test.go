@@ -170,14 +170,14 @@ func TestHostDefaultsAndExplicitOtherHostDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for host, subdir := range map[string]string{"codex": ".codex", "workbuddy": ".workbuddy"} {
+	for host, subdir := range map[string]string{"codex": ".codex", "workbuddy": ".workbuddy", "claude": ".claude"} {
 		opts.Host = host
 		resolved, err := normalizeOptions(opts)
 		if err != nil || resolved.SkillsDir != filepath.Join(home, subdir, "skills") {
 			t.Fatalf("default for %s: %+v, %v", host, resolved, err)
 		}
 	}
-	opts.Host = "claude"
+	opts.Host = "other-host"
 	if _, err := normalizeOptions(opts); err == nil {
 		t.Fatal("invented an implicit skills directory for an unverified host")
 	}

@@ -20,6 +20,8 @@ description: "通过用户配置的 AGI Hub 边车，接手当前原生 AI 助�
 
 ## 回报方法
 
+宿主提供 AGI Hub 专用回报工具（如 `mcp__agi-hub-endpoint__report`）时优先使用该工具：由工具填写固定的 endpoint 和执行标识，保留稳定的 event_id，并核对工具返回的成功状态。工具只接受本会话已收到的任务，不为 result 消息回报。下述 CLI 方法供没有专用回报工具的宿主使用。
+
 使用 `installation.json` 中的绝对 `binary_path` 执行命令，独立传递参数，避免把任务内容或路径拼入 shell 代码：
 
 ```text

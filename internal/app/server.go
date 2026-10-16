@@ -8,15 +8,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"agihub/internal/manager"
 )
 
 type Server struct {
-	Broker *manager.Broker
-	Config Config
+	Broker  *manager.Broker
+	Config  Config
+	leaseMu sync.Mutex
+	leases  map[string]clientLease
 }
 
 func (s *Server) Handler() http.Handler {
@@ -83,7 +87,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint"
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease"
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -99,10 +103,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		result = struct {
-			ProtocolVersion int              `json:"protocol_version"`
-			Endpoint        manager.Endpoint `json:"endpoint"`
-			Session         manager.Session  `json:"session"`
-		}{1, binding, snapshot.Sessions[endpoint]}
+			ProtocolVersion int                `json:"protocol_version"`
+			Endpoint        manager.Endpoint   `json:"endpoint"`
+			Session         manager.Session    `json:"session"`
+			Outstanding     []manager.Envelope `json:"outstanding"`
+		}{1, binding, snapshot.Sessions[endpoint], outstandingMessages(snapshot, endpoint)}
+	case r.URL.Path == "/v1/client-lease" && r.Method == http.MethodPost:
+		result, err = s.changeClientLease(w, r, endpoint)
 	case r.URL.Path == "/v1/state" && r.Method == http.MethodGet:
 		result = s.Broker.Snapshot()
 	case r.URL.Path == "/v1/tasks" && r.Method == http.MethodPost:
@@ -111,7 +118,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			result, err = s.Broker.Submit(in)
 		}
 	case r.URL.Path == "/v1/inbox" && r.Method == http.MethodPost:
-		result, err = s.Broker.Next(endpoint)
+		var wait time.Duration
+		if wait, err = inboxWait(r); err == nil {
+			result, err = s.inbox(r, endpoint, wait)
+		}
 	case r.URL.Path == "/v1/delivery" && r.Method == http.MethodPost:
 		var in struct {
 			MessageID string `json:"message_id"`
@@ -123,7 +133,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if !ok || m.Recipient != endpoint {
 				err = errors.New("message does not belong to this client")
 			} else {
-				err = s.Broker.Delivery(in.MessageID, in.Outcome, in.Detail)
+				err = s.withClientLease(r, endpoint, func() error {
+					return s.Broker.Delivery(in.MessageID, in.Outcome, in.Detail)
+				})
 			}
 		}
 	case r.URL.Path == "/v1/report" && r.Method == http.MethodPost:
@@ -132,7 +144,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if endpoint == "" || in.Endpoint != endpoint {
 				err = errors.New("report endpoint must match authenticated client")
 			} else {
-				err = s.Broker.Report(in)
+				err = s.withClientLease(r, endpoint, func() error { return s.Broker.Report(in) })
 			}
 		}
 	case r.URL.Path == "/v1/leader" && r.Method == http.MethodPost:
@@ -159,10 +171,29 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		var requestErr *requestError
+		if errors.As(err, &requestErr) {
+			jsonResponse(w, requestErr.status, map[string]string{"error": requestErr.code})
+			return
+		}
 		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
 	jsonResponse(w, http.StatusOK, result)
+}
+
+func outstandingMessages(snapshot manager.Snapshot, endpoint string) []manager.Envelope {
+	messages := []manager.Envelope{}
+	for _, envelope := range snapshot.Messages {
+		if envelope.Recipient == endpoint && (envelope.Delivery == "dispatching" || envelope.Delivery == "uncertain") {
+			messages = append(messages, envelope)
+		}
+	}
+	sort.Slice(messages, func(i, j int) bool { return messages[i].ID < messages[j].ID })
+	return messages
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ macOS / Linux：
 ```sh
 /absolute/path/agi-hub install-skill --host codex --endpoint codex --data /absolute/path/private
 /absolute/path/agi-hub install-skill --host workbuddy --endpoint workbuddy --data /absolute/path/private
+/absolute/path/agi-hub install-skill --host claude --endpoint claude --data /absolute/path/private
 ```
 
 Windows PowerShell：
@@ -18,6 +19,7 @@ Windows PowerShell：
 ```powershell
 & 'C:\Users\you\bin\agi-hub.exe' install-skill --host codex --endpoint codex --data 'C:\Users\you\private\agi-hub'
 & 'C:\Users\you\bin\agi-hub.exe' install-skill --host workbuddy --endpoint workbuddy --data 'C:\Users\you\private\agi-hub'
+& 'C:\Users\you\bin\agi-hub.exe' install-skill --host claude --endpoint claude --data 'C:\Users\you\private\agi-hub'
 ```
 
 以上是路径示例，须替换为本机真实绝对路径与已配置的 endpoint。安装流程适合交给当前 AI 助手直接执行，不需要下载脚本、额外包管理器或修改宿主权限设置。CLI 的 `--binary` 可明确记录接手助手以后使用的真实程序绝对路径。
@@ -28,6 +30,7 @@ Windows PowerShell：
 | --- | --- | --- |
 | Codex | 当前用户 `~/.codex/skills` | 安装协议技能；既有会话是否加载需在实际会话中核对 |
 | WorkBuddy | 当前用户 `~/.workbuddy/skills` | 根据当前 5.8.2 本机扫描实现选择；须通过技能界面和真实任务核对加载，不作为全版本保证 |
+| Claude Code | 当前用户 `~/.claude/skills` | 为 Code 会话安装接手说明；唤醒由另外安装的 `agi-hub-endpoint` mod 完成，普通 Chat/Cowork/WSL 不支持 |
 | 其他宿主 | 无默认值 | 使用官方说明或本机已核实的技能目录，显式指定 `--skills-dir`；安装相同说明不代表支持唤醒 |
 
 自定义目录示例：
@@ -39,6 +42,8 @@ Windows PowerShell：
 尖括号是待替换参数。只安装到用户选定宿主，不批量扫描应用配置、提取登录态、注册其他助手或切换 leader。不同宿主的技能格式和加载条件需要分别核实；如果需要 UI 导入，使用宿主原生技能界面完成并保留用户审批流程。
 
 使用 WorkBuddy 的独立 CLI 配置目录时，通过 `--skills-dir` 选择该 CLI 环境实际扫描、已核实能加载的技能目录；桌面默认目录不会自动成为每个 CLI profile 的技能目录。先核对会话加载证据，再配置技能读取、指定报告 helper 与本次工作区文件权限。
+
+Claude Code mod 提供 `mcp__agi-hub-endpoint__report` 时，技能优先调用该原生工具，endpoint 与真实任务 turn ID 由插件固定；不需要 Bash 报告命令。Go CLI `report --file` 是其他支持环境的后备方式，不能在 Claude 插件租约之外绕过其绑定、回报来源和幂等核对。插件、技能与权限分别安装：技能存在不代表已加载插件，也不能证明空闲唤醒。当前 Claude Code 以 2.1.299 校验，实际 N2/N3 结果见 [本机记录](NATIVE-VALIDATION.md)。
 
 ## 安装内容与更新
 

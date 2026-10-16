@@ -9,8 +9,9 @@
 | `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
 | `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 已通过；用户重新授权、入口核对并显式续接一次后，原会话的单联系人新查询、主动回报和自动忙时回传已通过；完整桌面工具继承及 OpenAPI 未验收 |
 | `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
+| `clients/claude-code` | Claude Code 会话内 mod 的 `prompt.submit` 与原生 report 工具 | `queue` | macOS Claude-3p 2.1.299 原 Code 会话已验证 N2；N3 经修复后一次回报续接完成并自动返回；忙时排队、其他平台待验收 |
 
-Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
+Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。Claude Code 使用宿主 mods API 运行会话内 Client；不同实现使用同一本机 REST 协议，唤醒可选 SSE 或事件长轮询。[独立 Client 的配置和启动](CLIENTS.md)
 
 Client 不读取其他助手的登录凭据或历史。原生参数只从用户配置的私有文件获得；程序输出和 HTTP 响应正文不作为公开投递诊断展示。当前同仓库、每个助手一个目录，后续按维护与发布需要拆成独立仓库。
 
@@ -83,21 +84,25 @@ Webhook URL 和请求体必须来自用户已核实的实际平台配置，Clien
 
 增加一个助手目录，实现本机协议消费和对应的原生 Adapter；无需向 Go Hub 添加产品分支。当前 Python Client 用 `validate_binding(binding)` 核对真实目标，再由 `deliver(envelope) -> (outcome, detail)` 执行一次投递，可复用公共运行时。Hub 不执行来自配置的任意命令，也不自动加载陌生模块。
 
-要声明 `steer` 或 `interrupt`，必须先确认原生入口定位的是绑定会话和目标运行，支持该语义，并能回传对应 `run_id` 与实际执行回执。内核要求 `target_run_id` 匹配活跃的边车管理运行。把控制文本当普通 queue 消息发送，不构成这些能力。已提供的三个 Client 尚无这些模式的原生验收通过记录，候选代码或本地模拟测试不代替实际验证。
+要声明 `steer` 或 `interrupt`，必须先确认原生入口定位的是绑定会话和目标运行，支持该语义，并能回传对应 `run_id` 与实际执行回执。内核要求 `target_run_id` 匹配活跃的边车管理运行。把控制文本当普通 queue 消息发送，不构成这些能力。已提供的 Client 尚无这些模式的原生验收通过记录，候选代码或本地模拟测试不代替实际验证。
 
 `result_queue_while_busy_verified` 另行声明忙时接收 `kind=result` 的投递能力，默认关闭；它不是 `steer` 或 `interrupt`。普通任务、未知状态、未决投递和资源协调仍遵守 [消息协议](PROTOCOL.md) 的约束。
 
 进程未成功启动为 `failed`；成功启动后非零退出、超时或取消为 `uncertain`；退出成功仅表示传输完成。原生任务完成仍要 Report 与成果验证。
 
-## Claude 候选能力
+## Claude Code 会话内插件
 
-Claude Code 官方跨会话消息可触达本机运行中的其他 Code 会话，使用 macOS/Linux Unix socket 或 Windows named pipe；忙时在工具调用间读取，空闲时开始新回合。macOS/Linux/WSL 2 至少需要 `2.1.224`，原生 Windows 至少需要 `2.1.234`。消息仅为文本，仍受接收方 inbound controls 与自己的权限约束。[跨会话消息](https://code.claude.com/docs/en/cross-session-messaging)
+`clients/claude-code` 提供 `agi-hub-endpoint` mod，直接运行在用户绑定的 Claude Code 原会话内。它使用官方 `$.session.id()` 核对目的会话，以 `$.prompt.submit({text})` 提交插件来源的完整交接，并注册 `mcp__agi-hub-endpoint__report` 回报工具；不另起 `--resume` 进程，不伪装用户消息，也不通过 Bash 回报。[配置与安装](../clients/claude-code/README.md)
 
-Desktop Code 另有自己的会话管理面，只看到 Desktop 运行的本地、SSH、WSL Code 会话，忙时等当前工作完成后读取。不能把这套面与普通 Chat、Cowork、terminal CLI 或 cloud 会话混为一谈。[Desktop Code](https://code.claude.com/docs/en/desktop#work-across-sessions)
+插件在所有加载它的 Code 会话中注册诊断命令，只有与私有配置及 Hub 绑定一致的会话才消费消息。Hub 的原子客户端租约代替非原子锁文件，同一 endpoint 的另一个进程不能同时领取或回报；会话切换时停止旧监听，重新核对新会话。持久化记录按 Hub 地址、endpoint、会话隔离；重启只对账保存的投递回执，不重新提交已领取的 prompt。
 
-Code 会话向 hooks/Bash 导出每会话收件地址和 token，可作为注册候选；Windows 连接要求认证。当前还需验证完整投递载荷、Desktop 实际收件地址、空闲接手及结果回报。[收件环境变量](https://code.claude.com/docs/en/env-vars)
+mods 的 HTTP API 不能读取流式 SSE，因此使用最长 25 秒的 inbox 长轮询，消息提交事件会立即唤醒等待请求。无消息时返回 `null` 后重建等待，不查询业务历史。原生投递确认、执行回报、成果核验仍分别记录；HTTP 或 `prompt.submit` 的不确定结果不重发。
 
-插件支持不等于外部唤醒：普通 Chat 不运行 hooks、subagents 或本地 MCP；Cowork 与 Code 另有运行条件。Channels 是明确的外部事件机制，但处于研究预览、需要会话打开和按会话启用，还受插件白名单约束。只安装 MCP 不会获得推送能力。本项目尚未实现 Claude Client。[插件范围](https://support.claude.com/en/articles/13837440-use-plugins-in-claude)、[Channels](https://code.claude.com/docs/en/channels)
+当前以 Claude Code **2.1.299** 开发与校验。2026-10-16，macOS Claude-3p 的原 Code 会话已通过 N2 单次空闲启动；N3 自动接手并生成成果，修复回报工具输出格式后显式续接一次回报，Core 核验两份成果并自动返回忙碌的 Codex 原聊天。没有重派 MQ 任务，也没有在最终版本重复一条全新无人值守任务；忙时排队仍未实测。[实际过程与边界](NATIVE-VALIDATION.md#2026-10-16claude-3p-原-code-会话)
+
+macOS、Windows、Linux 共享无第三方依赖的插件源码，但宿主版本及各平台原生能力分别验证。目标 Code 会话必须保持打开并加载插件；插件不负责启动已退出的桌面应用。
+
+普通 Claude Chat、Cowork、WSL Code 会话不在支持范围。Desktop Code 与终端交互 Code 分开记录验证结果。跨会话 socket、Channels 和独立 CLI 恢复不作为本 Client 的备用投递，避免静默更换执行环境。[官方 mods API](https://code.claude.com/docs/en/plugins/mods/api)、[官方插件安装](https://code.claude.com/docs/en/discover-plugins)
 
 ## WorkBuddy：CLI 与官方本地助理
 

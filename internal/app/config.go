@@ -63,6 +63,7 @@ func InitConfig(dir string) error {
 	cfg := Config{Version: 1, DeviceID: "this-device", Listen: "127.0.0.1:7331", AdminToken: hex.EncodeToString(buf), Workspaces: map[string]string{}, Bindings: []Binding{
 		{Endpoint: manager.Endpoint{ID: "codex", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "codex"}, Driver: ClientBinding{Type: "external"}},
 		{Endpoint: manager.Endpoint{ID: "workbuddy", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "workbuddy"}, Driver: ClientBinding{Type: "external"}},
+		{Endpoint: manager.Endpoint{ID: "claude", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "claude-code"}, Driver: ClientBinding{Type: "external"}},
 		{Endpoint: manager.Endpoint{ID: "grok", DeviceID: "this-device", Modes: []string{"queue"}, Driver: "grok-routine"}, Driver: ClientBinding{Type: "external"}},
 	}}
 	data, err := json.MarshalIndent(cfg, "", "  ")

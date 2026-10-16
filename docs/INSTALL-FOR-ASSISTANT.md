@@ -10,7 +10,7 @@
 
 ## 1. 构建程序
 
-从用户提供的本项目源码目录开始。构建 Hub 需要 Go 1.22+，零第三方 Go 依赖。当前独立 Client 使用 Python 3.11+ 标准库，启用时需检查该运行时，不需要安装额外 Python 包。
+从用户提供的本项目源码目录开始。构建 Hub 需要 Go 1.22+，零第三方 Go 依赖。Python Client 使用 Python 3.11+ 标准库，Codex Desktop MCP 使用 Node 22+ 标准库，Claude Code mod 使用宿主 API；按选择的 Client 检查对应运行时，不安装第三方包。
 
 macOS / Linux：
 
@@ -48,7 +48,7 @@ go build -o agi-hub.exe ./cmd/agi-hub
 
 绑定核对 `endpoint.id / device_id / session_id / driver / modes`。产品连接参数分别保存在仓库外的 `client.json`；Hub 配置不再存可执行文件、Webhook URL 或原生凭据。Client 在领取前核对 Hub 返回的自身绑定，Codex 的 thread 必须与 session_id 一致。WorkBuddy 官方本地助理使用专用标识 `localassistant`，不表示可定位普通 Chat；CLI 分支要求绑定已验证的既有会话 ID、工作目录及配置目录，独立 CLI 与桌面会话须分别标注。[独立 Client](CLIENTS.md) 提供配置格式。
 
-初始化的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
+`init` 创建 Codex、WorkBuddy、Grok、Claude 四个禁用绑定。初始化的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
 
 原生验收建议先选一个专属会话，做用户明确授权、可逆的任务，确认实际接手、原生工具保留和结果回报。对云端 Routine，要先解决授权回到本机的报告通道；本地 loopback 地址不能直接供云端使用。完成这些验证后才启用绑定。当前修改配置需要重启 `serve`。
 
@@ -59,20 +59,40 @@ go build -o agi-hub.exe ./cmd/agi-hub
 ```sh
 agi-hub install-skill --host codex --endpoint codex
 agi-hub install-skill --host workbuddy --endpoint workbuddy
+agi-hub install-skill --host claude --endpoint claude
 agi-hub client-config --endpoint codex --file /absolute/private/codex/client.json
 ```
 
 Windows 使用 `agi-hub.exe` 及该电脑的绝对路径。上述 endpoint 必须对应本机配置。`client-config` 只写该 endpoint 的 scoped token 和空 `native` 到新私有文件，拒绝 Git 仓库内路径、符号链接父目录或覆盖已有文件；再按该 Client 的示例填写原生参数。
 
-技能安装记录程序路径、数据目录和 endpoint，不包含凭据。默认支持 Codex 用户技能目录和当前 WorkBuddy 桌面版本的用户技能目录；在原生应用核对是否发现并启用，其他宿主用明确验证过的 `--skills-dir`。[技能安装支持范围](SKILLS.md)
+技能安装记录程序路径、数据目录和 endpoint，不包含凭据。默认支持 Codex、当前 WorkBuddy 桌面版本、Claude Code 的用户技能目录；在原生应用核对是否发现并启用，其他宿主用明确验证过的 `--skills-dir`。[技能安装支持范围](SKILLS.md)
 
-在独立终端启动对应 Client：
+Codex、WorkBuddy、Grok 使用独立 Client 进程，例如：
 
 ```sh
 python3 clients/codex/main.py --config /absolute/private/codex/client.json
 ```
 
-Hub 不自动启动 Client；同一 endpoint 只运行一个消费者。每个 Client 单独配置与更新，既有 native 执行不随 Client 停止而取消。WorkBuddy OAuth 缺失时在领取前停止，不能用桌面登录态代替授权。
+Hub 不自动启动 Client；同一 endpoint 只运行一个消费者。Claude Code 不另起消费者进程，由原会话内插件消费，安装方式见下文。每个 Client 单独配置与更新，既有 native 执行不随 Client 停止而取消。WorkBuddy OAuth 缺失时在领取前停止，不能用桌面登录态代替授权。
+
+### Claude Code：安装到打开的原会话
+
+当前实现以 Claude Code **2.1.299** 开发与校验。先检查目标宿主实际版本；桌面内置 CLI 与 PATH 中的 CLI 可能不同，不能只看桌面应用版本。只支持加载 mods 的本地 Code 会话；Chat、Cowork、WSL 不支持。
+
+1. 保留用户指定的原 Code 会话，取得其真实 UUID；不要新开独立 `--resume` 进程代替桌面验收。配置 Hub `claude` binding 的 `driver="claude-code"` 与 `session_id`，先保留 `idle_wake_verified=false`。
+2. 导出仓库外的私有配置，再按 [配置示例](../clients/claude-code/client.example.json) 补 `native`，同一 UUID 同时用于 Hub 与插件配置。令牌只在该私有文件，不能放进插件 userConfig、提交或聊天。
+3. 用本机已核实的 `claude` CLI 从本地 marketplace 安装：
+
+   ```sh
+   claude plugin install agi-hub-endpoint --marketplace /absolute/path/to/AGI-hub/clients/claude-code --scope user --config client_config=/absolute/private/claude/client.json
+   ```
+
+   Windows 使用该电脑上的绝对路径；如果 CLI 不在 PATH，用当前桌面宿主的实际二进制路径代替 `claude`。插件 userConfig 仅记录私有配置文件路径。
+4. 使用受管安装器安装 `--host claude --endpoint claude` 技能；在原生权限配置里仅允许 report 工具和本次任务必要的文件操作。保留本人权限提示，不能用插件消息代为批准。
+5. 在目标 Code 会话运行 `/reload-plugins`，然后 `/agi-hub-id`、`/agi-hub-status`；UUID 应保持原值。无关会话应显示休眠。同 endpoint 的另一进程由 Hub 原子租约拒绝消费。
+6. 在确认空闲的目标会话运行 `/agi-hub-diagnose`，等待一次插件来源的新回合。只有实际通过 N2 才启用 `idle_wake_verified`，再执行带成果文件的 N3 完整闭环，分别记录接手、执行、原生 turn ID、文件 SHA-256、结果返回与资源释放。
+
+目标会话需要保持加载插件。关闭应用后的启动、忙时普通任务引导和打断不在本 Client 范围。重载或会话切换会重新核对绑定与租约；未决消息仅对账，不重新提交。自动化校验通过也不能代替上述原会话验收。[插件完整说明](../clients/claude-code/README.md)
 
 ## 3. 启动与核对会话
 
@@ -156,7 +176,7 @@ CLI 默认采用当前 leader 为 origin、queue 模式、一次交接和提交�
 
 每条新回报使用新的稳定 `event_id`；重发同一条回报时保持 ID 和全部内容不变。保持同一任务的真实 `run_id`，回报的 endpoint 必须是任务接收端。
 
-两种回报方式：
+宿主有 `mcp__agi-hub-endpoint__report` 等原生回报工具时优先使用；Claude 插件自动固定 endpoint 与首次报告的真实 `claude-turn:<turn-id>`，同一任务后续保持一致。其他已配置环境可用以下两种 CLI 回报方式：
 
 ```sh
 agi-hub report --endpoint grok

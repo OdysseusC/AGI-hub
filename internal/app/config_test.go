@@ -18,6 +18,26 @@ func clientConfigFixture() Config {
 	}
 }
 
+func TestInitKeepsEveryNativeAssistantDisabled(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitConfig(dir); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"codex": "codex", "workbuddy": "workbuddy", "claude": "claude-code", "grok": "grok-routine"}
+	if len(cfg.Bindings) != len(want) || cfg.Leader != "" {
+		t.Fatal("initial configuration must not select a leader or omit a known client")
+	}
+	for _, b := range cfg.Bindings {
+		if want[b.Endpoint.ID] != b.Endpoint.Driver || b.Driver.Type != "external" || b.Endpoint.Enabled || b.Endpoint.SessionID != "" || b.Endpoint.IdleWakeVerified || b.Endpoint.ResultQueueWhileBusyVerified {
+			t.Fatal("initialization must not enable or claim verification for any native assistant")
+		}
+	}
+}
+
 func writeConfigFixture(t *testing.T, value any) string {
 	t.Helper()
 	dir := t.TempDir()

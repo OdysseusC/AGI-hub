@@ -1,0 +1,14 @@
+{
+  "name": "agi-hub-endpoint",
+  "version": "0.1.3",
+  "description": "Native Claude Code session client for the local AGI Hub.",
+  "userConfig": {
+    "client_config": {
+      "type": "string",
+      "title": "Private client configuration",
+      "description": "Absolute path to the private AGI Hub client.json; keep its token outside the checkout.",
+      "default": "",
+      "required": false
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # 独立助手 Client
 
-每个 AI 助手有自己的 Client 进程，通过本机 Hub 的 REST / SSE 协议领取任务、报告投递。Go Hub 保存消息和状态；Client 只翻译该助手实际支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
+每个 AI 助手有自己的 Client，通过本机 Hub 的 REST 协议领取任务、报告投递。Codex、WorkBuddy、Grok 使用独立进程；Claude Code 的 Client 是运行在绑定原会话内的 mod 插件。Go Hub 保存消息和状态；Client 只翻译该助手实际支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
 
-这是一种进程级插件接口。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Client 可以使用不同语言，只要遵循同一协议；当前已有 Python 实现，Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。
+协议把 Client 与 Hub 分开维护，Client 可以是独立进程，也可以由原生助手加载。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Client 可以使用不同语言，只要遵循同一协议；当前已有 Python 实现，Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。
 
 ## 目录和技术栈
 
@@ -12,6 +12,7 @@ clients/
   codex/              # 官方 Desktop MCP / queue 兼容 / 结果专用 app-server
   workbuddy/          # 官方 CLI 会话恢复 / localassistant OpenAPI
   grok-routine/       # 用户配置的官方 Routine webhook
+  claude-code/        # 原会话内 mod、原生 report 工具与本地 marketplace
   tests/              # 本地模拟传输测试，不调用真实助手
 ```
 
@@ -19,11 +20,11 @@ clients/
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.2.1`、Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.2.1`、Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`、Claude Code Client 为 `0.1.3`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
-Client 具有独立进程和维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
+Client 具有独立维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖；Claude Code mod 只依赖宿主 mods API，直接分发完整插件目录与 marketplace。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
-Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，没有第三方 Python 包依赖；Codex Desktop MCP Client 使用 Node 22+，本机 macOS 验证还要求已核实的官方已签名 Node 与自然宿主启动链。当前没有自动安装运行时、后台服务托管或自动 OAuth 续期；这些是安装体验的后续工作，不改变 Hub 协议。
+Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，没有第三方 Python 包依赖；Codex Desktop MCP Client 使用 Node 22+，本机 macOS 验证还要求已核实的官方已签名 Node 与自然宿主启动链。Claude Code 插件当前以 2.1.299 开发与校验，无额外 Node/Python 运行时。当前没有自动安装运行时、后台服务托管或自动 OAuth 续期；这些是安装体验的后续工作，不改变 Hub 协议。
 
 ## 接入范围
 
@@ -35,6 +36,7 @@ Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，
 | WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 独立 CLI 的 MQ 执行、Report 和成果核验已通过；用户重新授权、入口核对并显式续接一次后，原 WorkBuddy 会话的单联系人新查询、主动回报与自动忙时回传已通过；不代表全部桌面工具继承 |
 | WorkBuddy OpenAPI | 官方 `/openapi/v2/localassistant/message` | `queue` | 目标是官方持续本地助理；API 没有普通 Chat 的 `session_id` 定位参数。需要用户本人正式 OAuth 授权；尚未在本项目持有真实 token 完成接口验收 |
 | Grok Routine | 用户提供的官方 Routine webhook | `queue` | URL、认证方式和请求结构来自用户的实际 Routine 配置；示例字段不是对官方请求格式的推测 |
+| Claude Code mod | 官方 `prompt.submit`、原生 report 工具 | `queue` | macOS Claude-3p 2.1.299 原 Code 会话：N2 已验证，N3 经修复后一次回报续接完成并自动返回；忙时排队、其他平台待验收；Chat、Cowork、WSL 不支持 |
 
 独立 Client 尚无普通任务 `steer` 或 `interrupt` 控制模式的原生验收通过记录。现有 Client 的绑定只接受 `modes=["queue"]`；成果的原生引导与普通任务控制分开声明。不支持的模式在领取消息前拒绝，不会悄悄降级为队列发送。会话是否空闲、资源是否可用、是否允许唤醒，由 Hub 根据已核实的状态决定；Client 不自行伪造 `idle` 或 `busy`。
 
@@ -54,7 +56,7 @@ CLI 依据为 [官方无头模式](https://www.workbuddy.cn/docs/cli/headless)�
 
 先让 Hub 注册该 endpoint，在对应 binding 中设置 `"driver": {"type": "external"}`，由独立 Client 消费。不要同时启动两个 Client 领取同一 endpoint。原生身份参数放在 Client 的私有配置，Hub 的管理密钥不应放进去。
 
-每次连接先通过 `GET /v1/endpoint?endpoint=ID` 读取该 endpoint 的已注册配置，只能读取自己。Client 核对协议 `1`、endpoint ID、启用状态和原生目的地后，才能建立 SSE 和领取消息：
+每次连接先通过 `GET /v1/endpoint?endpoint=ID` 读取该 endpoint 的已注册配置，只能读取自己。Client 核对协议 `1`、endpoint ID、启用状态和原生目的地后，才能订阅 SSE 或建立事件长轮询并领取消息：
 
 | Client | Hub 的 `endpoint.driver` | Hub 的 `endpoint.session_id` |
 | --- | --- | --- |
@@ -62,6 +64,7 @@ CLI 依据为 [官方无头模式](https://www.workbuddy.cn/docs/cli/headless)�
 | WorkBuddy CLI | `workbuddy` | 必须与私有配置 `native.session_id` 完全一致 |
 | WorkBuddy OpenAPI | `workbuddy` | 必须为 `localassistant`，表示持续专用本地助理 |
 | Grok Routine | `grok-routine` | 必须与私有配置 `native.routine_id` 完全一致；这是用户为该 Routine 设置的标签 |
+| Claude Code mod | `claude-code` | 必须与私有配置 `native.session_id` 及当前 `$.session.id()` 完全一致 |
 
 这里的 `endpoint.driver` 是助手类型，和 binding 的外部传输类型 `driver.type="external"` 不同。协议不兼容、禁用 endpoint、会话或类型不匹配时停止消费，消息正文不能指定或覆盖目的地。会话状态 `unknown` 仍保留为未知，不会被 Client 改写为 idle；是否允许投递由 Hub 决定。每次断线重连都会重新验证绑定。
 
@@ -90,7 +93,7 @@ agi-hub client-config --endpoint workbuddy --file /absolute/path/to/private/work
 }
 ```
 
-`base_url` 必须使用数字形式的本机 loopback 地址，不接受局域网地址、DNS 域名、嵌入凭据或额外路径。`endpoint_token` 只访问该 endpoint 的收件箱、事件和回执，不能切换 leader 或创建管理任务。请求明确设置 Hub 要求的 Host、Origin 和 Authorization；不使用环境代理，也不跟随 HTTP 重定向。
+`base_url` 必须使用数字形式的本机 loopback 地址，不接受局域网地址、DNS 域名、嵌入凭据或额外路径。`endpoint_token` 只访问该 endpoint 的收件箱、事件和回执，不能切换 leader 或创建管理任务。请求明确设置 Hub 要求的 Host、Origin 和 Authorization。独立 Python/Node Client 不使用环境代理，也不跟随 HTTP 重定向；Claude Code mod 使用宿主的 HTTP API，该 API 会跟随重定向，异源跳转会移除 Authorization 等非保留请求头，因此仍必须使用本机数字 loopback 的固定 Hub 地址。
 
 在仓库根目录启动所需的 Python Client；Codex Node Desktop MCP 的启动方式见 [Codex Client](../clients/codex/README.md)，macOS 应使用该宿主已验证的官方签名 Node 绝对路径，不把 PATH 中任意 Node 当作相同启动链：
 
@@ -101,6 +104,18 @@ python3 clients/grok-routine/main.py --config /path/to/private/grok/client.json
 ```
 
 Windows 可以使用 `py -3` 替换 `python3`，并提供该电脑上的绝对配置路径。Hub 的实际端口应与私有配置一致；示例端口不是自动发现结果。把个人配置文件限制为本机用户可读，避免提交真实 token、thread ID、聊天内容和成果文件。
+
+### Claude Code mod 配置
+
+Claude Code 不启动外部消费者进程。先用 `agi-hub client-config --endpoint claude --file <absolute-private-path>` 导出该 endpoint 的私有配置，再按 [Claude Code 示例](../clients/claude-code/client.example.json) 填写 `native.transport="mod"`、目标 `session_id`、`long_poll_ms` 和 `max_prompt_bytes`。插件选项只保存私有配置文件的绝对路径，不包含 token。
+
+通过官方 `claude plugin install` 从本地 marketplace 安装 `agi-hub-endpoint@agi-hub-local`，使用 `--config client_config=<absolute-private-path>` 配置；已打开的目标 Code 会话运行 `/reload-plugins`，然后 `/agi-hub-id`、`/agi-hub-status` 核对原 UUID 和监听状态。可用 CLI 不在 PATH 时，使用用户当前桌面宿主提供的实际 Claude Code 二进制路径，不硬编码其他电脑的版本目录。[完整步骤](../clients/claude-code/README.md)
+
+插件先取得 Hub 的 60 秒原子租约，续租并在提交 prompt 前确认归属。`/clear`、`/resume`、`/branch` 后重新检查当前会话；不匹配时休眠，不继续消费原 endpoint。持久投递记录按 Hub、endpoint、session 隔离；`outstanding` 仅显示本 endpoint 的未决消息供对账，不能当作重新投递队列。
+
+`report` 工具只接受当前绑定接收过的 `kind=task`，自动固定 endpoint 和第一次报告时的真实 `claude-turn:<turn-id>`。同一任务后续回报保持该 run_id，相同 event_id 要求相同完整 Report；`kind=result` 只展示，不回报或执行。原生工具权限和用户授权保持有效，插件交接不能批准权限提示。
+
+完成一次 N2 诊断后才能开启 `idle_wake_verified`；忙时结果能力需另行验收。本机 macOS Claude-3p 2.1.299 已实际验证空闲启动，N3 经修复后一次回报续接完成；这不替其他宿主开启验证标记，实际过程见 [本机记录](NATIVE-VALIDATION.md#2026-10-16claude-3p-原-code-会话)。
 
 ### WorkBuddy CLI 配置
 
@@ -159,7 +174,7 @@ Codex 的执行入口在启动 Client 时解析并保存为绝对路径，投递
 
 ## 消费、回执和结果返回
 
-1. Client 先核对 Hub 的已注册原生绑定，再建立 SSE 订阅，之后读取持久化 inbox，避免连接和领取之间遗漏新任务。
+1. Client 先核对 Hub 的已注册原生绑定，再建立 SSE 订阅，之后读取持久化 inbox；Claude Code 以事件长轮询代替 SSE。Hub 先订阅再复查，避免连接和领取之间遗漏新任务。
 2. Hub 原子地把可领取消息从 `pending` 改为 `dispatching`。Client 只处理属于自己 endpoint 的领取结果。
 3. 对原生入口尝试一次。执行前确定配置错误为 `failed`；CLI 已启动但失败/超时、网络尝试后没有确认、非 2xx 响应或重定向都为 `uncertain`。Codex CLI 成功、Grok webhook HTTP 2xx 记录传输已投递。WorkBuddy CLI 还核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错误结果；登录错误、残缺或不匹配输出保留 `uncertain`。WorkBuddy OpenAPI 则须核对 `code` 严格为整数 `0`、`data.message_id` 合法非空。任一传输的已投递均不证明业务完成，`UNKNOWN`、模型拒绝、退出码 `0` 或结果 `success` 不能代替原生 Report。
 4. Client 发送 `/v1/delivery`。接手、执行和业务完成由原生助手主动调用 `/v1/report` 汇报；没有后台历史消息轮询。
@@ -185,6 +200,8 @@ python3 clients/shared/report.py --config /path/to/private/workbuddy/client.json
 
 当前实现支持独立进程的单独启动、停止和替换，Hub 协议不变；还没有一个替用户管理全部 Client 进程的 supervisor，也没有自动下载、验证或执行陌生插件。
 
+Claude Code 插件通过官方插件更新或重新安装后，在目标会话 `/reload-plugins`；它会停止旧监听、重取租约、核对持久记录，不把热重载当作重新发送任务。已领取消息必须先明确投递状态，不能靠重载清除不确定记录。
+
 安全更新时先暂停向该 endpoint 提交任务，让已领取消息拿到明确投递回执。任务已经交给原生助手后，停止 Client 不会停止原生助手本身；原生执行仍通过报告工具回传。停止旧 Client 后替换该助手目录，再启动新进程，其他 Client 和 Hub 可以继续运行。
 
 如果更新时存在 `dispatching`、`uncertain` 或未保存回执，应先核对原生执行记录，再恢复消费。不要通过清空记录、改成 idle 或提交新 task ID 绕过不确定状态。中途强制停止 Client 只能进入保守恢复流程，不能被称为无损热更新。
@@ -193,7 +210,7 @@ python3 clients/shared/report.py --config /path/to/private/workbuddy/client.json
 
 ## 多平台与多电脑
 
-Python Client 使用标准库 HTTP、子进程和文件 API；Codex Desktop MCP 的新路径使用 Node runtime。Go 核心可构建为原生程序，各 Client 的运行时由需要它们的用户选择安装。Windows、macOS、Linux 的原生 CLI、官方 MCP 启动链、签名与环境检查分别验收；某一语言或某一宿主启动成功不能直接推广到其他环境。
+Python Client 使用标准库 HTTP、子进程和文件 API；Codex Desktop MCP 的新路径使用 Node runtime，Claude Code 使用宿主内的 mods API。Go 核心可构建为原生程序，各 Client 的运行时由需要它们的用户选择安装。Windows、macOS、Linux 的原生 CLI、官方 MCP 启动链、签名与环境检查分别验收；某一语言或某一宿主启动成功不能直接推广到其他环境。
 
 当前 Hub 接口仅在本机 loopback 使用。另一台电脑的助手需要在那台电脑上运行自己的 Client，并采用后续经过授权的跨设备传输；本机 SSE 不自动成为远程消息服务。文件引用带有 `device_id`、`workspace_id` 和工作区内的相对路径，不会自动复制文件，也不能把本机路径直接交给远程助手使用。
 

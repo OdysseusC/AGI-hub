@@ -31,6 +31,18 @@
     },
     {
       "endpoint": {
+        "id": "claude",
+        "device_id": "this-device",
+        "session_id": "",
+        "enabled": false,
+        "idle_wake_verified": false,
+        "modes": ["queue"],
+        "driver": "claude-code"
+      },
+      "driver": {"type": "external"}
+    },
+    {
+      "endpoint": {
         "id": "grok",
         "device_id": "this-device",
         "session_id": "",

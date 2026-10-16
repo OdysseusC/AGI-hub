@@ -1,0 +1,15 @@
+{
+  "protocol": 1,
+  "id": "claude-code",
+  "version": "0.1.3",
+  "label": "Claude Code session mod (Desktop Code tab / interactive CLI)",
+  "runtime": "claude-code-mod>=2.1.299",
+  "entrypoint": "agi-hub-endpoint/hooks/register.js",
+  "session_kinds": ["claude-desktop-code-local", "claude-code-interactive"],
+  "native_transports": ["mod-prompt-submit"],
+  "supported_modes": ["queue"],
+  "completion": "native-execution-report",
+  "desktop_chat_supported": false,
+  "wsl_supported": false,
+  "native_validation": "per-host-version-and-platform-verification-required"
+}

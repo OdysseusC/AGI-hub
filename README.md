@@ -8,7 +8,9 @@
 
 项目面向 Codex、WorkBuddy、Claude、Grok Bot 等原生 AI 助手。当前入口可以通过设置 leader 切换，接入由用户控制；每个助手的实际支持范围见适配器说明。程序采用本地边车部署方式。
 
-> 当前是本地开发版。2026-10-15，macOS 已通过两轮独立 WorkBuddy/CodeBuddy CLI 会话的完整 MQ 忙时返回。用户重新授权后，原 WorkBuddy 会话也完成一次真实单联系人查询：首轮未接手，由入口核对并显式续接一次，随后原生主动回报，Core 核验成果，再由独立 Node Client 经官方 Desktop MCP 自动返回忙碌的 Codex 原聊天。联系人候选与成果字段一致；这不代表全通讯录唯一匹配、全部企微业务或全部桌面工具已通过。同一 Desktop MCP 的单次空闲原聊天启动另已实测，idle 下完整 MQ 回路及其他平台仍未验收。[完整记录](docs/NATIVE-VALIDATION.md)
+> 当前是本地开发版。2026-10-15，macOS 已通过两轮独立 WorkBuddy/CodeBuddy CLI 会话的完整 MQ 忙时返回。用户重新授权后，原 WorkBuddy 会话也完成一次真实单联系人查询：首轮未接手，由入口核对并显式续接一次，随后原生主动回报，Core 核验成果，再由独立 Node Client 经官方 Desktop MCP 自动返回忙碌的 Codex 原聊天。联系人候选与成果字段一致；这不代表全通讯录唯一匹配、全部企微业务或全部桌面工具已通过。同一 Desktop MCP 的单次空闲原聊天启动另已实测，Codex 原入口空闲时的完整 MQ 回路及其他平台仍未验收。[完整记录](docs/NATIVE-VALIDATION.md)
+
+> 2026-10-16，Claude-3p Desktop 本地 Code 原会话（2.1.299）已完成单次空闲唤醒，以及 Codex → Hub → Claude 原生工具执行 → 成果核验 → 自动返回忙碌 Codex 原聊天。N3 首轮遇到回报工具输出格式错误；Client 0.1.3 修复后只显式续接一次回报，没有重派任务或重写成果。未重复进行修复后全新任务的无人值守验收，也未验证 Claude 忙时排队与其他平台。[Claude 验收记录](docs/NATIVE-VALIDATION.md#2026-10-16claude-3p-原-code-会话)
 
 ## 首页导览
 
@@ -45,7 +47,7 @@ flowchart LR
     Entry --> API[CLI / REST]
     API --> Broker[本地 Sidecar Broker]
     Broker <--> Journal[带校验的快照日志]
-    Broker --> Client[每助手独立 Client 进程]
+    Broker --> Client[每助手 Client：独立进程或会话内插件]
     Client --> Native[原生 CLI / Webhook / 官方接口]
     Native --> Report[关联回执与成果引用]
     Report --> Broker
@@ -57,16 +59,16 @@ flowchart LR
 | 项目 | 选择 |
 | --- | --- |
 | 协调内核 | Go 标准库，单个可执行文件，零外部 Go 依赖 |
-| 助手 Client | 各自独立进程；现有 Python Client 使用 Python 3.11+ 标准库，Codex Desktop MCP Client 0.2.0 使用 Node 22+ 标准库，无需 npm 或 Python shared |
+| 助手 Client | 独立进程或原生会话内插件；Python Client 使用 Python 3.11+ 标准库，Codex Desktop MCP 使用 Node 22+ 标准库，Claude Code 插件使用宿主 mods API，均无第三方包依赖 |
 | 消息与状态 | 本地 broker、每 endpoint 的持久化收件箱、统一 JSON 协议 |
 | 持久化 | 追加写入完整状态快照，SHA-256 校验，写入后同步 |
-| 控制接口 | 带授权的 HTTP loopback REST 与 SSE |
+| 控制接口 | 带授权的 HTTP loopback REST、SSE 与最长 25 秒的事件长轮询 |
 | 界面 | 内置简单状态页，由本机浏览器打开 |
 | 系统目标 | Windows、macOS、Linux；原生适配能力分别验证 |
 
-Hub 本身不需要 Redis、RabbitMQ、SQLite、Docker、Python 或 Node.js。构建内核需要 Go 1.22+，运行已构建的 Hub 不需要 Go。Python Client 需要 Python 3.11+；WorkBuddy CLI 还需官方 CLI 安装，JavaScript 入口需要 Node.js。Codex Desktop MCP 的本机验证使用官方 Node runtime 与自然宿主环境，其运行链须单独核实。Client 可以用不同语言实现。
+Hub 本身不需要 Redis、RabbitMQ、SQLite、Docker、Python 或 Node.js。构建内核需要 Go 1.22+，运行已构建的 Hub 不需要 Go。Python Client 需要 Python 3.11+；WorkBuddy CLI 还需官方 CLI 安装，JavaScript 入口需要 Node.js。Codex Desktop MCP 的本机验证使用官方 Node runtime 与自然宿主环境，其运行链须单独核实。Claude Code Client 直接运行在已打开的 Code 会话内，不需要另装 Node.js 或 Python；当前以宿主 2.1.299 开发与校验。Client 可以用不同语言实现。
 
-先使用单仓库，每个助手一个目录，分别声明 Client 版本、协议版本、原生会话类型和支持模式。Hub 与 Client 分别更新；兼容协议内替换一个 Client 不需要重新编译 Hub。未来独立维护或发布时可以拆仓库，共享 runtime 固定版本后随 Client 分发。当前支持独立进程的启停与替换；自动托管和无损热更新尚未实现。[维护与更新](docs/CLIENTS.md#单独更新和拔插)
+先使用单仓库，每个助手一个目录，分别声明 Client 版本、协议版本、原生会话类型和支持模式。Hub 与 Client 分别更新；兼容协议内替换一个 Client 不需要重新编译 Hub。未来独立维护或发布时可以拆仓库，共享 runtime 固定版本后随 Client 分发。独立进程支持启停与替换；Claude Code 通过原生插件重载更新，并以 Hub 原子租约避免重复消费。自动托管和无损热更新尚未实现。[维护与更新](docs/CLIENTS.md#单独更新和拔插)
 
 “边车”沿用软件架构中的 Sidecar 含义：在已有应用旁边补充配套能力。这里将协调逻辑与原生助手执行分开。[微软 Sidecar 模式](https://learn.microsoft.com/zh-cn/azure/architecture/patterns/sidecar)
 
@@ -84,9 +86,9 @@ python3 tools/smoke_client.py --hub dist/darwin-arm64/agi-hub
 
 最后一条需换成当前系统对应的已构建程序。它运行真实 Hub 与 Python 协议，使用临时目录和模拟 Adapter 核对一次交接、成果校验、结果返回及不重复消费，不向真实助手发消息。
 
-打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含独立 Client 源码、运行说明和空凭据配置示例。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
+打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含 Client 源码、Claude Code 插件、运行说明和空凭据配置示例；插件只包含明确列出的 JavaScript 与三类插件 JSON，不打包私有配置或持久记录。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
 
-当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。此前两轮独立 CLI 的完整 MQ 忙时返回已有原生回报、文件校验和资源释放证据。用户重新授权后，原 WorkBuddy 会话的一次单联系人查询也已通过，原始工具结果返回候选，成果字段与返回一致，并自动回传忙碌原入口；该次首轮未接手，需要由入口核对后显式续接一次。同一 Desktop MCP 的空闲原聊天启动已单独实测；idle 下完整 MQ 回路、App Server proxy 的空闲启动与其他平台原生运行仍未验收。
+当前验证：本机测试与并发检查通过；六个目标平台构建通过；macOS arm64 便携程序的初始化、默认禁用配置启动、鉴权状态查询和正常关闭通过。此前两轮独立 CLI 的完整 MQ 忙时返回已有原生回报、文件校验和资源释放证据。用户重新授权后，原 WorkBuddy 会话的一次单联系人查询也已通过，原始工具结果返回候选，成果字段与返回一致，并自动回传忙碌原入口；该次首轮未接手，需要由入口核对后显式续接一次。同一 Desktop MCP 的空闲原聊天启动已单独实测；Codex 原入口空闲时的完整 MQ 回路、App Server proxy 的空闲启动与其他平台原生运行仍未验收。
 
 ## 快速开始
 
@@ -103,7 +105,7 @@ go build -o agi-hub ./cmd/agi-hub
 
 Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令将 `./agi-hub` 换为 `.\agi-hub.exe`。
 
-`init` 打印配置路径，创建 Codex、WorkBuddy、Grok 三个禁用绑定，没有会话 ID、空闲唤醒验证或默认 leader。`doctor` 只检查 Hub 配置，不向助手发送消息。实际投递需要先完成 [会话绑定、技能安装和 Client 配置](docs/INSTALL-FOR-ASSISTANT.md)。
+`init` 打印配置路径，创建 Codex、WorkBuddy、Grok、Claude 四个禁用绑定，没有会话 ID、空闲唤醒验证或默认 leader。`doctor` 只检查 Hub 配置，不向助手发送消息。实际投递需要先完成 [会话绑定、技能安装和 Client 配置](docs/INSTALL-FOR-ASSISTANT.md)。
 
 完成绑定并在原生应用中确认指定会话空闲后，在另一终端声明状态、选择入口、提交任务。以下使用配置中的 `codex` 和 `grok` endpoint，必须先验证两端的接收与回报路径：
 
@@ -146,7 +148,7 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 
 ## 当前边界
 
-- 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine Client 只实现 `queue`。Claude 接入仍在研究阶段。
+- 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine、Claude Code Client 只实现 `queue`。Claude Code 的会话内 mod 已在 macOS Claude-3p 2.1.299 原会话验证空闲唤醒，完整回路经一次修复后回报续接完成；Claude 忙时排队、其他平台仍待验收，普通 Chat、Cowork、WSL 会话不支持。[Claude Code 配置](clients/claude-code/README.md)
 - WorkBuddy Client `0.2.1` 显式选择官方 CLI 会话恢复或本地助理 OpenAPI。独立 CLI 的 MQ 执行和成果校验已通过；用户重新授权后，原 WorkBuddy 会话经入口核对并显式续接一次，已完成单联系人新查询、原生回报和自动忙时回传。此前远端授权过期保留为历史，不再作为当前阻点；这项验收不覆盖全部企微业务或完整桌面工具注入。OpenAPI 需要第三方正式 OAuth，不能由 CLI 登录推导授权。[配置与范围](clients/workbuddy/README.md)
 - Codex Desktop MCP 与 App Server proxy 是不同通道。官方 Desktop MCP 已在独立 Node 启动链验证忙时即时引导；本机 Python 父链曾遇签名校验失败，App Server proxy 则缺少控制 socket。后两项不能推导 Desktop MCP 不可用。本机已有两轮完整 MQ 忙时返回和一次同通道空闲启动诊断的分别证据。空闲诊断确认旧轮次 completed、原聊天 idle 后只发送一次，原聊天已进入不同的新轮次且官方桌面 read_thread 工具仍可用；它不构成 idle 下完整 MQ 回路。
 - 原生接收工具返回成功只代表投递，任务完成须核对回报和要求的成果文件。`uncertain` 不自动重发。
@@ -170,6 +172,7 @@ internal/install/    嵌入式接手技能与安全安装
 clients/codex/       Codex 独立 Client、manifest 与配置示例
 clients/workbuddy/   WorkBuddy 独立 Client、manifest 与配置示例
 clients/grok-routine/ Grok Routine 独立 Client、manifest 与配置示例
+clients/claude-code/ Claude Code 会话内插件、marketplace 与配置示例
 clients/shared/      固定版本的协议与传输 runtime
 docs/                架构与接入说明
 tools/package/       标准库便携打包工具

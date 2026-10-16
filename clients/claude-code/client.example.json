@@ -1,0 +1,11 @@
+{
+  "base_url": "http://127.0.0.1:7331",
+  "endpoint": "claude",
+  "endpoint_token": "<scoped endpoint token issued by this Hub>",
+  "native": {
+    "transport": "mod",
+    "session_id": "<target Claude Code session UUID>",
+    "long_poll_ms": 25000,
+    "max_prompt_bytes": 1048576
+  }
+}

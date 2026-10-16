@@ -183,6 +183,8 @@ func normalizeOptions(options Options) (Options, error) {
 			hostDir = ".codex"
 		case "workbuddy":
 			hostDir = ".workbuddy"
+		case "claude":
+			hostDir = ".claude"
 		default:
 			return options, errors.New("this host requires an explicit skills directory; no discovery path is assumed")
 		}
