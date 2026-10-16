@@ -731,6 +731,20 @@ func TestJournalRepairsTornTailButRejectsCompleteCorruption(t *testing.T) {
 				t.Fatal("repair retained incomplete bytes in the journal")
 			}
 		}
+		newTask := submitTask(t, f.b, testSubmission("after-repair", "worker"))
+		if err := f.b.Close(); err != nil {
+			t.Fatal(err)
+		}
+		f.b = nil
+		f.b, err = Open(f.dir, testDevice, map[string]string{"work": f.workspace})
+		if err != nil {
+			t.Fatalf("journal appended after repair should reopen: %v", err)
+		}
+		for _, id := range []string{task.ID, newTask.ID} {
+			if _, ok := f.b.Snapshot().Tasks[id]; !ok {
+				t.Fatalf("reopened journal lost task %s after appending to the repaired tail", id)
+			}
+		}
 	})
 	t.Run("complete-checksum-corruption", func(t *testing.T) {
 		f := newBrokerFixture(t)

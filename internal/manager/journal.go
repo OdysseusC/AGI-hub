@@ -69,7 +69,9 @@ func openJournal(dir string) (*os.File, Snapshot, []string, error) {
 			if len(line) > 0 {
 				// The newline is the commit boundary. A partial final record is
 				// discarded, including a complete JSON value missing its newline.
-				if err = file.Truncate(validOffset); err == nil {
+				// Windows append handles cannot truncate; os.Truncate uses a
+				// separate write handle while this file retains append semantics.
+				if err = os.Truncate(file.Name(), validOffset); err == nil {
 					err = file.Sync()
 				}
 				if err != nil {
