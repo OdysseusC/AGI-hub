@@ -1,12 +1,16 @@
 # Codex Client
 
-版本 `0.2.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天返回成果，保留原会话的工具、模型和权限。
+Node Client 版本 `0.3.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天返回成果，显式启用后也可接收普通任务，保留原会话的工具、模型和权限。
 
-每个 Hub endpoint 只启动一个消费者。当前只接受 `kind=result / mode=queue`：展示已完成任务的结果，不重新执行任务，不发送业务接手与进度回执。普通任务的 `steer / interrupt` 尚未实现，传输不确定时不会重发或回退到 `codex queue`。
+每个 Hub endpoint 只启动一个消费者。默认只接受 `kind=result / mode=queue`：展示已完成任务的结果，不重新执行任务，不发送业务接手与进度回执。Node 私有配置显式设置 `native.receive_tasks=true` 后，允许接收 `kind=task / mode=queue`；仍拒绝 `control`、`steer` 和 `interrupt`。传输不确定时不会重发或回退到 `codex queue`。
 
 ## 官方 Desktop MCP
 
-`native.transport="desktop-mcp"` 调用官方 server 暴露的固定工具 `send_message_to_thread`。客户端先完成 MCP 初始化、核对工具参数，再订阅 Hub SSE，随后领取结果。`threadId` 固定来自私有配置，调用者身份只来自宿主已提供的 `CODEX_THREAD_ID`；Envelope 不能替换目标、调用者、工具、启动参数或权限。
+`native.transport="desktop-mcp"` 调用官方 server 暴露的固定工具 `send_message_to_thread`。客户端先完成 MCP 初始化、核对工具参数，再订阅 Hub SSE，随后领取消息。`threadId` 固定来自私有配置，调用者身份只来自宿主已提供的 `CODEX_THREAD_ID`；Envelope 的 recipient 必须匹配固定 endpoint，不能替换目标、调用者、工具、启动参数或权限。工具参数仍只有 `threadId` 和 `prompt`。
+
+普通任务通知保留完整 Envelope 和既有授权边界，并要求原聊天使用安装时固定、限定 endpoint 的报告 helper 主动提交完整 Report。安装时须提供该 helper 的真实程序路径及允许的报告工作区，不能从 Envelope 读取或覆盖这些配置。任务使用与 `clients/shared/notification.py` 相同的 `hubrun-` 标识：对 endpoint、换行和 task_id 的 UTF-8 字节做 SHA-256，取前 32 位小写十六进制；这只是 Hub 执行标识，不能冒充原生 run ID 或复用固定 session_id。实际接手、执行和完成分别由原聊天报告；Client 只保存传输回执，不自动报告 accepted/running/succeeded，也不读取聊天历史代收结果。
+
+`receive_tasks` 不改变 Hub 的调度门槛。普通任务仍受会话状态、资源与空闲唤醒验证约束，忙时不会因开启此项而投递任务；默认状态仍为 `unknown`，Client 不自行标记 idle。普通任务能力已通过本地模拟测试，真实原生任务闭环须在具体宿主另行验收，不能沿用下面的结果返回证据。
 
 官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
@@ -42,6 +46,7 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 | `cwd` | 该官方插件目录的绝对路径，必须是 `server.mjs` 所在目录 |
 | `thread_id` | 已有原生桌面聊天 ID，与 Hub 绑定一致 |
 | `timeout_seconds` | 单次 MCP 请求超时，默认 `30`，范围 `1` 至 `300` 秒 |
+| `receive_tasks` | 可选，严格布尔值，默认 `false`；仅 Node 入口支持，设为 `true` 后接受普通 queue 任务及结果 |
 
 `command`、`args`、`cwd` 必须来自实际安装的官方插件清单与运行环境，不猜目录。客户端只继承正常操作系统变量及官方 Node/桥接变量白名单，不从配置读取桌面凭据。宿主缺少 `CODEX_THREAD_ID` 或 `CODEX_APP_TOOLS_PIPE_PATH` 时，在领取消息前停止；这些变量的值不要复制到 `client.json`、文档或日志。
 
@@ -51,7 +56,7 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
 
-Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。Windows、Linux 和不同 macOS 宿主的桥接与唤醒须重新验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
+Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。Node 启动官方 MCP helper 时设置 `windowsHide=true`，不弹出终端窗口。Windows、Linux 和不同 macOS 宿主的桥接与唤醒须重新验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
 
 首次启动与每次 Hub 重连都会重新核对 endpoint 绑定和 MCP 工具。先订阅 SSE 再领取，keepalive 不触发轮询。断线仅重建连接并扫描 Hub 仍可投递的 pending 消息；已经 `dispatching / uncertain` 的消息不会因此重新发送。客户端不自行宣称会话 idle，不自动处理权限提示。
 
@@ -59,13 +64,13 @@ Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.b
 
 ## 保留的 Python 入口
 
-`main.py` 仍使用 Python 3.11+ 标准库，依赖同级 `shared` runtime `0.1.0`。复制或固定 Python Client 版本时须一起保留相邻的 `clients/shared`。Node Desktop MCP 入口不导入 shared；二者采用同一个 Hub 协议。
+`main.py` 仍使用 Python 3.11+ 标准库，依赖同级 `shared` runtime `0.1.0`。Python Desktop MCP 和 App Server 仍只接收结果，旧 queue 传输保留原有队列行为；所有 Python 入口均不支持 `native.receive_tasks`，Node 的任务开关不能用于 Python 配置。复制或固定 Python Client 版本时须一起保留相邻的 `clients/shared`。Node Desktop MCP 入口不导入 shared；二者采用同一个 Hub 协议。
 
 Python 明确选择以下一种传输，不能同时为同一 endpoint 启动 Node 与 Python 消费者：
 
 | transport | 范围 |
 | --- | --- |
-| `desktop-mcp` | 相同官方 MCP 与配置；当前 macOS Python 父链未通过宿主校验，供其他实际允许的宿主单独验收 |
+| `desktop-mcp` | 相同官方 MCP，仅接收结果且不支持 `receive_tasks` 配置；当前 macOS Python 父链未通过宿主校验，供其他实际允许的宿主单独验收 |
 | `app-server` | 官方 `codex app-server proxy` 连接已运行 daemon，仅结果返回；本机宿主未开放默认控制 socket |
 | `queue` | 兼容 `codex queue --thread ID --message TEXT`；只证明队列接收，忙时需手点引导的路径不能记为自动返回 |
 

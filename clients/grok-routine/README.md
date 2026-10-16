@@ -46,7 +46,9 @@ python3 clients/grok-routine/main.py --config /absolute/path/to/private/grok/cli
 
 Windows 使用 `py -3` 或实际 Python 可执行文件绝对路径。每次连接先核对 Hub 的协议、endpoint 和 Routine 标签，随后先订阅 SSE、再领取消息。只运行一个 endpoint 消费者；没有定时收件轮询。
 
-首次授权验收时可启用已配置的 endpoint，保持 `idle_wake_verified=false`。启动后实际确认原 Grok 会话空闲，再执行 `agi-hub session --endpoint grok --state idle`；已核实 idle 的首次投递不要求预先声明唤醒已通过。原生接入能力须分段验证：Routine 实际读文件和回报、Hub 核验成果，以及关联 result 实际回到原 Codex 会话。配置和本地测试不能把空闲唤醒或忙时结果能力变成已验证；每次 Hub 启动后的 `unknown` 会话都要重新核实。[安装与验收](../../docs/INSTALL-FOR-ASSISTANT.md)
+首次验收先保持 `idle_wake_verified=false`。用户授权后，通过已核实的原生通知入口，对固定 Grok 会话做一次独立空闲唤醒探针：先确认会话实际空闲，再核对该会话启动、读取探针内容和保留原生工具的证据。HTTP 200 只证明通知接受；探针本身也不构成 Hub 业务闭环，不产生虚假的业务 Report。取得实际消费证据后，才把对应 endpoint 的 `idle_wake_verified` 设为 `true` 并重启 Hub。启动一个 Grok Client，重新核实会话空闲，再执行 `agi-hub session --endpoint grok --state idle`。Hub 要求唤醒能力已验证且会话已核实空闲；仅设置 `idle` 不能放行 `idle_wake_verified=false` 的首次消息。
+
+随后另用 Hub 任务验证 Routine 实际读文件和回报、Hub 核验成果，以及关联 result 实际回到原 Codex 会话。配置、本地测试和独立唤醒探针不能替代完整闭环；忙时结果能力须单独验证，每次 Hub 启动后的 `unknown` 会话也要重新核实。[安装与验收](../../docs/INSTALL-FOR-ASSISTANT.md)
 
 ## 文件、去重和投递证据
 

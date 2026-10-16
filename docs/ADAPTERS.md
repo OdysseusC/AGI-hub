@@ -6,7 +6,7 @@
 
 | 目录 | 原生入口 | 支持模式 | 当前验证 |
 | --- | --- | --- | --- |
-| `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
+| `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue`；Node 可显式启用 task，Python Desktop MCP/App Server 仅结果，Python queue 可接任务 | 2026-10-15 Node 忙时结果返回已实测；新增 Node task 路径及本次迁移待原生验收；App Server proxy 缺少控制 socket，各通道分别验收 |
 | `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 已通过；用户重新授权、入口核对并显式续接一次后，原会话的单联系人新查询、主动回报和自动忙时回传已通过；完整桌面工具继承及 OpenAPI 未验收 |
 | `clients/grok-routine` | 本机完整文件 + 官方 webhook 的仅 id 通知；兼容旧模板 | `queue` | 新 Hub 文件模式需单独原生验收；旧桥事件消费证据不代替本 Client 的主动 Report 与成果核验 |
 
@@ -15,6 +15,8 @@ Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准�
 Client 不读取其他助手的登录凭据或历史。原生参数只从用户配置的私有文件获得；程序输出和 HTTP 响应正文不作为公开投递诊断展示。当前同仓库、每个助手一个目录，后续按维护与发布需要拆成独立仓库。
 
 ## Codex Desktop MCP
+
+Node Client `0.3.0` 默认只接受 `kind=result / mode=queue`。显式配置 `native.receive_tasks=true` 后，可向固定原聊天投递 `kind=task / mode=queue`；该聊天须预先配置固定接手与报告技能、endpoint 专属报告入口，并沿用已有用户授权和原生工具。Client 仅通知原聊天，真实执行状态由原聊天提交 Report；`control`、`steer` 和 `interrupt` 均不支持。Python Desktop MCP 与 App Server 仍只接收结果，Python queue 保留任务接收。新增 Node task 路径不能沿用历史结果返回的验收结论。[配置说明](../clients/codex/README.md)
 
 2026-10-15，独立 Node 客户端在自然宿主环境中，经官方 Node runtime 启动官方 Desktop MCP server，完成 initialize 和 tools/list，发现 57 个工具。真实调用 `send_message_to_thread` 后收到 `isError=false` 与匹配 thread ID 的 ACK，消息也已作为 `codex_delegation` 即时进入忙碌原聊天，无人工点“引导”、未使用 native queue。
 

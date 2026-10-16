@@ -84,8 +84,8 @@ Grok Routine Client `0.2.0` 可显式使用 `file-webhook`：完整 Envelope 保
 2. 用户选择 Hub 专用、启用且仅 webhook 触发的 Routine，固定其原 Grok Bot 会话。实际核实本机文件读取、原生工具保留和报告命令能力；不假定云端可以访问 loopback。
 3. Hub 使用 driver `grok-routine`、external binding、queue 模式，session_id 与 Client routine_id 稳定标签相同。导出 grok scoped 配置，在私有 native 中填 `transport="file-webhook"`、`inbox_dir`、实际 webhook URL/headers，不填 body。
 4. 在稳定私有安装目录放置匹配版本的 shared runtime 与固定报告 launcher。Routine 只持有已核实的报告命令和目录，不能从消息更换 endpoint/config；凭据留在私有配置内。Grok 没有假定的默认技能目录，固定提示可直接使用；仅在实际核实加载位置后选择安装通用技能。
-5. 用户授权首次验收时启用目标 endpoint，保持 `idle_wake_verified=false`，启动 Hub 与一个 Grok Client。实际确认该 Grok 会话空闲后执行 `session --endpoint grok --state idle`。已核实 idle 的首次投递不要求预先声称空闲唤醒通过。
-6. 从已验证的原入口提交一个可逆任务，核对真实 accepted/running/终态 Report、成果 SHA-256、Hub 生成的关联 result 和原入口实际消费。再分别验证空闲唤醒与忙时结果接收，通过后才更新对应能力标记。
+5. 首次验收先保持 `idle_wake_verified=false`。在用户授权下，通过已核实的原生通知入口对固定目标会话做一次独立空闲唤醒探针，确认发送前会话确实空闲，并取得该会话实际启动、读取探针内容和保留原生工具的证据；HTTP 200 或通知接受不足以通过。此探针不属于 Hub 业务闭环，不创建虚假的 Report。证据满足后才将对应 endpoint 的 `idle_wake_verified` 设为 `true` 并重启 Hub；再启动一个 Grok Client，重新核实会话空闲并执行 `session --endpoint grok --state idle`。Hub 现有投递门槛不变：仅声明 `idle` 无法绕过尚未验证的唤醒能力。
+6. 从已验证的原入口提交一个可逆任务，核对真实 accepted/running/终态 Report、成果 SHA-256、Hub 生成的关联 result 和原入口实际消费。独立唤醒探针不替代这条完整闭环；忙时结果接收也须单独验证，通过后才更新对应能力标记。
 
 `file-webhook` 仅 HTTP 200 确认传输接受，401/403 为失败，其余响应或不确定传输均保留 uncertain，不自动重发。旧配置省略 transport 时仍是完整正文模板模式。不要用旧桥已成功、配置已保存或本地模拟通过代替这一 Hub 原生链路的实测。
 
