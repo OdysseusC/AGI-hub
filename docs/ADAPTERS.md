@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
 | `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 已通过；用户重新授权、入口核对并显式续接一次后，原会话的单联系人新查询、主动回报和自动忙时回传已通过；完整桌面工具继承及 OpenAPI 未验收 |
-| `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
+| `clients/grok-routine` | 本机完整文件 + 官方 webhook 的仅 id 通知；兼容旧模板 | `queue` | 新 Hub 文件模式需单独原生验收；旧桥事件消费证据不代替本 Client 的主动 Report 与成果核验 |
 
 Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。不同语言实现使用同一 REST / SSE 接口。[独立 Client 的配置和启动](CLIENTS.md)
 
@@ -60,9 +60,19 @@ codex queue --thread <native session ID> --message <complete notification>
 
 ## Webhook / Grok Routine
 
-Webhook URL 和请求体必须来自用户已核实的实际平台配置，Client 不会猜官方路由、payload 或鉴权。它们保存在该 Client 的私有 `native.url / native.headers / native.body` 中。云端 Routine 还需要一个真实、授权且能够回到本机的报告通道；请求成功不能证明闭环已经完成。当前没有跨设备 relay 或公网入口部署。
+Grok Client `0.2.0` 支持显式 `native.transport="file-webhook"` 和省略 transport 的兼容模板模式。Webhook URL、认证方式与目标 Routine 来自用户已核实的实际配置，保存在仓库外私有文件；Client 不猜平台路由或认证，不自动切换模式。当前没有跨设备 relay 或公网报告入口。
 
-`body` 必须是有效 JSON，下面是模板替换规则，不能将语法演示误用成真实 Routine 请求体：
+### 本机文件与 id 通知
+
+文件模式先把完整 Envelope 和报告指引原子发布到独立 `inbox_dir`，然后官方 webhook 固定仅发送 `{"id":"hub-…"}`。文件采用独立的 `agi-hub-grok-file-v1` 包，保留原 Hub 关联字段；文件 ID 为原 message_id 的完整 SHA-256。任务正文不进入 webhook。Routine 固定提示只从配置的目录读取这一文件，Grok 原会话使用原工具执行，并通过 endpoint 专属报告 launcher 主动提交 Report。
+
+inbox 必须是已存在的本机绝对真实目录，专用于这一 Hub、endpoint 与 Routine，不混用旧桥的邮箱。Client 的持久目录 claim 防止重复通知，兼容 exFAT；Grok 接收端另外保存 processing 与 Report，防止重复执行。仅 HTTP 200 表示传输 delivered，401/403 为明确 failed，其他响应、断线和超时为 uncertain。通知只尝试一次，冲突或不确定时保留文件核对；既不删 claim 重发，也不启动定时扫描旧任务。
+
+文件与本机报告能力须在实际 Grok 会话核实，云端 webhook 不会自行获得本机访问能力。固定标签 `routine_id` 与 Hub session_id 一致只是配置核对，不能证明平台已绑定原会话。用户已有 Codex↔Grok 文件桥验证过相同的文件与事件思路；新 Hub 路径仍须验证原生主动 Report、成果 SHA-256 和关联 result 实际返回，不能沿用旧桥的“已通过”结论。[配置步骤](../clients/grok-routine/README.md) · [Routine 固定提示与报告入口](../clients/grok-routine/GROK_INSTRUCTIONS.md)
+
+### 兼容模板模式
+
+省略 transport 时保留 `native.body`。请求字段须来自用户实际核实的 Routine 格式；`body` 必须是有效 JSON，以下只是模板语法：
 
 | JSON 字符串值中的占位符 | 替换结果 |
 | --- | --- |
@@ -75,9 +85,7 @@ Webhook URL 和请求体必须来自用户已核实的实际平台配置，Clien
 
 替换在结构化 JSON 值上进行，最后序列化；不会直接拼接未经转义的内容，也不会再次解释任务文本中的占位符。`{{envelope}}` 不能嵌入带前后缀的字符串。请求模板必须传递完整信封或完整通知，单独的摘要不能代替关联 ID、授权与文件引用。
 
-只允许 HTTPS，或指向 localhost/loopback 的 HTTP。不跟随重定向，防止把用户配置的 headers 带到其他地址。2xx 表示 `delivered`；请求发起后的非 2xx、断线或超时保守记为 `uncertain`。配置明显错误记为 `failed`。
-
-用户此前在另一台 Windows 电脑验证过 Grok Routine 与 Codex 的事件交接。那是特定环境的经验；本项目不依赖其源工程，也不假设当前电脑存在相同配置。
+两种模式只允许 HTTPS，或指向 localhost/loopback 的 HTTP，都不跟随重定向。兼容模板模式保留原有语义：2xx 表示传输 `delivered`；请求发起后的非 2xx、断线或超时保守记为 `uncertain`。配置明显错误记为 `failed`。传输确认都不能替代原生接手、业务完成或成果回报。
 
 ## 扩展自己的 Client
 

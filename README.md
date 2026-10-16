@@ -21,6 +21,7 @@
 - [消息协议与回执](docs/PROTOCOL.md)
 - [独立 Client 与版本维护](docs/CLIENTS.md)
 - [自动安装会话技能](docs/SKILLS.md)
+- [Grok 本机文件接入与 Routine 配置](clients/grok-routine/README.md)
 - [本机原生验证记录](docs/NATIVE-VALIDATION.md)
 
 ## 功能与范围
@@ -149,6 +150,7 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 - 内核理解 `queue / steer / interrupt`；当前 Codex、WorkBuddy、Grok Routine Client 只实现 `queue`。Claude 接入仍在研究阶段。
 - WorkBuddy Client `0.2.1` 显式选择官方 CLI 会话恢复或本地助理 OpenAPI。独立 CLI 的 MQ 执行和成果校验已通过；用户重新授权后，原 WorkBuddy 会话经入口核对并显式续接一次，已完成单联系人新查询、原生回报和自动忙时回传。此前远端授权过期保留为历史，不再作为当前阻点；这项验收不覆盖全部企微业务或完整桌面工具注入。OpenAPI 需要第三方正式 OAuth，不能由 CLI 登录推导授权。[配置与范围](clients/workbuddy/README.md)
 - Codex Desktop MCP 与 App Server proxy 是不同通道。官方 Desktop MCP 已在独立 Node 启动链验证忙时即时引导；本机 Python 父链曾遇签名校验失败，App Server proxy 则缺少控制 socket。后两项不能推导 Desktop MCP 不可用。本机已有两轮完整 MQ 忙时返回和一次同通道空闲启动诊断的分别证据。空闲诊断确认旧轮次 completed、原聊天 idle 后只发送一次，原聊天已进入不同的新轮次且官方桌面 read_thread 工具仍可用；它不构成 idle 下完整 MQ 回路。
+- Grok Routine Client `0.2.0` 支持 `file-webhook`：本机文件保存完整交接，官方 webhook 仅传 id，Grok 原会话主动提交 Report；省略 transport 保留旧正文模板模式。既有 Windows 文件桥是迁移依据，新 Hub 原生闭环仍需单独验收。[配置与固定接收提示](clients/grok-routine/README.md)
 - 原生接收工具返回成功只代表投递，任务完成须核对回报和要求的成果文件。`uncertain` 不自动重发。
 - 会话排队与资源互斥只覆盖边车管理的运行；人工在原生会话或同一桌面并发操作仍需协调。初期建议使用专属会话。
 - 授权范围作为任务元数据传递，不能提供原生权限沙盒。助手消息不能批准用户的权限提示。

@@ -1,6 +1,6 @@
 # 本机原生接入记录
 
-记录日期：2026-10-14 至 2026-10-15，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+既有 Hub 原生记录日期为 2026-10-14 至 2026-10-15，环境为 macOS arm64；2026-10-16 补充 Grok 文件模式的迁移依据与待验收范围。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
 
 ## 2026-10-14：WorkBuddy 默认恢复与历史
 
@@ -94,6 +94,18 @@ Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--
 4. 独立 Node Client 经官方 Desktop MCP 自动把 result 引导回忙碌的原 Codex 聊天，无手工转发或人工点引导；资源锁已释放、消息均为 delivered，原 WorkBuddy 会话已回到 idle，原历史前缀完整。
 
 本次未读取或复制桌面私有 env/auth/ticket。临时四条单查询许可已移除，只保留四条窄范围报告安装许可；报告 helper 使用仓库外独立 runtime，不依赖开发 checkout。此前本地拒绝、远端 `850003 / authorization expired` 与重新授权后的成功属于先后阶段；当前单联系人数据获取已通过，不再把旧授权错误列为当前阻点。这项证据覆盖原会话、指定查询、主动回报、成果核验和自动忙时返回，不代表全部企微业务、全部 GUI 工具注入或 WorkBuddy OpenAPI 已验收。
+
+## 2026-10-16：Grok 文件模式的迁移依据与待验收范围
+
+用户已有 Windows 本机 Codex↔Grok 文件桥，通过原子发布完整 JSON、文件事件和仅 id 的 Routine webhook 工作。旧桥已核对原 Codex 聊天忙时引导、空闲自动进入聊天，以及 Grok 读取文件后的正式答复与双方处理回执；定时过渡已结束，现有 Routine 保持 webhook-only。这些是旧桥特定会话与通知服务的证据，不是新 Hub Client 已完成验收的证据。
+
+本次将这套本机文件与事件方式加入已有 Grok Routine Client：Hub SSE 领取后发布独立包，webhook 仅传 id，原 Grok 会话显式提交 Report，由 Hub 核对成果后生成关联 result，再经原入口 Client 返回。它使用自己的 inbox、持久 claim 与接收记录，不消费旧桥消息、不改变旧桥 Routine，也不把旧桥 done 回执转换成 Hub succeeded。
+
+本次 Windows exFAT 上的 `tools/smoke_grok_client.py` 已通过：真实 Hub 与文件 Client 发布包，本地模拟 Routine 核对 webhook 仅含 id、实际读取对应完整文件，再通过固定 endpoint 的报告 launcher 提交 accepted/running/succeeded；Hub 核对成果 SHA-256，生成一次关联 result，重建 Adapter 后没有再次通知。临时配置与数据位于独立测试目录，没有调用真实 Grok webhook、旧桥或用户会话。
+
+这证明本机文件与 Hub 协议的模拟闭环；真实 Routine 的配置、原会话文件和报告能力、空闲唤醒、忙时行为以及最终回到原入口仍待分别验收。HTTP 结果分类、重复与冲突另由本地专项测试覆盖，不能替代原生证据。配置示例、测试与 manifest 都不自动开启已验证能力。
+
+首次原生验收须保留：原会话实际读到新文件的证据；真实 accepted/running/终态 Report 与稳定 run_id；Hub 成果 SHA-256；一次新 result 的 message_id/reply_to/task_id/correlation_id；原入口的实际消费。通知响应丢失时保留 uncertain，重复文件或事件不能使任务执行第二次。[Grok 配置与接收模板](../clients/grok-routine/README.md)
 
 ## 后续验收
 

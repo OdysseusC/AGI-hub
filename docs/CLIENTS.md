@@ -11,7 +11,7 @@ clients/
   shared/             # 标准库 HTTP、SSE、回执与通知格式
   codex/              # 官方 Desktop MCP / queue 兼容 / 结果专用 app-server
   workbuddy/          # 官方 CLI 会话恢复 / localassistant OpenAPI
-  grok-routine/       # 用户配置的官方 Routine webhook
+  grok-routine/       # 本机文件 + id 通知 / 兼容 Routine webhook 模板
   tests/              # 本地模拟传输测试，不调用真实助手
 ```
 
@@ -19,7 +19,7 @@ clients/
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.2.1`、Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.1.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.2.1`、Codex Client 为 `0.2.0`，Grok Routine Client 为 `0.2.0`，都使用协议 `1`。Python 入口使用 shared `0.1.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
 Client 具有独立进程和维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
@@ -34,7 +34,7 @@ Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，
 | Codex app-server | 官方 `app-server proxy` → `turn/steer` | 结果专用 | 仅 `kind=result`；默认不启用空闲启动；当前 stdio 宿主未开放独立 proxy |
 | WorkBuddy CLI | 官方 CodeBuddy CLI `--resume SESSION_ID` | `queue` | 独立 CLI 的 MQ 执行、Report 和成果核验已通过；用户重新授权、入口核对并显式续接一次后，原 WorkBuddy 会话的单联系人新查询、主动回报与自动忙时回传已通过；不代表全部桌面工具继承 |
 | WorkBuddy OpenAPI | 官方 `/openapi/v2/localassistant/message` | `queue` | 目标是官方持续本地助理；API 没有普通 Chat 的 `session_id` 定位参数。需要用户本人正式 OAuth 授权；尚未在本项目持有真实 token 完成接口验收 |
-| Grok Routine | 用户提供的官方 Routine webhook | `queue` | URL、认证方式和请求结构来自用户的实际 Routine 配置；示例字段不是对官方请求格式的推测 |
+| Grok Routine | 本机完整文件 + 官方 webhook 的仅 id 通知；保留旧模板模式 | `queue` | 文件模式须具备实际本机文件与报告能力；Hub 原生闭环待验收，旧桥证据不能替代 |
 
 独立 Client 尚无普通任务 `steer` 或 `interrupt` 控制模式的原生验收通过记录。现有 Client 的绑定只接受 `modes=["queue"]`；成果的原生引导与普通任务控制分开声明。不支持的模式在领取消息前拒绝，不会悄悄降级为队列发送。会话是否空闲、资源是否可用、是否允许唤醒，由 Hub 根据已核实的状态决定；Client 不自行伪造 `idle` 或 `busy`。
 
@@ -145,7 +145,13 @@ OpenAPI 使用 `Authorization: Bearer access_token`，发送 `{"content":"完整
 
 ### Grok Routine 配置
 
-Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 一致。`native.body` 必须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为带报告指引的完整通知。还支持 `{{content}}`、`{{task_id}}`、`{{message_id}}`，但它们不能代替完整消息。替换仅进行一轮，任务内容中的占位符不会被再次解释。对象占位符必须独占整个 JSON 字符串值。
+Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 一致；它不会自动定位或创建平台会话。两种传输都只接受 queue 绑定，不自动切换。
+
+本机文件方式显式配置 `native.transport="file-webhook"`、已存在的绝对 `inbox_dir`、实际 `url`、`headers` 和 `timeout_seconds`，不配置 `body`。Client 将完整 Envelope 与报告指引发布为 `agi-hub-grok-file-v1` JSON 包，随后 webhook 仅发 `{"id":"hub-…"}`。包 ID 为原始 message_id 的完整 SHA-256 安全文件标识；原 Hub 关联字段不变。inbox 专用于这一 Hub、endpoint 和 Routine，不共享旧桥收件箱。Grok 的原会话须实际能读文件、使用既有工具并执行固定的 endpoint 专属报告入口。
+
+Client 用持久目录 claim 与完整包阻止重复通知，Grok 另外持久保存 processing 记录和稳定 Report，阻止重复执行业务。文件模式仅 HTTP 200 确认 delivered，401/403 为 failed，其他响应或不确定传输为 uncertain；均不自动重投。保留未知状态和冲突，不删除记录重启任务。详细配置、报告 launcher 与可复制的 Routine 提示见 [Grok Client](../clients/grok-routine/README.md) 和 [接收配置模板](../clients/grok-routine/GROK_INSTRUCTIONS.md)。模板不是已安装的宿主技能；本项目不假定 Grok 技能自动发现目录。
+
+兼容模式省略 `transport`，`native.body` 仍须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为带报告指引的完整通知。还支持 `{{content}}`、`{{task_id}}`、`{{message_id}}`，但它们不能代替完整消息。替换仅进行一轮，任务内容中的占位符不会被再次解释；对象占位符必须独占整个字符串值。该模式保留原有 2xx 传输确认语义。
 
 ### Codex 程序配置
 
@@ -161,7 +167,7 @@ Codex 的执行入口在启动 Client 时解析并保存为绝对路径，投递
 
 1. Client 先核对 Hub 的已注册原生绑定，再建立 SSE 订阅，之后读取持久化 inbox，避免连接和领取之间遗漏新任务。
 2. Hub 原子地把可领取消息从 `pending` 改为 `dispatching`。Client 只处理属于自己 endpoint 的领取结果。
-3. 对原生入口尝试一次。执行前确定配置错误为 `failed`；CLI 已启动但失败/超时、网络尝试后没有确认、非 2xx 响应或重定向都为 `uncertain`。Codex CLI 成功、Grok webhook HTTP 2xx 记录传输已投递。WorkBuddy CLI 还核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错误结果；登录错误、残缺或不匹配输出保留 `uncertain`。WorkBuddy OpenAPI 则须核对 `code` 严格为整数 `0`、`data.message_id` 合法非空。任一传输的已投递均不证明业务完成，`UNKNOWN`、模型拒绝、退出码 `0` 或结果 `success` 不能代替原生 Report。
+3. 对原生入口尝试一次。执行前确定配置错误为 `failed`；CLI 已启动但失败/超时、网络尝试后没有确认或重定向为 `uncertain`。Codex CLI 成功、Grok 兼容模板 HTTP 2xx 记录传输已投递；Grok 文件模式严格仅接受 HTTP 200，401/403 为 failed，其余响应为 uncertain。WorkBuddy CLI 还核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错误结果；登录错误、残缺或不匹配输出保留 `uncertain`。WorkBuddy OpenAPI 则须核对 `code` 严格为整数 `0`、`data.message_id` 合法非空。任一传输的已投递均不证明业务完成，`UNKNOWN`、模型拒绝、退出码 `0` 或结果 `success` 不能代替原生 Report。
 4. Client 发送 `/v1/delivery`。接手、执行和业务完成由原生助手主动调用 `/v1/report` 汇报；没有后台历史消息轮询。
 5. 任务终态后，Hub 发出 `kind=result` 返回保存的原入口。结果使用独立 `message_id`，`reply_to` 指向原交接消息，`task_id` 与 `correlation_id` 保持关联；当前 V0 的 `correlation_id` 等于原任务 ID。接收方保留这些字段，只展示成果或失败原因，不能把结果再执行成新任务。助手不自行改收件人或建立下一轮任务。
 
@@ -180,6 +186,8 @@ python3 clients/shared/report.py --config /path/to/private/workbuddy/client.json
 ```
 
 `--file -` 从 stdin 读取完整 Report JSON。该命令只读取 Client 的 endpoint 凭据调用本机 Hub，不触发 WorkBuddy 或其他助手。报告必须包含匹配的 `endpoint`；采用稳定 `event_id` 方便核对和幂等提交。
+
+需要固定 endpoint 和报告文件范围时，使用 `shared/native_report.py` 的 `main_for_binding` 建立私有 launcher；它不接受消息选择 `--config` 或其他 subcommand。Grok 的 [配置模板](../clients/grok-routine/GROK_INSTRUCTIONS.md) 给出了实际参数形式。Hub 的 `needs_user` 可在用户处理后恢复 `running`，与旧文件桥的终态同名值不同；不要复制旧桥回执状态机。
 
 ## 单独更新和拔插
 

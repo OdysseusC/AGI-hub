@@ -48,9 +48,9 @@ go build -o agi-hub.exe ./cmd/agi-hub
 
 绑定核对 `endpoint.id / device_id / session_id / driver / modes`。产品连接参数分别保存在仓库外的 `client.json`；Hub 配置不再存可执行文件、Webhook URL 或原生凭据。Client 在领取前核对 Hub 返回的自身绑定，Codex 的 thread 必须与 session_id 一致。WorkBuddy 官方本地助理使用专用标识 `localassistant`，不表示可定位普通 Chat；CLI 分支要求绑定已验证的既有会话 ID、工作目录及配置目录，独立 CLI 与桌面会话须分别标注。[独立 Client](CLIENTS.md) 提供配置格式。
 
-初始化的 `enabled=false` 和 `idle_wake_verified=false` 不能未经实测改为 true。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
+初始化的绑定默认禁用。用户选定接入目标、配置核对完成并准备进行授权验收时，可以启用该 endpoint；`idle_wake_verified` 仍保持 false，直到真实空闲唤醒通过。不要为放行消息伪造能力标记或会话状态。旧开发版把原生参数写在 Hub `driver` 内的配置会被拒绝；先保留原文件及记录，再将产品参数迁移到对应私有 Client 配置。
 
-原生验收建议先选一个专属会话，做用户明确授权、可逆的任务，确认实际接手、原生工具保留和结果回报。对云端 Routine，要先解决授权回到本机的报告通道；本地 loopback 地址不能直接供云端使用。完成这些验证后才启用绑定。当前修改配置需要重启 `serve`。
+原生验收建议先选一个专属会话，做用户明确授权、可逆的任务，确认实际接手、原生工具保留和结果回报。对云端 Routine，要先核实其原生会话确有已授权的本机文件和报告能力；本地 loopback 地址不能直接供纯云端执行环境使用。当前修改配置需要重启 `serve`。
 
 ### 安装会话技能和生成 Client 配置
 
@@ -73,6 +73,21 @@ python3 clients/codex/main.py --config /absolute/private/codex/client.json
 ```
 
 Hub 不自动启动 Client；同一 endpoint 只运行一个消费者。每个 Client 单独配置与更新，既有 native 执行不随 Client 停止而取消。WorkBuddy OAuth 缺失时在领取前停止，不能用桌面登录态代替授权。
+
+### Grok 本机文件接入
+
+Grok Routine Client `0.2.0` 可显式使用 `file-webhook`：完整 Envelope 保存在本机独立 inbox，官方 webhook 只发文件 `id`，Grok 原会话读文件后通过固定 endpoint 专属 launcher 主动回报。这个过程沿用 Hub 的 task/Report/result 协议，不翻译旧 Codex↔Grok 文件桥消息。[完整配置](../clients/grok-routine/README.md) 和 [Routine 提示与报告脚本模板](../clients/grok-routine/GROK_INSTRUCTIONS.md) 可直接交给安装助手填写。
+
+安装时依次核对：
+
+1. 为这一 Hub、endpoint 与 Routine 创建仓库外独立 inbox、接收状态目录和成果工作区；填写 device/workspace 到实际绝对路径的无凭据映射。保留已有旧桥目录与 Routine。
+2. 用户选择 Hub 专用、启用且仅 webhook 触发的 Routine，固定其原 Grok Bot 会话。实际核实本机文件读取、原生工具保留和报告命令能力；不假定云端可以访问 loopback。
+3. Hub 使用 driver `grok-routine`、external binding、queue 模式，session_id 与 Client routine_id 稳定标签相同。导出 grok scoped 配置，在私有 native 中填 `transport="file-webhook"`、`inbox_dir`、实际 webhook URL/headers，不填 body。
+4. 在稳定私有安装目录放置匹配版本的 shared runtime 与固定报告 launcher。Routine 只持有已核实的报告命令和目录，不能从消息更换 endpoint/config；凭据留在私有配置内。Grok 没有假定的默认技能目录，固定提示可直接使用；仅在实际核实加载位置后选择安装通用技能。
+5. 用户授权首次验收时启用目标 endpoint，保持 `idle_wake_verified=false`，启动 Hub 与一个 Grok Client。实际确认该 Grok 会话空闲后执行 `session --endpoint grok --state idle`。已核实 idle 的首次投递不要求预先声称空闲唤醒通过。
+6. 从已验证的原入口提交一个可逆任务，核对真实 accepted/running/终态 Report、成果 SHA-256、Hub 生成的关联 result 和原入口实际消费。再分别验证空闲唤醒与忙时结果接收，通过后才更新对应能力标记。
+
+`file-webhook` 仅 HTTP 200 确认传输接受，401/403 为失败，其余响应或不确定传输均保留 uncertain，不自动重发。旧配置省略 transport 时仍是完整正文模板模式。不要用旧桥已成功、配置已保存或本地模拟通过代替这一 Hub 原生链路的实测。
 
 ## 3. 启动与核对会话
 
