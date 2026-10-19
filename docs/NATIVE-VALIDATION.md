@@ -139,6 +139,18 @@ Go 全仓 `go test -race ./...` 与 `go vet ./...` 通过。最终 Client 的 No
 
 Claude 忙时排队、真实权限提示 needs_user、退出桌面后的恢复、Claude 作入口的反向任务及 Windows/Linux 原生接入仍待单独验收。Claude 空闲执行与 Codex 忙时返回已在本节记录；Codex 自身空闲时的完整 MQ 业务回路仍未验收。没有计量服务商实际扣除积分，也不将用户截图的累计消耗归于本次测试。
 
+## 2026-10-19：纯邮箱 Codex ↔ WorkBuddy 原会话
+
+本轮保持 Hub 仅作消息管道。Codex 与 WorkBuddy 各自启用 mailbox 协议 1；沿用原 Codex Desktop 聊天和原 WorkBuddy / CodeBuddy CLI 会话，没有创建新的协调聊天。Claude 模型调用为零；未查询企微资料或发送外部消息。
+
+16:38 开始的第一封 request 已由常驻 Client 恢复 WorkBuddy 原会话。模型沿用缓存的旧说明，写出的协助请求缺少必填稳定 `id`，本地收发程序拒绝，未进入 Hub。泛化报错导致模型多次修改错误字段，不能记为无人干预成功。随后修正程序的字段错误提示，并在原生通知中加入简短完整 JSON 示例；确认旧 CLI 已退出且无未决投递后更新客户端，由原入口在同一关联中显式发送一封格式说明，没有重新派发原消息。
+
+修正后，WorkBuddy 主动发 request 给 Codex；独立 Node Client 经官方 Desktop MCP 以 send-now 自动引导当前忙碌的原聊天，无需点击 queue 或手工转发。Codex 实际读取合成输入，计算 `[3,5,8]` 总和为 16，连同 nonce 显式回信。WorkBuddy Client 等首轮 CLI 退出并保存真实投递回执后，才再次恢复同一会话接收 reply；WorkBuddy 独立重读、核对 nonce/总和，写出 result.json，并主动发送新的 result 给 Codex 原入口。结果真实进入当前聊天，未由 Hub 自动生成。
+
+入口实际回读成果：nonce、total、checked_by 与 correlation_id 均一致，并计算文件 SHA-256。WorkBuddy 明确报告自身窄权限下无法执行 shasum，未冒称已核验哈希；文件哈希由 Codex 侧完成，不为验收扩大命令权限。本轮五封消息（含一次格式说明）共用同一关联与原入口上下文；邮箱不创建 Task/Report、不采用父子等待或强制返回链。真实 UUID、时间点和文件哈希保存在本机私有诊断中，不进入仓库。
+
+结论：**经一次格式修正后的原生双向协作与成果回传已通过**。不宣称首轮零干预、三名真实助手并行、Claude 新邮箱接入或其他平台原生能力已验收。三方向自由路由、共享限额、重复投递、静默状态与不确定投递保留另由实际 Hub 加模拟原生适配器的零模型集成测试覆盖。
+
 ## 后续验收
 
 - 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。Codex 原入口空闲时的完整 MQ 回路须另行验收；继续核对断线、超时和投递不确定时不重发。

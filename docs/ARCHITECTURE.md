@@ -1,134 +1,64 @@
-# 架构与协议
+# 架构
 
-AGI Hub 的第一版是单设备本地协调器。用户继续在原生助手中工作，Go 边车记录任务、交接与回执；每个助手由独立 Client 进程调用实际支持的原生接入机制。
+AGI Hub 是本机的寻址消息边车。用户从任意已接入原生助手发起工作，助手各自处理邮箱、选择协作者及回复对象；Hub 不执行智能规划或团队调度。
 
-技能驱动的对等协作、可选新会话与专业能力接入见 [精简协作设计](TEAM-ORCHESTRATION.md)。受管技能同步与可见目录已实现，多跳消息仍为提案；以下消息流程继续描述当前单次交接的行为。
+## 三部分
 
-## 对象与职责
-
-| 对象 | 职责 |
+| 部分 | 职责 |
 | --- | --- |
-| Endpoint | 一个具体助手会话的绑定：设备、原生会话 ID、产品标识、已验证模式与启用状态 |
-| Leader | 新任务的默认入口；用户可以切换，系统不推定助手能力排名 |
-| Broker | 保存状态、领取消息、去重、检查运行目标、协调声明的资源 |
-| Client | 每 endpoint 独立进程，订阅本机事件、领取信封、报告投递状态 |
-| Adapter | 各 Client 自己的原生投递实现，使用对应产品的官方或已验证接口 |
-| Report | 接收端带关联 ID 的执行回执和成果引用 |
+| 协作技能 | 判断何时求助、组织必要上下文、选择收件人、整合回复、核验和交付成果 |
+| Hub | 用户配置的目录与发送范围、持久化、定向领取、去重、传输回执和关联限额 |
+| 各助手 Client | 监听自己的邮箱，通过真实原生接口投递、唤醒，并保存实际传输证据 |
 
-同一设备上的同一原生会话不能以多个 endpoint 重复注册。仍有未完成任务或未解决消息的 endpoint 不能随意重新绑定。
+Client 可以是独立进程或产品内插件。安装同一模型的 API、MCP 工具或一份技能说明，均不证明已经接入对应原生会话。
 
-Hub 不导入助手的 Adapter，也不启动或动态加载 Python。`endpoint.driver` 是产品或 Client 类型的描述标识，`binding.driver.type` 仅允许 `external`；它们都不是 Hub 的执行器。CLI 路径、webhook、OAuth token 等原生参数放在仓库外各 Client 的私有 `client.json` 中。
+## 消息
 
-当前采用一个仓库、每个助手一个目录。Client 与 Hub 通过版本化 JSON 协议通信，可单独替换和发布；以后迁到独立仓库不改变协议。`clients/shared` 只复用 HTTP、SSE、回执和通知格式，各产品的原生调用仍放在自己的目录里。Client manifest 是能力声明，不是自动安装、启动或原生验收证明。
-
-切换 leader 影响之后提交任务的默认 `origin` 和协调纪元。已有任务保留 `origin`、`coordinator`、`leader_epoch`，结果回到原入口；不会迁移聊天上下文或改写历史任务。
-
-## 一个任务的生命周期
-
-```mermaid
-sequenceDiagram
-    participant U as 用户 / 原生入口
-    participant B as Sidecar Broker
-    participant C as 目标 Client
-    participant N as 目标原生会话
-    U->>B: Submission：目标、范围、文件引用
-    B->>B: 保存任务与 pending 信封
-    C->>B: 领取可投递信封
-    B->>B: 保存 dispatching 与资源占用
-    C->>N: 原生投递
-    C->>B: delivered / uncertain / failed
-    N->>B: accepted：稳定 run_id
-    N->>B: running / needs_user
-    N->>B: 终态：摘要与成果引用
-    B->>B: 校验成果，释放资源，生成一次 result
-    B->>U: 通过原入口 Client 发送 result
+```text
+A → B / C / D 的邮箱
+B → D 的邮箱
+D → B 或 A 的邮箱（由 D 显式选择）
+A 整合所需消息 → 用户
 ```
 
-固定 `session_id` 标识长期协调会话，每个任务的 `run_id` 单独生成；终态回复使用新的 `message_id`、指向原请求的 `reply_to`，并继承 `task_id / correlation_id`。
+每封信都有稳定 ID、发件人、收件人、用途、必要正文和关联 ID。`root_origin` 固定最初的人类入口，作为上下文；`reply_to` 关联被回应的消息，均不强制回传路径。助手可以指定获准的其他收件人。
 
-所有变更先持久化，再通知订阅者。结果通知是信息交付，不会再次执行原任务，也不要求对原任务再发送接手回执。当前没有自动递归任务创建。
+Hub 不建立父子任务、依赖图、等待条件或整体完成状态。新邮箱消息不创建 Task，不需要 Report，不会因收到业务状态自动生成回复。业务完成与成果质量由助手核验、明确发送，并最终向用户解释。
 
-## 两层状态
+`request / reply / result` 可以通过 Client 进入原生会话；`status` 保留记录并由 Client 确认，不单独调用模型。消息只带必要摘要与文件引用，技能按需查询目录和版本，不重复灌入历史。
 
-| 投递 `delivery` | 含义 |
-| --- | --- |
-| `pending` | 尚未领取，等待会话、资源与期限条件 |
-| `dispatching` | 已持久化领取，正在尝试原生投递 |
-| `delivered` | 传输已确认；或原生执行回执确认接手 |
-| `uncertain` | 已尝试，但无法确定对方是否收到；等待核对 |
-| `failed` | 已明确失败，例如配置错误或启动前失败 |
+## 原生执行与占用
 
-执行 `execution` 另外使用 `waiting / accepted / running / needs_user / succeeded / failed / interrupted`。`delivered`、工具返回、原生会话闲置都不能代替 `succeeded`。
+Hub 将 pending 消息持久化为 dispatching 后才返回给 Client；同一邮箱存在 dispatching 或 uncertain 时不继续分配其他执行消息。
 
-`accepted / running / needs_user` 必须有执行 `run_id`，后续回执沿用它；控制请求必须引用目标运行。成功回执必须有摘要，要求成果的任务还必须提供至少一个可验证文件。
+WorkBuddy Client 串行调用配置的官方 CLI，使用原 `--resume` 会话、工作目录和配置目录，待进程结束并核对匹配结果才确认传输。业务助手发送的 status 不会提前释放这次投递占用，因此不需要父任务等待状态或额外 settled 协议。
 
-## 控制、并发与授权
+Codex Client 通过官方 Desktop MCP 向绑定原聊天即时投递。消息输入 ACK 只表示接受，不表示原回合结束或业务完成；忙时是否允许输入单独配置和验证，不能回退到 native queue 冒充引导。
 
-| 模式 | 内核语义 | 当前投递边界 |
-| --- | --- | --- |
-| `queue` | 普通工作等待核对为 idle，且没有边车管理的未完成运行；终态成果允许显式验证的忙时返回 | 各 Client 按实际原生接入投递 |
-| `steer` | 对匹配的活跃管理运行提供引导；必须带 `target_run_id` | 当前没有已实现的原生 Client |
-| `interrupt` | 请求中断匹配的活跃管理运行；完成须有实际 `interrupted` 回执 | 当前没有已实现的原生 Client |
+这只约束 Client 投递与原生会话占用。共享工程和桌面的写操作仍需助手明确协调范围，不能把收到消息当成并发写同一目标的授权。
 
-三个模式都需要 endpoint 声明支持。普通任务的 `steer / interrupt` 控制仍未接入。Codex 的可选 app-server Client 仅将 `kind=result` 通知通过官方 `turn/steer` 送入当前原生轮次；这是成果返回的投递方式，不代表能够控制任意 Hub 任务。WorkBuddy CLI 仅在核对空闲的既有会话执行默认 `--resume`，不覆盖工具或权限。
+## 权限与恢复
 
-`resources` 是用户声明的互斥资源 ID，例如 `workspace:daily-work` 或 `desktop:this-device`。边车在领取任务时占用资源，在终态释放。未声明的原生人工操作不受此机制管理，因此初期应使用专属会话并主动协调桌面操作。
+Hub 默认只监听数字 loopback，校验 Host/Origin；管理凭据与 endpoint 凭据分开。目录的 `visible_peers` 与允许发送的 `allowed_peers` 分别配置，默认空。Client 和固定身份程序只持自身凭据，消息不能切换其身份或原生目的地。
 
-`authorized_actions` 传递本任务已有的授权范围，是元数据约定。它不会改变原生权限，也不会形成操作系统沙盒。接手助手不能代表用户批准工具审批、提升权限或扩大任务范围。
+同一 ID 同内容幂等，同 ID 不同内容拒绝。可能已经投递的失败保留 uncertain，不盲目重发、换 ID 或另开会话。Hub 重启将遗留 dispatching 保留为不确定，Client 对账；没有聊天历史轮询来猜业务是否完成。
 
-`result_queue_while_busy_verified` 是额外的成果投递能力声明：仅在已核对 busy/needs_user 时允许该 endpoint 领取结果；unknown 仍等待。普通任务与资源互斥规则不变，dispatching/uncertain 不会被绕过。它本身不能证明已自动引导，原生 Adapter 的确认需另验；WorkBuddy CLI 拒绝该声明，避免并发恢复同一会话。
+每个关联记录仅保存固定原入口、参与者、总消息额度、期限和关闭标记，用于来源、权限与可靠性检查，不管理业务计划。多个分支共用一个消息计数，转发不能复制余额。到期或额度不足时停止新增消息；这不代表能限制宿主内部全部模型调用或积分。
 
-当前每个用户任务 `max_handoffs=1`，只生成一个 task/control 和一个 result，不自动规划下一轮。`deadline` 只在投递前判断是否过期，不能终止原生已运行的任务。
+原入口可以关闭关联，撤回尚未投递的消息；运行中或不确定的原生动作保留真实状态，不能假报已停止。人类输入引用用于追踪，不是密码学意义的人类授权证明；助手仍须遵守原用户范围和宿主权限。
 
-## 文件与成果
+## 存储与跨平台
 
-输入 `inputs` 与结果 `artifacts` 使用同一种 Artifact：`device_id / workspace_id / path / sha256`。工作区由私有配置映射到现有的本机绝对目录，信封只携带引用。
+Go 标准库实现本机 HTTP、SSE 与追加快照日志。日志带 SHA256 校验，提交后同步；进程锁保护同一私有数据目录。新增邮箱字段使用可识别的日志版本，避免旧程序忽略字段后覆盖记录。校验发现损坏，不隔离拥有同一用户文件权限的进程。
 
-输入在提交前校验，成功成果在回报时校验：设备必须匹配，工作区必须在 allowlist 内，路径必须是可移植相对路径，文件必须存在且为普通文件。拒绝绝对路径、越界路径和逃逸工作区的符号链接；提供 SHA-256 时必须匹配，未提供时由边车计算。
+目前单条快照上限 4 MiB，日志上限 128 MiB；没有长期归档和跨电脑消息/文件传输。文件引用必须明确设备和工作区，不能把本机路径直接交给另一台电脑使用。
 
-输入引用不代表文件快照，提交后文件仍可能改变。当前也不自动复制文件，不支持把另一台电脑的路径当成本机文件，更没有跨设备 relay。
+Hub、安装器和固定身份程序编译为六平台目标。原生产品支持、工具保留和空闲/忙时唤醒分别实测；构建成功不等于所有系统原生接入通过。
 
-## 日志、恢复与去重
+## 技能与安装
 
-`state.jsonl` 每条记录包含完整状态快照与 SHA-256 校验值，以换行作为提交边界，追加后同步到磁盘。进程锁防止同一数据目录被多个边车同时使用。
+安装器只维护用户登记的目录；同内容不写、用户修改不覆盖、手动卸载不恢复。技能修订与清单格式分别记录，拒绝降级；磁盘版本和旧会话加载状态分开。
 
-- 不完整的末尾记录在恢复时截去，完整记录损坏或校验失败则停止启动。
-- 崩溃遗留的 `dispatching` 恢复为 `uncertain`，保留占用信息，不盲重发。
-- 所有会话在每次重启后恢复为 `unknown`，需用户或可靠原生回执重新核对。
-- 相同任务 ID 与完全相同 Submission 幂等；相同 ID 内容不一致会拒绝。`deadline` 也属于内容，重试请保留完整 JSON。
-- 相同 `event_id` 与相同回执幂等；同一事件 ID 携带不同内容会拒绝。终态只生成一次结果通知。
+`START-HERE.md` 可直接交给 Codex，由它检查本机、安装稳定路径、提供 WorkBuddy 接入消息，并引导核对会话与最小权限。安装器不自动启用未经验证的绑定，不启动付费模型。
 
-当前单条记录限制 4 MiB、日志限制 128 MiB。达到限制停止追加并保留历史；尚未实现压缩、归档迁移及长期压力验证。校验值用于发现损坏，不是防止本机有文件写权限的人篡改数据的安全签名。
-
-## 控制接口
-
-所有 Client 通过本机 REST 与 SSE 消费，不使用定时任务轮询领取消息。每个 endpoint 只启动一个实际投递者。Hub 只读取自己的配置；现有 Client 的代码替换不需要重新编译或重启 Hub，新增或修改 endpoint 绑定目前需要重启 Hub。
-
-| 接口 | 用途 | 身份 |
-| --- | --- | --- |
-| `GET /v1/state` | 读取完整状态 | 管理身份 |
-| `POST /v1/tasks` | 用户提交 Submission | 管理身份 |
-| `POST /v1/leader`、`POST /v1/session` | 切换默认入口、声明会话状态 | 管理身份 |
-| `GET /v1/endpoint?endpoint=ID` | 核对自身协议、产品及会话绑定 | 对应 endpoint 或管理身份 |
-| `POST /v1/inbox?endpoint=ID` | 原子领取 endpoint 的消息 | 对应 endpoint 或管理身份 |
-| `POST /v1/delivery?endpoint=ID` | 提交 `message_id / outcome / detail` | 对应 endpoint 或管理身份 |
-| `POST /v1/report?endpoint=ID` | 提交完整 Report | 对应 endpoint 或管理身份 |
-| `GET /v1/events?endpoint=ID` | SSE 变更通知，随后按权限读取或领取 | 对应 endpoint 或管理身份 |
-
-前三类需要管理身份；后四类允许对应 endpoint 的 scope token。所有接口通过 Bearer 授权，本地状态页使用管理身份，服务只监听数字 loopback 地址并核对 Host/Origin。
-
-SSE 通知当前只表示“状态有变化”，不是持久事件重放日志；恢复时仍需重新核对状态与领取记录。endpoint scope 限制边车接口的身份，不限制原生应用工具权限。同一 OS 用户若能读取管理配置，仍拥有管理能力。
-
-## Client 更新与恢复
-
-停止 Client 不会停止它已唤醒的原生助手。正常更新时，先停止向该 endpoint 提交新工作，等待已领取消息保存明确的投递回执，再停止旧进程、替换该助手目录、启动新进程；其他 Client 可继续运行。Hub 不托管进程，也不提供自动下载、自动重载或无损切换保证。
-
-如果只有 Client 退出而 Hub 仍运行，已领取消息保持 `dispatching`，Hub 无法仅凭断开连接判断原生投递是否发生。新进程不会重新领取它，也不会越过该未解决交接发送下一项工作；资源继续保留。用户应核对原生记录，并通过 `delivery` 或真实执行 `report` 保存证据。Hub 自身重启时，遗留 `dispatching` 才恢复为 `uncertain`。这保证不盲目重复操作，不能等同于任务一定继续完成。
-
-## 开发版配置迁移
-
-早期开发版把 `codex-queue / webhook / command` 的原生参数放在 Hub 的 `binding.driver` 中。现在删除了这些内置执行器，Hub 配置仅接受 `{"type":"external"}`；省略类型时也按 external 处理。旧类型和 `executable / args / url / headers / body / timeout_seconds` 等字段会明确拒绝，避免静默忽略配置并误报接入完成。
-
-升级前保留原私有配置和 `state.jsonl`，把原生参数按对应 Client 的示例迁到仓库外私有文件，再修改 binding 的消费类型。已有 `endpoint.driver` 描述字符串可以保留，尤其仍有未解决交接时不应为改名字重绑会话。消息协议和日志仍使用版本 `1`，不清空记录或重新提交已投递任务。
-
-返回 [README](../README.md) · 查看 [适配器](ADAPTERS.md) · [独立 Client](CLIENTS.md) · [安装与使用](INSTALL-FOR-ASSISTANT.md)
+旧单次 Task/Report 路径保留兼容，与新邮箱独立。旧 leader 只作为该接口的默认入口，不控制邮箱消息。详见[协议](PROTOCOL.md)、[协作约定](TEAM-ORCHESTRATION.md)、[技能维护](SKILLS.md)。

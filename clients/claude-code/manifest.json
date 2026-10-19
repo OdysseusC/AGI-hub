@@ -1,7 +1,9 @@
 {
   "protocol": 1,
   "id": "claude-code",
-  "version": "0.1.3",
+  "version": "0.1.4",
+  "peer_protocol_version": 0,
+  "mailbox_protocol_version": 0,
   "label": "Claude Code session mod (Desktop Code tab / interactive CLI)",
   "runtime": "claude-code-mod>=2.1.299",
   "entrypoint": "agi-hub-endpoint/hooks/register.js",

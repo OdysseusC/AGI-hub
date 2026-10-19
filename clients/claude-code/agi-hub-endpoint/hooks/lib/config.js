@@ -80,6 +80,11 @@ export function validateBinding(registered, config) {
   if (!object(registered) || registered.protocol_version !== 1) throw new ClientError('incompatible_hub_protocol');
   const endpoint = registered.endpoint;
   if (!object(endpoint) || endpoint.id !== config.endpoint || endpoint.enabled !== true || endpoint.driver !== 'claude-code' || endpoint.session_id !== config.native.session_id) throw new ClientError('claude_native_binding_mismatch');
+  // This native mod implements only the original single-handoff protocol.
+  // Ignore neither an opted-in peer binding nor malformed capability values:
+  // waiting/reply handling requires a separately implemented native client.
+  if ((endpoint.peer_protocol_version ?? 0) !== 0 || (endpoint.peer_while_busy_verified ?? false) !== false) throw new ClientError('claude_peer_protocol_not_supported');
+  if ((endpoint.mailbox_protocol_version ?? 0) !== 0 || (endpoint.mailbox_while_busy_verified ?? false) !== false) throw new ClientError('claude_mailbox_protocol_not_supported');
   if (!Array.isArray(endpoint.modes) || endpoint.modes.length !== 1 || endpoint.modes[0] !== 'queue') throw new ClientError('claude_client_requires_queue_only_binding');
   if (typeof endpoint.idle_wake_verified !== 'boolean' || typeof (endpoint.result_queue_while_busy_verified ?? false) !== 'boolean') throw new ClientError('invalid_hub_verification_fields');
   if (!object(registered.session) || !['unknown', 'idle', 'busy', 'needs_user'].includes(registered.session.state)) throw new ClientError('invalid_hub_session_state');

@@ -12,12 +12,14 @@ import (
 
 // Peer omits native session addresses, workspace paths, credentials and history.
 type Peer struct {
-	ID                 string   `json:"id"`
-	Driver             string   `json:"driver"`
-	Purpose            string   `json:"purpose,omitempty"`
-	Modes              []string `json:"modes"`
-	IdleWakeVerified   bool     `json:"idle_wake_verified"`
-	BusyResultVerified bool     `json:"busy_result_verified"`
+	ID                     string   `json:"id"`
+	Driver                 string   `json:"driver"`
+	Purpose                string   `json:"purpose,omitempty"`
+	Modes                  []string `json:"modes"`
+	IdleWakeVerified       bool     `json:"idle_wake_verified"`
+	BusyResultVerified     bool     `json:"busy_result_verified"`
+	CanSend                bool     `json:"can_send"`
+	MailboxProtocolVersion int      `json:"mailbox_protocol_version"`
 }
 
 type Catalog struct {
@@ -47,8 +49,13 @@ func (s *Server) catalog(endpoint string) (Catalog, error) {
 		}
 		modes := append([]string{}, e.Modes...)
 		sort.Strings(modes)
+		allowed := false
+		for _, recipient := range bindings[endpoint].AllowedPeers {
+			allowed = allowed || recipient == id
+		}
 		peers = append(peers, Peer{ID: id, Driver: e.Driver, Purpose: binding.Purpose, Modes: modes,
-			IdleWakeVerified: e.IdleWakeVerified, BusyResultVerified: e.ResultQueueWhileBusyVerified})
+			IdleWakeVerified: e.IdleWakeVerified, BusyResultVerified: e.ResultQueueWhileBusyVerified,
+			CanSend: allowed && self.MailboxProtocolVersion == 1 && e.MailboxProtocolVersion == 1, MailboxProtocolVersion: e.MailboxProtocolVersion})
 	}
 	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
 	catalog := Catalog{ProtocolVersion: 1, Endpoint: endpoint, Peers: peers}

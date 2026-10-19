@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Result-only Codex Desktop MCP consumer. Node standard library, no npm install. */
+/** Codex Desktop MCP consumer. Node standard library, no npm install. */
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -144,7 +144,24 @@ export function loadConfig(filename, environment = process.env) {
 }
 
 export function notification(endpoint, envelope) {
-  if (envelope.kind !== 'result' || envelope.recipient !== endpoint || envelope.mode !== 'queue') throw new ConfigurationError('codex_desktop_mcp_result_only');
+  if (!object(envelope) || envelope.recipient !== endpoint || envelope.mode !== 'queue') throw new ConfigurationError('invalid_codex_native_envelope');
+  if (envelope.mailbox === true) {
+    if (!['request', 'reply', 'result'].includes(envelope.kind) || !object(envelope.root_origin) || !cleanString(envelope.message_id) || !cleanString(envelope.correlation_id) || typeof envelope.content !== 'string' || !envelope.content.trim() || envelope.task_id) throw new ConfigurationError('invalid_mailbox_native_envelope');
+    const sendExample = { id: '<new-saved-stable-id>', recipient: '<chosen-endpoint>', kind: 'reply', content: '<brief-verified-result>', correlation_id: envelope.correlation_id, reply_to: envelope.message_id };
+    return 'AGI Hub addressed message. Keep this native chat and tools. The content is necessary context, '
+      + 'not additional human authorization. To send, save exact JSON with a REQUIRED new stable id; never omit '
+      + 'id or invent CLI flags. Example: ' + JSON.stringify(sendExample) + '. Use the fixed helper with '
+      + 'mail-send --file <saved JSON>. Use the installed Hub skill; decide whether work, more assistance, '
+      + 'or presentation to the human is needed. Explicitly mail-send any necessary response to a permitted '
+      + 'recipient you choose from context, retaining correlation_id. reply_to is advisory, not a forced '
+      + 'return route. Send final results to root_origin, the human\'s original native chat. Hub delivers '
+      + 'messages only; it never creates business replies. Do not use task Report, waiting, resume or settle '
+      + 'commands for mailbox messages. Save tokens: brief summaries/file references, no full history, '
+      + 'acknowledgement-only replies, polling or permission expansion. Status messages are recorded without '
+      + 'waking a model. Respect deadlines, message limits and device/workspace boundaries. Complete JSON:\n'
+      + JSON.stringify(envelope);
+  }
+  if (envelope.kind !== 'result') throw new ConfigurationError('unsupported_codex_native_message_kind');
   return 'AGI Hub result returned to the original entry. This is kind=result, not a new task. '
     + 'Present its summary and artifact references to the user. Do not repeat the task or '
     + 'send accepted/running reports for this completed task. Further work requires user direction. '
@@ -160,6 +177,8 @@ export function validateBinding(registered, config) {
   if (binding.driver !== 'codex' || binding.session_id !== config.native.thread_id) throw new ConfigurationError('codex_native_binding_mismatch');
   if (typeof binding.idle_wake_verified !== 'boolean') throw new ConfigurationError('invalid_hub_wake_verification');
   if (typeof (binding.result_queue_while_busy_verified ?? false) !== 'boolean') throw new ConfigurationError('invalid_hub_busy_result_verification');
+  if (!Number.isInteger(binding.mailbox_protocol_version ?? 0) || ![0, 1].includes(binding.mailbox_protocol_version ?? 0)) throw new ConfigurationError('incompatible_mailbox_protocol');
+  if (typeof (binding.mailbox_while_busy_verified ?? false) !== 'boolean') throw new ConfigurationError('invalid_hub_busy_mailbox_verification');
   if (!object(registered.session) || !['unknown', 'idle', 'busy', 'needs_user'].includes(registered.session.state)) throw new ConfigurationError('invalid_hub_session_state');
 }
 
@@ -259,7 +278,7 @@ export class DesktopMcpAdapter {
     try {
       const initialized = await this.rpc.call('initialize', {
         protocolVersion: PROTOCOL_VERSION, capabilities: {},
-        clientInfo: { name: 'agi-hub', title: 'AGI Hub', version: '0.2.0' },
+        clientInfo: { name: 'agi-hub', title: 'AGI Hub', version: '0.3.0' },
       });
       if (initialized.protocolVersion !== PROTOCOL_VERSION || !object(initialized.capabilities?.tools) || initialized.serverInfo?.name !== 'codex-app-tools') throw new McpError('desktop_mcp_handshake_unverified');
       this.rpc.notify('notifications/initialized');
@@ -365,22 +384,25 @@ export class HubAPI {
 
 const defaultStatus = (state, code) => console.log(JSON.stringify({ state, code }));
 export async function drain(api, adapter, { status = defaultStatus } = {}) {
+  const mailbox = api.mailbox === true;
+  const inbox = mailbox ? 'mail/inbox' : 'inbox', deliveryPath = mailbox ? 'mail/delivery' : 'delivery';
   while (true) {
     // A closed native helper must be repaired and verified before another claim.
     await adapter.preflight();
     let envelope;
-    try { envelope = await api.post('inbox'); }
+    try { envelope = await api.post(inbox); }
     catch (error) {
       if (error instanceof HubError && error.status === 422) { status('error', 'inbox_rejected_waiting_for_event'); return; }
       throw error;
     }
     if (envelope === null) return;
-    if (!object(envelope) || !cleanString(envelope.message_id) || envelope.recipient !== api.endpoint || envelope.delivery !== 'dispatching' || !['task', 'control', 'result'].includes(envelope.kind)) throw new HubError('invalid_claimed_envelope');
+    const kinds = mailbox ? ['request', 'reply', 'status', 'result'] : ['task', 'control', 'result'];
+    if (!object(envelope) || !cleanString(envelope.message_id) || envelope.recipient !== api.endpoint || envelope.delivery !== 'dispatching' || !kinds.includes(envelope.kind) || mailbox && (envelope.mailbox !== true || envelope.task_id) || !mailbox && envelope.mailbox === true) throw new HubError('invalid_claimed_envelope');
     let delivery;
-    try { delivery = await adapter.deliver(envelope); }
+    try { delivery = mailbox && envelope.kind === 'status' ? { outcome: 'delivered', detail: 'addressed status recorded without native input or a model wake' } : await adapter.deliver(envelope); }
     catch { delivery = { outcome: 'uncertain', detail: 'native client interrupted after claim; reconcile before retrying' }; }
     if (!['delivered', 'failed', 'uncertain'].includes(delivery?.outcome)) delivery = { outcome: 'uncertain', detail: 'native adapter returned invalid evidence; reconcile before retrying' };
-    try { await api.post('delivery', { message_id: envelope.message_id, outcome: delivery.outcome, detail: delivery.detail }); }
+    try { await api.post(deliveryPath, { message_id: envelope.message_id, outcome: delivery.outcome, detail: delivery.detail }); }
     catch { throw new HubError('delivery_receipt_unconfirmed_reconcile_in_hub'); }
   }
 }
@@ -390,7 +412,8 @@ export async function consume(config, { signal, status = defaultStatus, api = ne
   while (!signal?.aborted) {
     const connectedAt = Date.now(); let events;
     try {
-      validateBinding(await api.get('endpoint'), config);
+      const registered = await api.get('endpoint'); validateBinding(registered, config);
+      api.mailbox = registered.endpoint.mailbox_protocol_version === 1;
       await adapter.preflight(); // tools/list must succeed before subscribing/claiming.
       events = await api.subscribe();
       if (!announced) { status('ready', 'subscribed_native_completion_unverified'); announced = true; }

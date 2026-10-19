@@ -12,10 +12,18 @@
         "session_id": "",
         "enabled": false,
         "idle_wake_verified": false,
-        "modes": ["queue"],
-        "driver": "codex"
+        "modes": [
+          "queue"
+        ],
+        "driver": "codex",
+        "mailbox_protocol_version": 0,
+        "mailbox_while_busy_verified": false
       },
-      "driver": {"type": "external"}
+      "driver": {
+        "type": "external"
+      },
+      "visible_peers": [],
+      "allowed_peers": []
     },
     {
       "endpoint": {
@@ -24,10 +32,18 @@
         "session_id": "",
         "enabled": false,
         "idle_wake_verified": false,
-        "modes": ["queue"],
-        "driver": "workbuddy"
+        "modes": [
+          "queue"
+        ],
+        "driver": "workbuddy",
+        "mailbox_protocol_version": 0,
+        "mailbox_while_busy_verified": false
       },
-      "driver": {"type": "external"}
+      "driver": {
+        "type": "external"
+      },
+      "visible_peers": [],
+      "allowed_peers": []
     },
     {
       "endpoint": {
@@ -36,10 +52,18 @@
         "session_id": "",
         "enabled": false,
         "idle_wake_verified": false,
-        "modes": ["queue"],
-        "driver": "claude-code"
+        "modes": [
+          "queue"
+        ],
+        "driver": "claude-code",
+        "mailbox_protocol_version": 0,
+        "mailbox_while_busy_verified": false
       },
-      "driver": {"type": "external"}
+      "driver": {
+        "type": "external"
+      },
+      "visible_peers": [],
+      "allowed_peers": []
     },
     {
       "endpoint": {
@@ -48,10 +72,18 @@
         "session_id": "",
         "enabled": false,
         "idle_wake_verified": false,
-        "modes": ["queue"],
-        "driver": "grok-routine"
+        "modes": [
+          "queue"
+        ],
+        "driver": "grok-routine",
+        "mailbox_protocol_version": 0,
+        "mailbox_while_busy_verified": false
       },
-      "driver": {"type": "external"}
+      "driver": {
+        "type": "external"
+      },
+      "visible_peers": [],
+      "allowed_peers": []
     }
   ]
 }

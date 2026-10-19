@@ -235,7 +235,7 @@ class DesktopMcpAdapterTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        self.launcher = self.root / "launch_codex_app_tools_mcp"
+        self.launcher = self.root / ("node.exe" if sys.platform == "win32" else "launch_codex_app_tools_mcp")
         self.launcher.write_text("official launcher fixture, never executed")
         self.launcher.chmod(0o700)
         self.server = self.root / "server.mjs"
@@ -329,6 +329,20 @@ class DesktopMcpAdapterTests(unittest.TestCase):
         self.assertTrue(all(request["jsonrpc"] == "2.0" for request in sent))
         self.assertNotIn("SECRET NATIVE HISTORY", detail + output.getvalue() + json.dumps(sent))
         self.assertNotIn("official-host-provided-path", json.dumps(sent))
+
+    def test_mcp_addressed_request_and_reply_use_fixed_official_target(self):
+        for kind in ("request", "reply"):
+            adapter = self.adapter()
+            rpc = Mock()
+            rpc.call.side_effect = [self.initialization(), self.tool_list(), self.acknowledgement()]
+            message = dict(envelope(kind=kind), mailbox=True, task_id="", correlation_id="root-conversation", root_origin={"endpoint": "human-entry"})
+            with patch("codex.desktop_mcp_adapter.DesktopMcpRPC", return_value=rpc):
+                self.assertEqual(adapter.deliver(message)[0], "delivered")
+            params = rpc.call.call_args_list[-1].args[1]
+            self.assertEqual(params["arguments"]["threadId"], "bound-original-thread")
+            self.assertIn("mail-send", params["arguments"]["prompt"])
+            self.assertNotIn("parent_task_id", params["arguments"]["prompt"])
+            self.assertEqual(adapter.mailbox_protocol_version, 1)
 
     def test_mcp_discovery_failure_never_attempts_native_input(self):
         wrong_protocol = dict(self.initialization(), protocolVersion="incompatible")

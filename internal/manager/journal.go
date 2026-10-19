@@ -150,5 +150,5 @@ func appendSnapshot(file *os.File, state Snapshot) error {
 }
 
 func validSnapshot(s Snapshot) bool {
-	return s.Version == 1 && s.Endpoints != nil && s.Sessions != nil && s.Tasks != nil && s.Messages != nil && s.EventIDs != nil && s.ResourceOwners != nil
+	return (s.Version == 1 || s.Version == 2 || s.Version == 3) && s.Endpoints != nil && s.Sessions != nil && s.Tasks != nil && s.Messages != nil && s.EventIDs != nil && s.ResourceOwners != nil
 }

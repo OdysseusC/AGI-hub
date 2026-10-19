@@ -81,6 +81,42 @@ test('binding mismatch stops before claiming; unsupported modes and malformed En
   assert.throws(() => validateBinding({ protocol_version: 1, endpoint: { ...config(), id: 'claude', enabled: true, driver: 'claude-code', session_id: 'session-a', modes: ['steer'] } }, validateConfig(config())));
 });
 
+test('unsupported peer bindings stop Claude before lease acquisition or inbox claim', async () => {
+  for (const value of [1, 2, -1, true, '1']) {
+    const { client, port, state } = harness(); const original = port.fetch;
+    port.fetch = async (url, init) => {
+      const response = await original(url, init);
+      if (url.includes('/v1/endpoint?')) { const body = JSON.parse(response.text); body.endpoint.peer_protocol_version = value; response.text = JSON.stringify(body); }
+      return response;
+    };
+    await client.start();
+    assert.equal(client.state, 'stopped'); assert.equal(client.code, 'claude_peer_protocol_not_supported');
+    assert.equal(state.calls.some(call => /\/v1\/(client-lease|inbox)\?/.test(call.url)), false);
+    assert.equal(state.prompts.length, 0);
+  }
+  const { client, port, state } = harness(); const original = port.fetch;
+  port.fetch = async (url, init) => {
+    const response = await original(url, init);
+    if (url.includes('/v1/endpoint?')) { const body = JSON.parse(response.text); body.endpoint.peer_while_busy_verified = true; response.text = JSON.stringify(body); }
+    return response;
+  };
+  await client.start(); assert.equal(client.code, 'claude_peer_protocol_not_supported'); assert.equal(state.prompts.length, 0);
+});
+
+test('unsupported addressed mailbox bindings stop Claude before acquiring a lease', async () => {
+  for (const [field, value] of [['mailbox_protocol_version', 1], ['mailbox_protocol_version', '1'], ['mailbox_while_busy_verified', true]]) {
+    const { client, port, state } = harness(); const original = port.fetch;
+    port.fetch = async (url, init) => {
+      const response = await original(url, init);
+      if (url.includes('/v1/endpoint?')) { const body = JSON.parse(response.text); body.endpoint[field] = value; response.text = JSON.stringify(body); }
+      return response;
+    };
+    await client.start(); assert.equal(client.state, 'stopped'); assert.equal(client.code, 'claude_mailbox_protocol_not_supported');
+    assert.equal(state.calls.some(call => /\/v1\/(client-lease|inbox)\?/.test(call.url)), false);
+    assert.equal(state.prompts.length, 0);
+  }
+});
+
 test('native marker evidence confirms delivery and the full claim is journaled before prompt submission', async () => {
   const { client, state, start, port } = harness(); const generation = await start();
   const submit = port.submit;

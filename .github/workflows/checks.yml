@@ -1,0 +1,96 @@
+name: Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'feat/**', 'fix/**', 'docs/**', 'chore/**', 'release/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, Go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.22.x', stable]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Go race tests and vet
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          go test -race ./...
+          go vet ./...
+      - name: Python Client tests
+        run: python -m unittest discover -s clients/tests -v
+      - name: Node transport and Claude protocol tests
+        run: |
+          node --test clients/codex/test_desktop_mcp_client.mjs
+          node --test clients/claude-code/tests/client.test.mjs
+
+  portable:
+    name: portable packages and offline smokes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Build six portable packages
+        run: go run ./tools/package
+      - name: Legacy, skill sync and mailbox smokes (zero models)
+        run: |
+          python tools/smoke_client.py --hub "$PWD/dist/linux-amd64/agi-hub"
+          python tools/smoke_skill_sync.py --hub "$PWD/dist/linux-amd64/agi-hub"
+          python tools/smoke_mailbox.py --hub "$PWD/dist/linux-amd64/agi-hub"
+
+  # Keep this one context stable for main's required status check.
+  checks:
+    name: checks
+    if: always()
+    needs: [test, portable]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every test and portable build
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          PORTABLE_RESULT: ${{ needs.portable.result }}
+        run: |
+          test "$TEST_RESULT" = success
+          test "$PORTABLE_RESULT" = success

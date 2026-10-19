@@ -1,8 +1,10 @@
 {
   "protocol": 1,
   "id": "workbuddy",
-  "version": "0.2.1",
-  "dependencies": {"shared": "0.1.0"},
+  "version": "0.3.0",
+  "dependencies": {"shared": "0.2.0"},
+  "mailbox_protocol_version": 1,
+  "mailbox_transports": ["cli"],
   "label": "WorkBuddy official CLI resume / local assistant OpenAPI",
   "runtime": "python>=3.11",
   "entrypoint": "main.py",
@@ -13,6 +15,7 @@
   "cli_validation": "macos-original-session-contact-and-active-reports-verified-after-explicit-continuation",
   "openapi_required_oauth_scopes": ["user.localassistant.invokable"],
   "completion": "native-execution-report",
+  "mailbox_delivery": "receipt-after-cli-matching-successful-session-result-and-process-exit; no-automatic-business-reply",
   "cli_session_targeting": true,
   "desktop_inheritance_verified": false,
   "automatic_oauth_refresh": false

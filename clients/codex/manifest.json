@@ -1,18 +1,19 @@
 {
   "protocol": 1,
   "id": "codex",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "mailbox_protocol_version": 1,
   "dependencies": {},
-  "label": "Codex result-only official Desktop MCP with optional legacy Python transports",
+  "label": "Codex addressed messages through official Desktop MCP with optional legacy Python transports",
   "runtime": "node>=22",
   "entrypoint": "desktop_mcp_client.mjs",
-  "alternate_entrypoints": {"python": {"runtime": "python>=3.11", "entrypoint": "main.py", "shared": "0.1.0"}},
+  "alternate_entrypoints": {"python": {"runtime": "python>=3.11", "entrypoint": "main.py", "shared": "0.2.0"}},
   "session_kinds": ["desktop-thread"],
   "supported_modes": ["queue"],
   "native_validation": "per-transport-host-and-platform-verification-required",
   "completion": "native-execution-report",
   "transports": {
-    "desktop-mcp": {"default": true, "message_kinds": ["result"], "native_tool": "send_message_to_thread", "requires": "official-server-and-host-provided-environment", "native_validation": "macos-busy-mq-result-return-and-independent-idle-wake-verified", "idle_wake": "macos-independent-original-thread-wake-verified", "queue_fallback": false},
+    "desktop-mcp": {"default": true, "mailbox_protocol_version": 1, "message_kinds": ["request", "reply", "result"], "status_messages": "recorded-without-native-input", "native_tool": "send_message_to_thread", "requires": "official-server-and-host-provided-environment", "native_validation": "macos-busy-mq-result-return-and-independent-idle-wake-verified; mailbox-flow-requires-separate-validation", "idle_wake": "macos-independent-original-thread-wake-verified", "queue_fallback": false},
     "queue": {"native_validation": "requires-native-host-and-tool-retention-verification"},
     "app-server": {"message_kinds": ["result"], "result_mode": "steer", "requires": "official-proxy-to-the-running-native-daemon", "idle_start": "explicit-native-verification-required", "queue_fallback": false}
   }

@@ -35,11 +35,11 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("AGI Hub sidecar v0\nCommands: init, serve, doctor, status, submit, report, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.")
+		fmt.Println("AGI Hub 0.2.0\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.")
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
-		fmt.Println("AGI Hub 0.1.0-dev", runtime.GOOS+"/"+runtime.GOARCH)
+		fmt.Println("AGI Hub 0.2.0", runtime.GOOS+"/"+runtime.GOARCH)
 		return nil
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
@@ -67,6 +67,11 @@ func run(args []string) error {
 	detail := fs.String("detail", "", "minimal nonsecret delivery evidence")
 	includeContent := fs.Bool("content", false, "include current skill rules (only fetch on a version change)")
 	knownVersion := fs.String("known-version", "", "omit skill content when this digest is current")
+	originRef := fs.String("origin-ref", "", "original human request reference (root request only)")
+	correlation := fs.String("correlation-id", "", "existing collaboration ID")
+	maxMessages := fs.Int("max-messages", 0, "mail conversation message limit (default 16, maximum 64)")
+	mailKind := fs.String("kind", "request", "request, reply, status, or result")
+	replyTo := fs.String("reply-to", "", "related message ID (does not choose the recipient)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -90,6 +95,39 @@ func run(args []string) error {
 		return fmt.Errorf("load config (run init first): %w", err)
 	}
 	switch args[0] {
+	case "mail-send":
+		if *endpoint == "" {
+			return errors.New("mail-send requires --endpoint")
+		}
+		requestBody := manager.MailSubmission{ID: *id, Recipient: *to, Kind: *mailKind, Content: *goal,
+			CorrelationID: *correlation, OriginRef: *originRef, ReplyTo: *replyTo, MaxMessages: *maxMessages, Deadline: *deadline}
+		if *file != "" {
+			body, err := os.ReadFile(*file)
+			if err != nil {
+				return err
+			}
+			decoder := json.NewDecoder(bytes.NewReader(body))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&requestBody); err != nil {
+				return err
+			}
+			var trailing any
+			if err := decoder.Decode(&trailing); err != io.EOF {
+				return errors.New("mail must contain exactly one JSON object")
+			}
+		}
+		if requestBody.ID == "" {
+			return errors.New("mail-send requires a saved stable --id or a message JSON containing id")
+		}
+		return request(cfg, "POST", "/v1/mail/send?endpoint="+url.QueryEscape(*endpoint), *endpoint, requestBody)
+	case "mail-state", "mail-cancel":
+		if *endpoint == "" || *correlation == "" {
+			return errors.New("mail-state and mail-cancel require --endpoint and --correlation-id")
+		}
+		if args[0] == "mail-state" {
+			return request(cfg, "GET", "/v1/mail/state?endpoint="+url.QueryEscape(*endpoint)+"&correlation_id="+url.QueryEscape(*correlation), *endpoint, nil)
+		}
+		return request(cfg, "POST", "/v1/mail/cancel?endpoint="+url.QueryEscape(*endpoint), *endpoint, map[string]string{"correlation_id": *correlation})
 	case "peers", "skill-rules":
 		if *endpoint == "" {
 			return errors.New("peers and skill-rules require --endpoint")

@@ -209,6 +209,9 @@ func (b *Broker) Register(endpoint Endpoint) error {
 	if strings.TrimSpace(endpoint.ID) == "" || strings.TrimSpace(endpoint.DeviceID) == "" || strings.TrimSpace(endpoint.Driver) == "" {
 		return errors.New("endpoint ID, device, and driver are required")
 	}
+	if endpoint.MailboxProtocolVersion < 0 || endpoint.MailboxProtocolVersion > 1 || endpoint.MailboxWhileBusyVerified && endpoint.MailboxProtocolVersion != 1 {
+		return errors.New("mailbox protocol must be 0 or 1; mailbox busy guidance requires protocol 1")
+	}
 	for label, value := range map[string]string{"endpoint ID": endpoint.ID, "device ID": endpoint.DeviceID, "driver": endpoint.Driver} {
 		if err := checkIdentifier(label, value); err != nil {
 			return err
@@ -319,6 +322,9 @@ func (b *Broker) Submit(submission Submission) (Task, error) {
 	if submission.MaxHandoffs != 1 {
 		return Task{}, errors.New("V0 requires max_handoffs to be exactly 1")
 	}
+	if submission.ParentTaskID != "" || submission.OriginRef != "" || submission.MaxHops != 0 {
+		return Task{}, errors.New("legacy task submission does not support archived peer workflow fields; use addressed mail")
+	}
 	if submission.Deadline == "" {
 		return Task{}, errors.New("deadline is required")
 	}
@@ -405,6 +411,9 @@ func (b *Broker) Next(endpoint string) (*Envelope, error) {
 	for _, id := range b.order {
 		envelope := b.state.Messages[id]
 		if envelope.Recipient != endpoint || envelope.Delivery != "pending" {
+			continue
+		}
+		if envelope.Mailbox || envelope.RootOrigin != nil {
 			continue
 		}
 		task, exists := b.state.Tasks[envelope.TaskID]
@@ -527,6 +536,21 @@ func (b *Broker) Delivery(messageID, outcome, detail string) error {
 	if envelope.Delivery == outcome && envelope.Detail == detail {
 		return nil
 	}
+	if envelope.Mailbox {
+		if envelope.Delivery == "delivered" && outcome != "delivered" {
+			return errors.New("confirmed mail delivery cannot become uncertain or failed")
+		}
+		if envelope.Delivery == "failed" && outcome != "failed" {
+			return errors.New("failed mail delivery cannot be retried through a receipt")
+		}
+		if envelope.Delivery == "uncertain" && outcome == "failed" {
+			return errors.New("uncertain mail requires delivery reconciliation, not a failure retry")
+		}
+		next := cloneSnapshot(b.state)
+		envelope.Delivery, envelope.Detail = outcome, detail
+		next.Messages[messageID] = envelope
+		return b.commit(next)
+	}
 	if envelope.Delivery == "delivered" && outcome != "delivered" {
 		// The native assistant can report while its transport process is still
 		// running. Its accepted execution is stronger evidence than that process's
@@ -589,7 +613,7 @@ func (b *Broker) SetSession(endpoint, state, runID string) error {
 		return errors.New("active native session requires run ID")
 	}
 	for _, task := range b.state.Tasks {
-		if task.Recipient == endpoint && task.Mode == "queue" && !terminal(task.Execution) && task.RunID != "" {
+		if task.RootOrigin == nil && task.Recipient == endpoint && task.Mode == "queue" && !terminal(task.Execution) && task.RunID != "" {
 			if state == "idle" || (runID != "" && runID != task.RunID) {
 				return errors.New("unfinished managed run must be reconciled by an execution report")
 			}
@@ -605,6 +629,9 @@ func (b *Broker) Report(report Report) error {
 	defer b.mu.Unlock()
 	if err := b.writable(); err != nil {
 		return err
+	}
+	if report.ResumeMessageID != "" {
+		return errors.New("archived peer resume reports are unsupported; use addressed mail")
 	}
 	if strings.TrimSpace(report.EventID) == "" {
 		return errors.New("event ID is required")
@@ -635,6 +662,9 @@ func (b *Broker) Report(report Report) error {
 		return errors.New("event ID was already used with a different payload")
 	}
 	task, exists := b.state.Tasks[report.TaskID]
+	if exists && task.RootOrigin != nil {
+		return errors.New("archived peer prototype records are read-only; use addressed mail")
+	}
 	if !exists || task.Recipient != report.Endpoint {
 		return errors.New("report must come from the task recipient")
 	}
@@ -936,6 +966,10 @@ func sameJSON(left, right any) bool {
 	return string(a) == string(b)
 }
 func cloneTask(task Task) Task {
+	if task.RootOrigin != nil {
+		origin := *task.RootOrigin
+		task.RootOrigin = &origin
+	}
 	task.Inputs = append([]Artifact(nil), task.Inputs...)
 	task.Resources = append([]string(nil), task.Resources...)
 	task.AuthorizedActions = append([]string(nil), task.AuthorizedActions...)
@@ -943,7 +977,7 @@ func cloneTask(task Task) Task {
 	return task
 }
 func cloneSnapshot(original Snapshot) Snapshot {
-	next := Snapshot{Version: original.Version, Leader: original.Leader, LeaderEpoch: original.LeaderEpoch, Endpoints: make(map[string]Endpoint, len(original.Endpoints)), Sessions: make(map[string]Session, len(original.Sessions)), Tasks: make(map[string]Task, len(original.Tasks)), Messages: make(map[string]Envelope, len(original.Messages)), EventIDs: make(map[string]string, len(original.EventIDs)), ResourceOwners: make(map[string]string, len(original.ResourceOwners))}
+	next := Snapshot{Version: original.Version, Leader: original.Leader, LeaderEpoch: original.LeaderEpoch, Endpoints: make(map[string]Endpoint, len(original.Endpoints)), Sessions: make(map[string]Session, len(original.Sessions)), Tasks: make(map[string]Task, len(original.Tasks)), Messages: make(map[string]Envelope, len(original.Messages)), EventIDs: make(map[string]string, len(original.EventIDs)), ResourceOwners: make(map[string]string, len(original.ResourceOwners)), Collaborations: make(map[string]Collaboration, len(original.Collaborations)), MailConversations: make(map[string]MailConversation, len(original.MailConversations))}
 	for id, endpoint := range original.Endpoints {
 		endpoint.Modes = append([]string(nil), endpoint.Modes...)
 		next.Endpoints[id] = endpoint
@@ -955,13 +989,20 @@ func cloneSnapshot(original Snapshot) Snapshot {
 		next.Tasks[id] = cloneTask(task)
 	}
 	for id, message := range original.Messages {
-		next.Messages[id] = message
+		next.Messages[id] = cloneEnvelope(message)
 	}
 	for id, event := range original.EventIDs {
 		next.EventIDs[id] = event
 	}
 	for id, owner := range original.ResourceOwners {
 		next.ResourceOwners[id] = owner
+	}
+	for id, conversation := range original.Collaborations {
+		next.Collaborations[id] = conversation
+	}
+	for id, conversation := range original.MailConversations {
+		conversation.Participants = cloneParticipants(conversation.Participants)
+		next.MailConversations[id] = conversation
 	}
 	return next
 }
