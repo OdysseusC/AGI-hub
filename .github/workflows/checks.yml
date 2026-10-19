@@ -72,7 +72,9 @@ jobs:
           go test -race ./...
           go vet ./...
       - name: Python Client tests
-        run: python -m unittest discover -s clients/tests -v
+        run: |
+          python -m unittest discover -s clients/tests -v
+          python -m unittest discover -s tools -p 'test_*.py' -v
       - name: Node transport and Claude protocol tests
         run: |
           node --test clients/codex/test_desktop_mcp_client.mjs
@@ -97,13 +99,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
-      - name: Build six portable packages
+      - name: Build four Windows and macOS portable packages
         run: go run ./tools/package
       - name: Legacy, skill sync and mailbox smokes (zero models)
         run: |
-          python tools/smoke_client.py --hub "$PWD/dist/linux-amd64/agi-hub"
-          python tools/smoke_skill_sync.py --hub "$PWD/dist/linux-amd64/agi-hub"
-          python tools/smoke_mailbox.py --hub "$PWD/dist/linux-amd64/agi-hub"
+          go build -o "$RUNNER_TEMP/agi-hub-smoke" ./cmd/agi-hub
+          python tools/smoke_client.py --hub "$RUNNER_TEMP/agi-hub-smoke"
+          python tools/smoke_skill_sync.py --hub "$RUNNER_TEMP/agi-hub-smoke"
+          python tools/smoke_mailbox.py --hub "$RUNNER_TEMP/agi-hub-smoke"
+      - name: Verify versioned release notes
+        run: |
+          version=$("$RUNNER_TEMP/agi-hub-smoke" --version | cut -d ' ' -f 3)
+          python tools/release_notes.py --tag "v$version" --repo "$GITHUB_REPOSITORY" --output "$RUNNER_TEMP/release-notes.md"
       - name: Record packaged source
         id: source
         run: |
@@ -115,7 +122,10 @@ jobs:
         with:
           name: portable-packages
           path: |
-            dist/agi-hub-*.zip
+            dist/agi-hub-macos-amd64.zip
+            dist/agi-hub-macos-arm64.zip
+            dist/agi-hub-windows-amd64.zip
+            dist/agi-hub-windows-arm64.zip
             dist/SHA256SUMS
             dist/SOURCE-COMMIT
           if-no-files-found: error

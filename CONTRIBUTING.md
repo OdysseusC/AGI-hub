@@ -14,21 +14,25 @@ Run the checks relevant to your change; the full offline suite is:
 go test -race ./...
 go vet ./...
 python3 -m unittest discover -s clients/tests -v
+python3 -m unittest discover -s tools -p 'test_*.py' -v
 node --test clients/codex/test_desktop_mcp_client.mjs
 node --test clients/claude-code/tests/client.test.mjs
 go run ./tools/package
-python3 tools/smoke_client.py --hub "$PWD/dist/linux-amd64/agi-hub"
-python3 tools/smoke_skill_sync.py --hub "$PWD/dist/linux-amd64/agi-hub"
-python3 tools/smoke_mailbox.py --hub "$PWD/dist/linux-amd64/agi-hub"
+go build -o dist/agi-hub-smoke ./cmd/agi-hub
+python3 tools/smoke_client.py --hub "$PWD/dist/agi-hub-smoke"
+python3 tools/smoke_skill_sync.py --hub "$PWD/dist/agi-hub-smoke"
+python3 tools/smoke_mailbox.py --hub "$PWD/dist/agi-hub-smoke"
 ```
 
-Use your platform's binary path for the local smoke scripts (`darwin-arm64`, `darwin-amd64`, or the corresponding Windows `.exe`). These tests use temporary private configurations and synthetic native adapters. Passing them does not prove a native application's login, idle wake or busy guidance works; those require a separate, authorized local acceptance test.
+The smoke binary is built for the development machine, separately from the four Windows/macOS release packages. On Windows, name it `dist/agi-hub-smoke.exe` and pass that path to the scripts. These tests use temporary private configurations and synthetic native adapters. Passing them does not prove a native application's login, idle wake or busy guidance works; those require a separate, authorized local acceptance test.
 
 ## Releases
 
 Compilation and packaging run on GitHub Actions. Each pull request and push to `main` uploads a `portable-packages` artifact after the offline checks; feature pushes do not duplicate the pull request run. Local packaging remains available for development.
 
-For a release, merge the version and changelog update through a pull request, then push a strict SemVer tag such as `v0.2.2` pointing to that reviewed `main` commit. The **Release** workflow checks main ancestry, runs the full reusable checks at the exact tag commit, downloads that run's immutable artifact, and verifies its commit, six checksums and packaged binary version. It uploads all seven assets into a draft before publishing. Only the publication job receives repository write permission.
+For a release, merge the version and changelog update through a pull request, then push a strict SemVer tag such as `v0.2.3` pointing to that reviewed `main` commit. The **Release** workflow checks main ancestry, runs the full reusable checks at the exact tag commit, downloads that run's immutable artifact, and verifies its commit, four checksums and packaged binary version on macOS. It uploads four Windows/macOS ZIPs and `SHA256SUMS` into a draft before publishing. Only the publication job receives repository write permission. Linux remains an internal CI host, with no Linux release packages.
+
+Release notes are generated from the exact version section in `CHANGELOG.md`, followed by a chip-specific download table and pinned installation/acceptance links. Missing, empty or duplicate version sections block publication. Preview locally with `python3 tools/release_notes.py --tag v0.2.3 --repo OdysseusC/AGI-hub --output dist/release-notes.md`; do not replace the version's changes with a generic build message. macOS ZIP names use `macos-{amd64,arm64}` while the internal runtime and manifest use Go's `darwin` platform name.
 
 The workflow can also be run manually with an **existing** `vX.Y.Z` tag; its source is the tag commit, regardless of the selected dispatch branch. An existing release or draft is never overwritten. If upload or publication fails, inspect the preserved draft and run before choosing recovery; do not use `--clobber` or silently replace published assets. Document protocol or configuration incompatibilities explicitly; preserve unresolved delivery records during upgrades.
 

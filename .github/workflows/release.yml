@@ -63,7 +63,7 @@ jobs:
 
   publish:
     needs: [validate, build]
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 10
     permissions:
       contents: write
@@ -87,9 +87,9 @@ jobs:
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$SOURCE_COMMIT"
           git merge-base --is-ancestor "$SOURCE_COMMIT" refs/remotes/origin/main
           python3 - <<'PY'
-          import hashlib, os, pathlib, re, subprocess, zipfile
+          import hashlib, os, pathlib, platform, re, subprocess, zipfile
           root = pathlib.Path('release-assets')
-          packages = {f'agi-hub-{system}-{arch}.zip' for system in ('darwin', 'windows', 'linux') for arch in ('amd64', 'arm64')}
+          packages = {f'agi-hub-{system}-{arch}.zip' for system in ('macos', 'windows') for arch in ('amd64', 'arm64')}
           assert {path.name for path in root.iterdir()} == packages | {'SHA256SUMS', 'SOURCE-COMMIT'}, 'Unexpected or missing artifact files'
           assert (root / 'SOURCE-COMMIT').read_text().strip() == os.environ['SOURCE_COMMIT'], 'Artifact source mismatch'
           seen = set()
@@ -99,13 +99,19 @@ jobs:
               assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, 'Package checksum mismatch'
               seen.add(name)
           assert seen == packages, 'Incomplete checksum list'
+          assert platform.system() == 'Darwin', 'Packaged version check requires a macOS runner'
+          arch = {'arm64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
           binary = pathlib.Path(os.environ['RUNNER_TEMP']) / 'agi-hub-release-version'
-          with zipfile.ZipFile(root / 'agi-hub-linux-amd64.zip') as archive:
+          with zipfile.ZipFile(root / f'agi-hub-macos-{arch}.zip') as archive:
               binary.write_bytes(archive.read('agi-hub'))
           binary.chmod(0o700)
           version = subprocess.check_output([str(binary), '--version'], text=True, timeout=10).strip()
-          assert version == f"AGI Hub {os.environ['RELEASE_TAG'][1:]} linux/amd64", 'Tag and packaged binary version differ'
+          assert version == f"AGI Hub {os.environ['RELEASE_TAG'][1:]} darwin/{arch}", 'Tag and packaged binary version differ'
           PY
+      - name: Prepare this version's changelog and download guide
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: python3 tools/release_notes.py --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --output "$RUNNER_TEMP/release-notes.md"
       - name: Create complete draft, then publish
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -125,5 +131,5 @@ jobs:
           PY
           gh release create "$RELEASE_TAG" release-assets/agi-hub-*.zip release-assets/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --draft --verify-tag --target "$SOURCE_COMMIT" \
-            --title "$RELEASE_TAG" --notes "Built and verified by GitHub Actions from $SOURCE_COMMIT. See CHANGELOG.md at this tag for changes."
+            --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
