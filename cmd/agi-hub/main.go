@@ -26,7 +26,7 @@ import (
 	"agihub/internal/manager"
 )
 
-const version = "0.2.1"
+const version = "0.2.2"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

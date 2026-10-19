@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,32 @@ import (
 	"agihub/internal/install"
 	"agihub/internal/manager"
 )
+
+func TestServeRefusesExistingListenerBeforeTouchingPrivateState(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	dir := t.TempDir()
+	journal := filepath.Join(dir, "state.jsonl")
+	previous := []byte("existing private journal must not be opened or repaired\n")
+	if err := os.WriteFile(journal, previous, 0600); err != nil {
+		t.Fatal(err)
+	}
+	err = serve(dir, app.Config{Listen: listener.Addr().String()}, false)
+	var listenError *net.OpError
+	if !errors.As(err, &listenError) || listenError.Op != "listen" {
+		t.Fatalf("existing server must stop startup before opening state: %v", err)
+	}
+	after, err := os.ReadFile(journal)
+	if err != nil || string(after) != string(previous) {
+		t.Fatal("existing server's journal changed", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".agi-hub.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("attempted to open the data directory despite an existing API listener", err)
+	}
+}
 
 func TestCLIReadsLegalStateLargerThanTwoMiB(t *testing.T) {
 	state := manager.Snapshot{Version: 1, Tasks: map[string]manager.Task{}, Messages: map[string]manager.Envelope{}}
