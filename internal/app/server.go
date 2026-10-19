@@ -87,7 +87,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills"
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills" && !mailRoute(r.URL.Path)
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -95,6 +95,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var result any = map[string]bool{"ok": true}
 	var err error
 	switch {
+	case mailRoute(r.URL.Path):
+		result, err = s.mail(w, r, endpoint)
 	case r.URL.Path == "/v1/skill-release" && r.Method == http.MethodGet:
 		result, err = currentSkillRules(false)
 	case r.URL.Path == "/v1/catalog" && r.Method == http.MethodGet:

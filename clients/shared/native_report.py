@@ -1,8 +1,10 @@
-"""Report-only entry point for an installation's fixed, endpoint-scoped launcher.
+"""Collaboration entry point for an installation's fixed, scoped launcher.
 
 The launcher supplies all trusted binding values in code. Message data may only
 select a report file inside that binding's workspace, or provide report stdin.
-This module cannot submit tasks, modify sessions/leader, or invoke an assistant.
+Mail sends use a separate, scoped route and the configured recipient allowlist.
+This module cannot modify sessions/leader or invoke an
+assistant directly. It never loads or sends an administrator credential.
 """
 
 from __future__ import annotations
@@ -38,6 +40,55 @@ def parse_report_args(argv: list[str]) -> dict[str, str]:
             raise ConfigurationError("invalid_or_duplicate_report_flag")
         values[name] = value
     return values
+
+
+def parse_mail_args(argv: list[str]) -> dict[str, str]:
+    if not argv or argv[0] not in ("peers", "mail-send", "mail-state") or not all(isinstance(value, str) for value in argv):
+        raise ConfigurationError("unsupported_collaboration_command")
+    command = argv[0]
+    allowed = {"--data", "--endpoint"}
+    if command == "mail-send":
+        allowed.add("--file")
+    if command == "mail-state":
+        allowed.add("--correlation-id")
+    parsed: dict[str, str] = {}
+    index = 1
+    while index < len(argv):
+        argument = argv[index]
+        if "=" in argument:
+            name, value = argument.split("=", 1)
+            index += 1
+        else:
+            name = argument
+            if index + 1 >= len(argv):
+                raise ConfigurationError("collaboration_flag_requires_value")
+            value = argv[index + 1]
+            index += 2
+        if name not in allowed or name in parsed or not value or value.startswith("--") or "\x00" in value:
+            raise ConfigurationError("invalid_or_duplicate_collaboration_flag")
+        parsed[name] = value
+    if command == "mail-state" and not parsed.get("--correlation-id"):
+        raise ConfigurationError("correlation_id_required")
+    return parsed
+
+
+def validate_mail_submission(value: dict) -> None:
+    allowed = {
+        "id", "recipient", "kind", "content", "correlation_id", "origin_ref",
+        "reply_to", "deadline", "max_messages",
+    }
+    if set(value) - allowed:
+        # Do not echo untrusted field names or message contents: they can carry
+        # private data. The fixed schema in the error is sufficient to repair it.
+        raise ConfigurationError("unsupported_mail_fields")
+    if not isinstance(value.get("id"), str) or not value["id"].strip():
+        raise ConfigurationError("mail_id_required")
+    if not isinstance(value.get("recipient"), str) or not value["recipient"].strip():
+        raise ConfigurationError("mail_recipient_required")
+    if value.get("kind") not in ("request", "reply", "status", "result"):
+        raise ConfigurationError("mail_kind_invalid")
+    if not isinstance(value.get("content"), str) or not value["content"].strip():
+        raise ConfigurationError("mail_content_required")
 
 
 def decode_report(raw: bytes) -> dict:
@@ -143,7 +194,8 @@ def main_for_binding(
 ) -> int:
     """Called only by a trusted launcher with fixed installation constants."""
     try:
-        options = parse_report_args(argv)
+        command = argv[0] if argv else ""
+        options = parse_mail_args(argv) if command in ("peers", "mail-send", "mail-state") else parse_report_args(argv)
         if not config_path.is_absolute() or not data_dir.is_absolute() or not workspace_root.is_absolute():
             raise ConfigurationError("invalid_fixed_report_binding")
         root = workspace_root.resolve(strict=True)
@@ -158,11 +210,23 @@ def main_for_binding(
         config = load_config(config_path)
         if config["endpoint"] != endpoint:
             raise ConfigurationError("report_client_binding_mismatch")
+        if command == "peers":
+            print(json.dumps(HubAPI(config).get("catalog"), ensure_ascii=False, allow_nan=False), flush=True)
+            return 0
+        if command == "mail-state":
+            value = HubAPI(config).get("mail/state", {"correlation_id": options["--correlation-id"]})
+            print(json.dumps(value, ensure_ascii=False, allow_nan=False), flush=True)
+            return 0
         filename = options.get("--file", "-")
         if filename == "-":
             report = decode_report(sys.stdin.buffer.read(MAX_BYTES + 1))
         else:
             report = decode_report(read_workspace_report(root, filename))
+        if command == "mail-send":
+            validate_mail_submission(report)
+            value = HubAPI(config).post("mail/send", report)
+            print(json.dumps(value, ensure_ascii=False, allow_nan=False), flush=True)
+            return 0
         if report.get("endpoint") != endpoint:
             raise ConfigurationError("report_endpoint_mismatch")
         # The Hub performs the rest of the strict Report schema, event dedup,
@@ -171,9 +235,22 @@ def main_for_binding(
         status("ready", "report_saved")
         return 0
     except ConfigurationError as exc:
-        status("error", str(exc))
+        if command == "mail-send":
+            print(json.dumps({
+                "state": "error", "code": str(exc),
+                "usage": "mail-send --file <workspace JSON>; recipient is JSON field; no --peer/--to/--collaboration-flag",
+                "required_fields": ["id", "recipient", "kind", "content"],
+                "optional_fields": ["correlation_id", "origin_ref", "reply_to", "deadline", "max_messages"],
+            }), flush=True)
+        else:
+            status("error", str(exc))
     except HubError:
-        status("error", "report_unconfirmed_keep_stable_event_id")
+        code = "report_unconfirmed_keep_stable_event_id"
+        if command == "mail-send":
+            code = "mail_send_unconfirmed_keep_stable_id"
+        elif command in ("peers", "mail-state"):
+            code = "mail_query_unconfirmed"
+        status("error", code)
     except (OSError, ValueError, UnicodeError):
         status("error", "report_file_unavailable_or_invalid")
     except Exception:

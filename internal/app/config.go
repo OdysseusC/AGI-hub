@@ -30,6 +30,7 @@ type Binding struct {
 	Driver   ClientBinding    `json:"driver"`
 	// Directory visibility does not grant task submission rights.
 	VisiblePeers []string `json:"visible_peers,omitempty"`
+	AllowedPeers []string `json:"allowed_peers,omitempty"`
 	Purpose      string   `json:"purpose,omitempty"`
 }
 
@@ -122,6 +123,12 @@ func LoadConfig(dir string) (Config, error) {
 		if b.Endpoint.DeviceID != c.DeviceID {
 			return c, errors.New("v0 bindings must belong to this device; remote file transport is not implemented")
 		}
+		if b.Endpoint.PeerProtocolVersion < 0 || b.Endpoint.PeerProtocolVersion > 1 || b.Endpoint.PeerWhileBusyVerified && b.Endpoint.PeerProtocolVersion != 1 {
+			return c, errors.New("peer_protocol_version must be 0 or 1; peer_while_busy_verified requires version 1")
+		}
+		if b.Endpoint.MailboxProtocolVersion < 0 || b.Endpoint.MailboxProtocolVersion > 1 || b.Endpoint.MailboxWhileBusyVerified && b.Endpoint.MailboxProtocolVersion != 1 {
+			return c, errors.New("mailbox_protocol_version must be 0 or 1; mailbox_while_busy_verified requires version 1")
+		}
 		if b.Driver.Type == "" {
 			b.Driver.Type = "external"
 		}
@@ -138,12 +145,14 @@ func LoadConfig(dir string) (Config, error) {
 		if len(binding.Purpose) > 240 || strings.IndexFunc(binding.Purpose, unicode.IsControl) != -1 {
 			return c, errors.New("binding purpose must be short single-line text (at most 240 bytes)")
 		}
-		peers := map[string]bool{}
-		for _, id := range binding.VisiblePeers {
-			if !seen[id] || id == binding.Endpoint.ID || peers[id] {
-				return c, errors.New("visible_peers must contain unique configured endpoints other than self")
+		for _, list := range [][]string{binding.VisiblePeers, binding.AllowedPeers} {
+			peers := map[string]bool{}
+			for _, id := range list {
+				if !seen[id] || id == binding.Endpoint.ID || peers[id] {
+					return c, errors.New("visible_peers and allowed_peers must contain unique configured endpoints other than self")
+				}
+				peers[id] = true
 			}
-			peers[id] = true
 		}
 	}
 	return c, nil

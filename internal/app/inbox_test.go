@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,10 +49,18 @@ func TestInboxWaitTimesOutWithoutRedispatching(t *testing.T) {
 
 func TestConcurrentLongPollsWakeAndOnlyOneClaims(t *testing.T) {
 	f := newAPIFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	results := make(chan *httptest.ResponseRecorder, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			results <- f.request(http.MethodPost, "/v1/inbox?endpoint=worker&wait_ms=150", f.clientToken("worker"), "")
+			// Disk persistence can exceed 150 ms on Windows CI. Keep both
+			// consumers waiting until one wins, then cancel the losing request.
+			r := httptest.NewRequest(http.MethodPost, "http://"+f.server.Config.Listen+"/v1/inbox?endpoint=worker&wait_ms=25000", nil).WithContext(ctx)
+			r.Header.Set("Authorization", "Bearer "+f.clientToken("worker"))
+			w := httptest.NewRecorder()
+			f.server.Handler().ServeHTTP(w, r)
+			results <- w
 		}()
 	}
 	select {
@@ -67,10 +76,11 @@ func TestConcurrentLongPollsWakeAndOnlyOneClaims(t *testing.T) {
 			checkStatus(t, w, http.StatusOK)
 			if strings.Contains(w.Body.String(), `"task_id":"one-claim"`) {
 				claimed++
-			} else if strings.TrimSpace(w.Body.String()) != "null" {
+				cancel()
+			} else if strings.TrimSpace(w.Body.String()) != "" || ctx.Err() == nil {
 				t.Fatalf("unexpected inbox: %s", w.Body.String())
 			}
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("long poll failed to return")
 		}
 	}

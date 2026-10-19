@@ -81,6 +81,47 @@ test('MCP result calls only fixed official tool using host caller and verifies t
   adapter.close();
 });
 
+test('addressed requests and replies guide only the configured original thread', async t => {
+  const { config } = fixture(t);
+  const root_origin = { endpoint: 'human-entry', device_id: 'local', session_id: 'human-original-chat', request_ref: 'human-turn' };
+  const mailBinding = binding(); mailBinding.endpoint.mailbox_protocol_version = 1; mailBinding.endpoint.mailbox_while_busy_verified = true;
+  validateBinding(mailBinding, config);
+  for (const kind of ['request', 'reply', 'result']) {
+    const message = { ...envelope(), kind, mailbox: true, task_id: '', root_origin, target_thread_id: 'cannot-retarget' };
+    const rpc = new FakeRPC(); const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+    const result = await adapter.deliver(message);
+    assert.equal(result.outcome, 'delivered');
+    const sent = rpc.calls.find(call => call.method === 'tools/call').params;
+    assert.equal(sent.arguments.threadId, target);
+    assert.match(sent.arguments.prompt, /mail-send/);
+    assert.match(sent.arguments.prompt, /REQUIRED new stable id/);
+    assert.match(sent.arguments.prompt, /"id":"<new-saved-stable-id>"/);
+    assert.match(sent.arguments.prompt, /"reply_to":"message-test"/);
+    assert.match(sent.arguments.prompt, /recipient you choose/);
+    assert.ok(!sent.arguments.prompt.includes('parent_task_id'));
+    assert.match(sent.arguments.prompt, /root_origin/);
+    assert.match(sent.arguments.prompt, /tokens/);
+    assert.equal(rpc.calls.filter(call => call.method === 'tools/call').length, 1);
+    adapter.close();
+  }
+  for (const change of [value => { value.endpoint.mailbox_protocol_version = true; }, value => { value.endpoint.mailbox_protocol_version = 2; }, value => { value.endpoint.mailbox_while_busy_verified = 'true'; }]) {
+    const value = binding(); change(value); assert.throws(() => validateBinding(value, config), ConfigurationError);
+  }
+  assert.throws(() => notification(config.endpoint, { ...envelope(), kind: 'reply', mailbox: true, task_id: '', root_origin: null }), /invalid_mailbox_native/);
+});
+
+test('mail inbox drain records status silently, acknowledges native input and never generates replies', async t => {
+  const { config } = fixture(t); const calls = [];
+  const message = { ...envelope(), kind: 'request', mailbox: true, task_id: '', root_origin: { endpoint: 'human-entry' } };
+  const pending = [{ ...message, kind: 'status' }, message, null]; let nativeInputs = 0;
+  const api = { endpoint: config.endpoint, mailbox: true, async post(name) { calls.push(name); return name === 'mail/inbox' ? pending.shift() : { ok: true }; } };
+  const adapter = { async preflight() {}, async deliver() { nativeInputs++; return { outcome: 'delivered', detail: 'input acknowledged' }; } };
+  await drain(api, adapter, { status() {} });
+  assert.deepEqual(calls, ['mail/inbox', 'mail/delivery', 'mail/inbox', 'mail/delivery', 'mail/inbox']);
+  assert.equal(nativeInputs, 1);
+  assert.ok(!calls.some(name => ['report', 'mail/send', 'peer/settled'].includes(name)));
+});
+
 test('MCP discovery fails before native call; ambiguous attempted delivery never retries or falls back', async t => {
   const { config } = fixture(t);
   for (const replies of [[new McpError('closed')], [initialize(), { tools: [] }]]) {

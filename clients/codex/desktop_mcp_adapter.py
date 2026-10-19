@@ -176,6 +176,8 @@ def absolute_file(value, code: str) -> Path:
 
 
 class CodexDesktopMcpAdapter:
+    mailbox_protocol_version = 1
+
     def __init__(self, config: dict):
         native = config["native"]
         if set(native) - {"transport", "command", "args", "cwd", "thread_id", "timeout_seconds"} or native.get("transport") != "desktop-mcp":
@@ -241,8 +243,13 @@ class CodexDesktopMcpAdapter:
             raise McpError("desktop_mcp_tool_schema_unverified")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
-        if envelope.get("recipient") != self.endpoint or envelope.get("kind") != "result" or envelope.get("mode") != "queue":
-            return "failed", "Codex Desktop MCP accepts only this endpoint's result returns; no native input was attempted"
+        mailbox = envelope.get("mailbox") is True
+        if (
+            envelope.get("recipient") != self.endpoint or envelope.get("mode") != "queue"
+            or envelope.get("kind") not in (("request", "reply", "result") if mailbox else ("result",))
+            or (mailbox and (not isinstance(envelope.get("root_origin"), dict) or bool(envelope.get("task_id"))))
+        ):
+            return "failed", "Codex Desktop MCP rejected an unsupported or foreign message; no native input was attempted"
         rpc = None
         attempted = False
         try:
@@ -257,7 +264,7 @@ class CodexDesktopMcpAdapter:
             rpc = DesktopMcpRPC(self.command, self.cwd, self.environment, self.timeout)
             initialized = rpc.call("initialize", {
                 "protocolVersion": PROTOCOL_VERSION, "capabilities": {},
-                "clientInfo": {"name": "agi-hub", "title": "AGI Hub", "version": "0.1.0"},
+                "clientInfo": {"name": "agi-hub", "title": "AGI Hub", "version": "0.3.0"},
             })
             if initialized.get("protocolVersion") != PROTOCOL_VERSION or not isinstance(initialized.get("capabilities"), dict) or not isinstance(initialized["capabilities"].get("tools"), dict) or not isinstance(initialized.get("serverInfo"), dict) or initialized["serverInfo"].get("name") != "codex-app-tools":
                 raise McpError("desktop_mcp_handshake_unverified")

@@ -160,6 +160,33 @@ class CLIAdapterTests(unittest.TestCase):
             self.assertNotIn("UNKNOWN", detail + output.getvalue())
             self.assertNotIn("private", detail + output.getvalue())
 
+    def test_cli_addressed_reply_keeps_original_native_binding_without_task_chain(self):
+        adapter = create_adapter(self.config)
+        message = dict(self.message(), kind="reply", mailbox=True, task_id="", correlation_id="message-conversation", root_origin={"endpoint": "human-entry", "session_id": "original-human-chat"})
+        start, _ = self.fake_launch(json.dumps(self.result()).encode())
+        captured = []
+        def launch(argv, **kwargs):
+            captured.append(kwargs["stdin"].read().decode())
+            return start(argv, **kwargs)
+        with patch("workbuddy.cli_adapter.subprocess.Popen", side_effect=launch) as called:
+            self.assertEqual(adapter.deliver(message)[0], "delivered")
+        argv = called.call_args.args[0]
+        self.assertEqual(argv[1:3], ["--resume", "original-session-test"])
+        self.assertNotIn("--tools", argv)
+        self.assertIn("mail-send --file", captured[0])
+        self.assertIn("For an explicit addressed message", captured[0])
+        self.assertNotIn("write the receipt", captured[0])
+        self.assertIn("旧任务协议回报 needs_user", argv[-1])
+        self.assertIn("mailbox 按上下文显式发送 reply 或 status", argv[-1])
+        self.assertIn("recipient you choose", captured[0])
+        self.assertNotIn("parent_task_id", captured[0])
+        self.assertEqual(adapter.mailbox_protocol_version, 1)
+        invalid = dict(message)
+        invalid["root_origin"] = None
+        with patch("workbuddy.cli_adapter.subprocess.Popen") as called:
+            self.assertEqual(adapter.deliver(invalid)[0], "failed")
+        called.assert_not_called()
+
     def test_cli_wrong_binding_foreign_recipient_and_modes_never_dispatch(self):
         adapter = create_adapter(self.config)
         binding = registered_binding(driver="workbuddy", session_id="different-session")

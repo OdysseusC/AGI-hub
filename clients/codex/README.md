@@ -1,8 +1,10 @@
 # Codex Client
 
-版本 `0.2.0`，Hub 协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天返回成果，保留原会话的工具、模型和权限。
+版本 `0.3.0`，Hub 协议 `1`，可选寻址消息协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天投递消息，保留原会话的工具、模型和权限。
 
-每个 Hub endpoint 只启动一个消费者。当前只接受 `kind=result / mode=queue`：展示已完成任务的结果，不重新执行任务，不发送业务接手与进度回执。普通任务的 `steer / interrupt` 尚未实现，传输不确定时不会重发或回退到 `codex queue`。
+每个 Hub endpoint 只启动一个消费者。在显式配置 `mailbox_protocol_version=1` 后，只消费 `/v1/mail/inbox`；`request/reply/result` 交给原会话，`status` 留在消息记录并保存投递回执，不唤醒模型。会话内技能根据上下文决定行动、协助对象和回复收件人；每条回复都显式发送，Hub 不根据业务状态生成回复，不强制父子任务链。`reply_to` 只作引用，`root_origin` 保留用户最初输入的原生会话，最终成果应发回那里。
+
+原生发送始终走官方 `send_message_to_thread` 的即时输入；不会另投原生队列。只有该宿主已验证时才配置 `mailbox_while_busy_verified=true`，允许消息在原会话工作时引导。MCP ACK 只证明接收，Client 不宣称业务完成，不调用 Report 或声明原生轮次已经结束。原有未启用 mailbox 的绑定继续只消费旧任务队列，Desktop MCP 仅返回 `kind=result`。普通任务的 `steer / interrupt` 尚未实现，传输不确定时不会重发或回退到 `codex queue`。
 
 ## 官方 Desktop MCP
 
@@ -59,9 +61,9 @@ Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.b
 
 ## 保留的 Python 入口
 
-`main.py` 仍使用 Python 3.11+ 标准库，依赖同级 `shared` runtime `0.1.0`。复制或固定 Python Client 版本时须一起保留相邻的 `clients/shared`。Node Desktop MCP 入口不导入 shared；二者采用同一个 Hub 协议。
+`main.py` 仍使用 Python 3.11+ 标准库，依赖同级 `shared` runtime `0.2.0`。复制或固定 Python Client 版本时须一起保留相邻的 `clients/shared`。Node Desktop MCP 入口不导入 shared；二者采用同一个 Hub 协议。
 
-Python 明确选择以下一种传输，不能同时为同一 endpoint 启动 Node 与 Python 消费者：
+Python 入口依赖同级 `shared` runtime `0.2.0`。明确选择以下一种传输，不能同时为同一 endpoint 启动 Node 与 Python 消费者：
 
 | transport | 范围 |
 | --- | --- |

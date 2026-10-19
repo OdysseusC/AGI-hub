@@ -1,6 +1,6 @@
 # Grok Routine Client
 
-版本 `0.1.0`，Hub 协议 `1`，依赖同级 `shared` runtime `0.1.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
+版本 `0.1.0`，Hub 协议 `1`，依赖同级 `shared` runtime `0.2.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。当前不支持寻址消息协议，不能配置 `mailbox_protocol_version=1`。
 
 本 Client 把完整 Hub 消息发送到用户配置的官方 Routine webhook。仅支持 `queue`；没有已验证的 `steer` 或 `interrupt`。Webhook 2xx 只确认传输，Grok Bot 须主动回报接手和成果。用户在另一台 Windows 电脑上的既有验证，不等同于本 Client 在当前环境完成验证；本实现的原生闭环仍待实测。
 

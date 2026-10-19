@@ -1,6 +1,12 @@
 # WorkBuddy Client
 
-版本 `0.2.1`，Hub 协议 `1`，依赖同级 `shared` runtime `0.1.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
+版本 `0.3.0`，Hub 协议 `1`，可选寻址消息协议 `1`，依赖同级 `shared` runtime `0.2.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
+
+寻址消息仅支持已验证的 CLI 传输，须在用户选定的 endpoint 显式设置 `mailbox_protocol_version=1` 及允许互发的成员。OpenAPI 尚未支持；Client 在领取前拒绝不匹配的能力配置。启用后只消费 `/v1/mail/inbox`，不混入旧任务队列。CLI 收到 `request/reply/result` 时恢复固定原会话，技能自行决定是否行动及向谁发消息；不强制父子返回链、不产生自动业务回复。`status` 只存储并确认投递，不启动 CLI 或模型。
+
+只有 CLI 进程退出且完整末尾 JSON 与固定 `session_id` 匹配、`is_error=false`，Client 才保存 `/v1/mail/delivery` 回执。消息在投递中时保留占用，防止同一会话并发恢复。Mailbox 没有任务 Report、等待状态、续接回执或 settled 接口。模型发送进度不能替代原始消息的投递证据。超时、认证错误、输出不匹配或回执丢失均保留状态待核对，不盲重发；不打开忙时恢复能力。
+
+固定的 endpoint helper 保留旧任务 `report`，新增 `peers`、`mail-send --file <工作区内JSON>`、`mail-state --correlation-id <已知关联ID>`。它只使用自己的 endpoint token，不能管理 leader、修改会话或直接调用原生助手。回复和最终结果均由技能使用 `mail-send` 显式选择收件人，沿用 `correlation_id`，最终结果发回 `root_origin` 对应原会话。非交互运行所需权限应只覆盖这个固定程序的对应命令及选定工作区；不添加 Shell 或工具覆盖。
 
 Client 明确选择官方 CLI 会话恢复或官方持续本地助理 OpenAPI，只支持 `queue`。本机独立 CLI 的真实 MQ 已通过；2026-10-15 用户重新授权后，原 WorkBuddy 会话、工作目录及原 `.workbuddy` 的一次单联系人新查询也完成原生回报、成果核验和自动忙时返回。首轮未接手，需要由入口核对后显式续接一次；候选字段与成果一致，不代表全通讯录唯一或全部桌面工具继承。manifest 按传输、宿主和平台分别要求验证，`cli_validation` 记录本机原会话经显式续接后的联系人与主动回报证据，`desktop_inheritance_verified=false` 保留；OpenAPI 仍未验收。[本机验证记录](../../docs/NATIVE-VALIDATION.md)
 

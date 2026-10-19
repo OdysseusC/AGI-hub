@@ -83,7 +83,14 @@ func TestCLIManagedSkillSyncPreservesConflictsAndScopedReportHelper(t *testing.T
 		}
 	}
 	metadata, err := os.ReadFile(filepath.Join(skills, "agi-hub-client", "installation.json"))
-	if err != nil || !strings.Contains(string(metadata), report) || !strings.Contains(string(metadata), hub) {
+	var installed struct {
+		BinaryPath    string `json:"binary_path"`
+		HubBinaryPath string `json:"hub_binary_path"`
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(metadata, &installed); err != nil || installed.BinaryPath != report || installed.HubBinaryPath != hub {
 		t.Fatal("report and management paths were not separately preserved", err)
 	}
 	path := filepath.Join(skills, "agi-hub-client", "SKILL.md")

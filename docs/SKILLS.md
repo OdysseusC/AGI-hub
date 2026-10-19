@@ -1,6 +1,8 @@
 # 原生助手技能安装
 
-每个接入会话需要知道怎样处理任务信封、按真实执行状态回报，以及怎样展示返回结果。AGI Hub 提供同一份 `agi-hub-client` 技能，由本机 CLI 安装到用户选定助手的技能目录。技能是协议说明；消费通知和唤醒现有会话仍由各宿主适配器负责。
+每个接入会话安装同一份 `agi-hub-client` 技能，按需发现成员、明确选择消息接收者、处理关联回复，并把最终成果发回用户最初输入的会话。Hub 只保存定址消息与投递证据；分工、转交和汇总由助手自行决定。技能不监听消息，原生唤醒由对应 Client 负责。
+
+当前邮箱模式先支持 Codex Desktop MCP 与 WorkBuddy CLI，双方显式启用 `mailbox_protocol_version:1` 并配置 `allowed_peers`。Claude、Grok 保持邮箱 `0`，其旧版单次交接能力不等于已接入新邮箱。
 
 ## 安装
 
@@ -24,7 +26,7 @@ Windows PowerShell：
 
 以上是路径示例，须替换为本机真实绝对路径与已配置的 endpoint。安装流程适合交给当前 AI 助手直接执行，不需要下载脚本、额外包管理器或修改宿主权限设置。CLI 的 `--binary` 可明确记录接手助手以后使用的真实程序绝对路径。
 
-安装器只写协议说明和安装元数据，不修改宿主工具权限。非交互 CLI 的实际回报还需要宿主允许读取该安装元数据、执行对应报告程序以及访问本次任务工作区；技能被发现不代表这些操作已经获准。用户选择官方 CLI 自身的窄范围配置，交接消息和技能不能代替用户批准，也不应授予无关目录或命令权限。
+安装器只写协议说明和安装元数据，不修改宿主工具权限。非交互 CLI 的消息收发还需要宿主允许读取该安装元数据、执行对应消息程序以及访问本次工作区；技能被发现不代表这些操作已经获准。用户选择官方 CLI 自身的窄范围配置，交接消息和技能不能代替用户批准，也不应授予无关目录或命令权限。
 
 | 宿主 | 默认技能目录 | 支持边界 |
 | --- | --- | --- |
@@ -41,9 +43,9 @@ Windows PowerShell：
 
 尖括号是待替换参数。只安装到用户选定宿主，不批量扫描应用配置、提取登录态、注册其他助手或切换 leader。不同宿主的技能格式和加载条件需要分别核实；如果需要 UI 导入，使用宿主原生技能界面完成并保留用户审批流程。
 
-使用 WorkBuddy 的独立 CLI 配置目录时，通过 `--skills-dir` 选择该 CLI 环境实际扫描、已核实能加载的技能目录；桌面默认目录不会自动成为每个 CLI profile 的技能目录。先核对会话加载证据，再配置技能读取、指定报告 helper 与本次工作区文件权限。
+使用 WorkBuddy 的独立 CLI 配置目录时，通过 `--skills-dir` 选择该 CLI 环境实际扫描、已核实能加载的技能目录；桌面默认目录不会自动成为每个 CLI profile 的技能目录。先核对会话加载证据，再配置技能读取、指定消息 helper 与本次工作区文件权限。
 
-Claude Code mod 提供 `mcp__agi-hub-endpoint__report` 时，技能优先调用该原生工具，endpoint 与真实任务 turn ID 由插件固定；不需要 Bash 报告命令。Go CLI `report --file` 是其他支持环境的后备方式，不能在 Claude 插件租约之外绕过其绑定、回报来源和幂等核对。插件、技能与权限分别安装：技能存在不代表已加载插件，也不能证明空闲唤醒。当前 Claude Code 以 2.1.299 校验，实际 N2/N3 结果见 [本机记录](NATIVE-VALIDATION.md)。
+旧版 Task/Report 兼容模式下，Claude Code mod 提供 `mcp__agi-hub-endpoint__report` 时，技能优先调用该原生工具，endpoint 与真实任务 turn ID 由插件固定；不需要 Bash 报告命令。Go CLI `report --file` 是其他支持环境的后备方式，不能在 Claude 插件租约之外绕过其绑定、回报来源和幂等核对。插件、技能与权限分别安装：技能存在不代表已加载插件，也不能证明空闲唤醒。当前 Claude Code 以 2.1.299 校验，实际 N2/N3 结果见 [本机记录](NATIVE-VALIDATION.md)。
 
 ## 安装内容与更新
 
@@ -56,7 +58,7 @@ agi-hub-client/
   .agi-hub-manifest.json
 ```
 
-`installation.json` 包含 `host`、`endpoint_id`、`binary_path`、`data_dir`，可选 `hub_binary_path`。`binary_path` 始终用于回报；若它是固定 endpoint 的专属报告程序，使用 `--hub-binary <实际 Hub CLI>` 单独登记查询与同步程序，不能覆盖报告程序或修改宿主权限。未设置时两个用途共用 `binary_path`。元数据不包含凭据、登录态或聊天记录；CLI 内部完成对应 endpoint 鉴权。
+`installation.json` 包含 `host`、`endpoint_id`、`binary_path`、`data_dir`，可选 `hub_binary_path`。`binary_path` 指向所选消息入口或旧版报告程序；WorkBuddy 专属 helper 可固定自身 endpoint，完整 Hub CLI 则显式携带安装元数据中的 data 与 endpoint。若维护程序不同，使用 `--hub-binary <实际 Hub CLI>` 单独登记查询与同步程序，不能覆盖专属 helper 或修改宿主权限。未设置时两个用途共用 `binary_path`。元数据不包含凭据、登录态或聊天记录；CLI 内部完成对应 endpoint 鉴权。
 
 所有权清单记录安装器标识与两个受管文件的 SHA256。相同内容再次安装保持文件不变；升级只替换清单仍匹配的受管文件，保留其他本地文件。没有清单、内容被手工编辑、目标为软链接或目录路径包含软链接时拒绝覆盖，用户可以先检查并备份冲突目录，再明确选择安装位置。
 
@@ -78,9 +80,9 @@ agi-hub skill-rules --endpoint codex --content --known-version 'sha256:previous-
 
 规则版本使用完整 SHA256，独立于 manifest 格式 `1`。维护者修改内嵌技能时必须增加 `install.SkillRevision`；私有登记保存认可的修订与摘要，拒绝旧修订降级和相同修订换正文。同步前还核对运行中 Hub 与 CLI 的规则是否一致；只有连接明确被拒绝才允许离线维护，超时或鉴权错误不能当作离线。尚未实现本机文件同步的旧版本程序仍可能显式覆盖技能，不要保留旧安装脚本并行维护同一位置。
 
-目录 API `GET /v1/catalog?endpoint=ID` 只返回该 endpoint 配置的 `visible_peers` 中已启用的成员，默认空；没有凭据、原生会话地址、工作区路径或聊天历史。可在 binding 中设置 `"visible_peers": ["workbuddy", "claude"]`，用 `purpose` 填短用途；可见性不授予任务提交权。配置仍需重启 `serve` 才生效。目录内容有独立摘要版本，包含规则版本，业务按需查询即可获得最新目录，不把名单写进每份技能，也不发送模型唤醒通知。
+目录 API `GET /v1/catalog?endpoint=ID` 只返回该 endpoint 配置的 `visible_peers` 中已启用的成员，默认空；没有凭据、原生会话地址、工作区路径或聊天历史。可在 binding 中设置 `"visible_peers": ["workbuddy", "claude"]`，用 `purpose` 填短用途；可见性不授予消息发送权；另用 `allowed_peers` 显式允许接收者。配置仍需重启 `serve` 才生效。目录内容有独立摘要版本，包含规则版本，业务按需查询即可获得最新目录，不把名单写进每份技能，也不发送模型唤醒通知。
 
-`GET /v1/skills?endpoint=ID` 默认只返回版本；加 `content=1` 才取正文，`known_version` 相同时省略正文。旧回报专用安装不能查询时继续处理原协议内已投递任务，标明同步查询不可用，不用管理提交绕过能力限制。多跳发送与关联回复仍属于[后续对等协作方案](TEAM-ORCHESTRATION.md)，本次维护接口不扩大消息协议。
+`GET /v1/skills?endpoint=ID` 默认只返回版本；加 `content=1` 才取正文，`known_version` 相同时省略正文。旧报告专用安装不能查询时继续处理兼容协议内已投递任务，标明同步查询不可用，不用管理凭据绕过能力限制。当前定址邮箱已支持助手自主转发与关联回复；未启用邮箱的宿主不能仅凭技能更新开始消费。见[协议](PROTOCOL.md)。
 
 ### 各宿主如何生效
 
@@ -97,25 +99,39 @@ Claude 的 Client 插件代码更新另走原生 plugin update 和 `/reload-plug
 
 因此，消息唤醒可以作为用户已授权维护的入口，不是统一的技能更新机制。默认让本机安装器直接更新受管文件；需要原生刷新或云端保存时按适配器能力处理。普通协作消息不能新增安装位置、批准权限或扩大互通范围。[同步设计](TEAM-ORCHESTRATION.md#技能随-hub-同步更新)
 
-## 收件与回报标识
+## 邮箱收发约定
 
-技能核对 Envelope 的 `recipient` 与安装元数据的 `endpoint_id` 相同，并保留 `message_id`、`task_id`、`correlation_id`、`reply_to`、`kind`。最终结果由 Hub 分配独立的 `message_id`，令 `reply_to` 指向原交接，继承任务及关联 ID 后返回保存的原入口。当前 V0 的 `correlation_id` 等于原任务 ID；技能不自行选择新收件人、创建下一轮任务或把 `kind=result` 再执行一次。
+1. 接收时核对 `mailbox:true` 和 `recipient` 与本技能安装的 endpoint 相同；保留独立 `message_id`、`correlation_id`、`root_origin` 与可选 `reply_to`。
+2. 需要其他助手协助时查询目录，选择 `can_send=true` 且邮箱协议为 `1` 的成员。每条消息保存独立 ID 与必要内容；后续沿用关联和原授权，不靠新关联 ID 重置限额。
+3. 回复时自己明确填写 `recipient`。`reply_to` 仅作引用，不强制返回上一个发送者；也可以在用户允许的互通范围内直接把最终 `result` 发给 `root_origin.endpoint`。
+4. 请求帮助后可结束本轮，等原生 Client 带来新邮件。无需父任务、等待状态、运行 ID 或 settled 回执；结束本轮不会自动回信。
+5. `status` 只进入 Client 本地记录，不唤醒模型。需要收件助手实际判断的内容应使用 `request/reply/result`，并说明操作范围。不要发送无意义的“收到/谢谢”循环。
 
-固定 `session_id` 标识长期会话，`Report.run_id` 标识本次任务执行。优先使用实际原生 run/turn ID；宿主未公开时使用通知提供的任务专属 `hubrun-...` 并明确它是 Hub 标识。各回执使用独立稳定的 `event_id`，同一任务保持同一 `run_id`；不要跨任务复用固定会话 ID。
+完整 Hub CLI 示例：
 
-`result_queue_while_busy_verified` 是 endpoint 的可选结果投递能力，默认关闭，只在实际核实原生忙时收件后配置。它不赋予技能引导或打断能力，不会解除权限提示，也不能证明 Codex App Server 或其他入口已通过原生测试。
+```sh
+agi-hub mail-send --data /absolute/private/agi-hub --endpoint codex --file /absolute/work/request.json
+agi-hub mail-state --data /absolute/private/agi-hub --endpoint codex --correlation-id mail-example
+```
+
+固定 endpoint 的专属 helper 使用其自身的 `mail-send --file` 和 `mail-state --correlation-id`。消息格式见[协议](PROTOCOL.md#定址邮箱)。元数据和文件引用只提供必要内容，文件须标明所属设备与工作区，不复制整段历史或私密凭据。
+
+模型主动发送业务进度、需用户处理或成果邮件；传输 ACK 只由 Client 在真实 CLI 退出或 Desktop MCP 确认输入后提交。投递成功不是业务完成，新邮箱消息不调用旧 `report`，Hub 也不自动生成结果。最终入口核对结论、来源与成果文件；用户授权仍由用户决定。
 
 ## 原生验收
 
-安装命令成功后在所选宿主核对技能是否出现，并在指定会话验证它实际读取 `installation.json`。使用一个用户明确授权的实际任务，记录以下证据：
+先离线检查安装、绑定、重复发布、不确定投递和路由，再用用户授权的小任务验证原生入口：
 
-1. 原生入口在已核实空闲的状态收到 Envelope 并开始处理；配置和技能安装本身不是唤醒证据。
-2. `accepted/running` 来自接手会话，保持同一 `task_id` 和任务专属执行标识；固定的 `session_id` 不充当多次运行 ID，宿主未公开原生运行 ID 时明确该限制。
-3. 需要用户处理时保留原生提示并回报 `needs_user`；安装器不自动批准权限或代替用户发送消息。
-4. 完成后回报真实摘要与所需成果文件；重复消息不重新执行，返回的 `kind=result` 只展示结果。
-5. 原入口收到结果，任务记录能区分投递、接手和业务完成。
+1. 目标原会话在空闲时实际启动，或在已核实支持的忙时通道收到引导。
+2. 通过消息完成至少一次助手间转交，收件人始终由发送助手明确选择。
+3. 独立结果消息抵达最初用户输入的会话，原入口核对成果；没有额外入口、手工搬运或假执行回执。
+4. 重复通知不重复执行副作用，投递不确定时保留记录；需要本人处理时明确说明，安装技能不能批准原生权限。
 
-当前队列与驱动能力边界见 [适配器](ADAPTERS.md)，回执字段与文件归属见 [协议](PROTOCOL.md)。
+支持范围见 [Client](CLIENTS.md)，具体机器上的过程与限制以[按日期记录](NATIVE-VALIDATION.md)为准。离线测试不是原生唤醒验收，旧协议的成功也不自动证明新邮箱闭环。
+
+## 旧版 Task/Report 原生证据
+
+以下保留原单次任务模式的实际记录。旧 `kind=task/control` 才使用原 Report；旧 `kind=result` 只展示。它们不要求新邮箱消息进入任务状态机。
 
 本轮 WorkBuddy 独立 CLI 已验证技能实际加载与主动回报。首个验收任务确认原生明确拒绝且未执行后，修正技能读取、实际工作区读写和专属报告 helper 的窄范围配置，再按真实绝对目录恢复；第二个任务由 SSE 自动领取，在同一既有会话中首次执行即完成。Client 未传工具或权限覆盖参数，两次均由原生会话主动提交 `accepted/running/succeeded`，并生成 SHA-256 核验一致的成果文件。
 

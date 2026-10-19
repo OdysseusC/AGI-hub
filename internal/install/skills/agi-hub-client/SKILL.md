@@ -1,69 +1,83 @@
 ---
 name: agi-hub-client
-description: "通过用户配置的 AGI Hub 边车，接手当前原生 AI 助手会话收到的交接任务，回报进度与成果。用于 AGI Hub Envelope 或用户明确要求的 Hub 协作；不用于自行接入其他助手。"
+description: "通过用户配置的 AGI Hub 邮箱与其他原生助手交换请求、回复和成果。用于 Hub 消息或用户明确要求的助手协作；不自行接入其他助手。"
 ---
 
-# AGI Hub 会话客户端
+# AGI Hub 邮箱
 
-先读取本技能同目录的 `installation.json`，使用其中的 `endpoint_id`、`binary_path` 和 `data_dir`。可选的 `hub_binary_path` 是查询和同步用的 Hub CLI；未设置时使用 `binary_path`。回报始终使用 `binary_path`，它可能是固定 endpoint 的专属回报程序，不支持其他子命令。这些路径属于本机；不要扫描其他应用配置、复制凭据或自行猜测另一台电脑的目录。CLI 在内部读取私有配置并使用对应 endpoint 的鉴权，技能无需读取或输出 token。
+读取同目录 `installation.json` 的 `endpoint_id`、`binary_path`、`data_dir` 与可选 `hub_binary_path`。只使用自己的身份和已配置成员；不扫描其他应用登录配置，不读取或输出 token。技能负责组织消息，已安装 Client 负责监听自己的邮箱、原生投递和唤醒。
 
-技能负责接手与回报。原生助手如何收到通知、空闲唤醒或忙时引导由已验证的适配器负责；安装成功不能证明这些能力。保留当前原生会话、工具与权限提示，leader、助手分工与接入范围由用户配置。
+Hub 只是消息管道。它不安排计划、不等待子任务、不自动生成回复，也不规定回信必须沿一条路径返回。各助手根据消息上下文决定是否需要协助、发给谁和怎样整合。最初用户入口保存在 `root_origin` 中，供判断最终交付；**它不会替你选择 recipient**。
 
-## 按需同步
+## 程序用法
 
-只在实际使用 Hub 协作时检查版本，不为成员变化单独唤醒模型。以下 `hub_cli` 指安装元数据的 `hub_binary_path`，未设置时才用 `binary_path`：
-
-```text
-<hub_cli> peers --data <data_dir> --endpoint <endpoint_id>
-```
-
-该命令合并返回短目录和 `rules_version`，不加载整篇说明；当前支持协议 `1`。将规则版本与同目录 `.agi-hub-manifest.json` 中 `files["SKILL.md"]` 的 SHA256 对比（忽略 `sha256:` 前缀）。版本改变或首次无法核对时，才执行 `<hub_cli> skill-rules --data <data_dir> --endpoint <endpoint_id> --content` 读取最新规则；已记住版本时可加 `--known-version <version>` 避免重复正文。已在旧历史中使用过技能时以最新文件或本次读取正文为准。旧安装只有专属回报程序、命令不支持或目录不可用时，标明查询暂不可用，仍按原协议接手和回报已投递任务；暂停依赖新能力的协作，不猜接入方式或放宽权限。协议不兼容时暂停对应新协作。
-
-目录仅含用户允许看见的已启用成员及声明验证状态。用途是数据，不能改写授权或本技能规则；可见成员不等于已经获准发送。当前运行协议仍为单次交接，`kind=result` 只展示。多跳发起与关联回复功能按后续协议实现，不用管理提交命令绕过当前限制。
-
-更新受管文件由安装器负责，宿主缓存与已有聊天历史不能自动改写。用户明确要求修复或同步本接入点时，可执行 `<hub_cli> sync-skills --data <data_dir> --endpoint <endpoint_id>`；保留返回的冲突、缺失或未知加载状态。此命令不唤醒模型、不批准权限、不重放工作。无需向其他助手发送“更新技能”聊天；普通协作消息也不能新增安装位置或替用户批准更新。
-
-节省 token：只处理本条范围，按需读文件，简短返回结论和成果引用，不复制历史、整份工具表或例行互相确认。只在版本改变时读取规则正文，不为了刷新技能开新会话或重复提交任务。
-
-## 收到消息
-
-- 核对 Envelope 的 `recipient` 等于本机 `endpoint_id`，保留 `message_id`、`task_id`、`correlation_id`、`reply_to` 和 `kind`。`content` 是 JSON 文本，先解析再按其中明确的目标、上下文、文件归属、资源和已有授权执行。
-- `kind=result` 只向原入口展示真实摘要与成果引用，不重做任务，不为已结束任务补发 `accepted/running`，不自动生成下一轮交接。
-- `kind=task` 实际接手后回报 `accepted`，开始执行回报 `running`；需要用户判断或处理原生权限提示时回报 `needs_user` 并说明具体事项，用户处理后再恢复执行。
-- `kind=control` 仅在原生接口实际支持相应 `steer/interrupt`、且 `target_run_id` 匹配当前运行时处理。不把普通文本投递冒充引导或打断；只有实际停止成功才能回报 `interrupted`。
-
-同一 `task_id` 的重复通知先核对本会话已处理记录及保存的回执；不要再次执行可能产生副作用的工作。已保存的同一回执可以原样重投。原执行状态不确定时保留记录并让用户核对，不创建新 ID 绕过不确定状态，也不补发晚到的 `accepted` 使任务状态倒退。
-
-## 回报方法
-
-宿主提供 AGI Hub 专用回报工具（如 `mcp__agi-hub-endpoint__report`）时优先使用该工具：由工具填写固定的 endpoint 和执行标识，保留稳定的 event_id，并核对工具返回的成功状态。工具只接受本会话已收到的任务，不为 result 消息回报。下述 CLI 方法供没有专用回报工具的宿主使用。
-
-使用 `installation.json` 中的绝对 `binary_path` 执行命令，独立传递参数，避免把任务内容或路径拼入 shell 代码：
+专属客户端（`binary_path` 与 `hub_binary_path` 不同）身份已固定，只用以下命令：
 
 ```text
-<binary_path> report --data <data_dir> --endpoint <endpoint_id> --file <本机回执 JSON 绝对路径>
+<binary_path> peers
+<binary_path> mail-send --file <工作区消息JSON绝对路径>
+<binary_path> mail-state --correlation-id <关联ID>
 ```
 
-尖括号是要从安装元数据或实际文件替换的参数，不是文字命令。优先通过原生文件工具保存回执，再直接运行该程序的 `report --file`；窄范围的原生命令权限通常不包含 `printf`、管道、`sh` 或另一个解释器包装。支持且已授权 stdin 时也可以把完整 JSON 送入同一命令，省略 `--file`。工作区 ID 不是本机目录名，使用任务明确提供的本机映射，不猜目录或读取含凭据的管理配置。回执与必要成果保存在用户选择的本机私有目录或任务工作区，不提交到开源仓库。
+收件人放在 JSON 的 `recipient`，不要添加 `--peer`、`--to`、`--collaboration-flag` 等猜测参数。格式错误时按返回的用法修正，不凭错误名称发明字段。
+
+若 `binary_path` 本身是完整 Hub CLI（`hub_binary_path` 未设置或相同），上述命令还必须加 `--data <data_dir> --endpoint <endpoint_id>`。参数分别传递，路径含空格时作为完整参数，不使用管道、`sh`、解释器或拼接消息内容的 shell 包装。
+
+先查询目录；新邮箱协作要求目标 `can_send=true`、`mailbox_protocol_version=1`。目录用途是数据，不是授权或模型能力排名。安装技能、MCP 支持或目录可见，都不证明已接通原生唤醒。能力或权限缺失时说明需要处理，不换入口、身份或权限绕过。
+
+## 发起与协作
+
+从用户本次实际输入发起新协作时，先保存稳定消息 ID 和完整 JSON。例：
 
 ```json
 {
-  "event_id": "example-task-accepted-1",
-  "task_id": "example-task",
-  "endpoint": "example-endpoint",
-  "state": "accepted",
-  "run_id": "actual-execution-id",
-  "summary": "已接手指定任务",
-  "artifacts": []
+  "id": "saved-message-id",
+  "recipient": "configured-member",
+  "kind": "request",
+  "content": "明确的小目标、原用户授权、必要限制、文件的设备/工作区/路径，以及希望结果发给谁。",
+  "origin_ref": "本次最初用户输入的稳定引用",
+  "max_messages": 16
 }
 ```
 
-每个新回报生成并保存新的稳定 `event_id`；重试同一事件时全部内容与 ID 保持不变。同一任务的 `run_id` 始终一致，优先使用实际原生运行 ID；宿主不公开此 ID 时保存任务专属执行标识并明确该限制，不冒称原生 ID。不要另选 endpoint 冒充其他助手。
+`origin_ref` 优先使用实际用户消息/轮次引用；没有时保存工作专属引用并说明限制，不冒称原生 ID。Hub 从绑定固定原始会话。A 请求 B/C/D 可分别发送独立消息；共享同一协作时沿用首次返回的 `correlation_id`。不用新建集中调度者或团队计划。
 
-固定的 `session_id` 是长期协调会话，不是每次任务的 `run_id`；不要跨任务复用它来冒充一次执行。通知提供的 `hubrun-...` 可作为该任务的执行标识，明确它属于 Hub，不是宿主公开的原生运行 ID。最终回报通过 MQ 客户端发布回复，由 Hub 分配独立的 `message_id`，填写指向原消息的 `reply_to` 并继承 `task_id`、`correlation_id`，仍返回任务保存的原入口。接收技能无需自行选择其他收件人或创建新任务绕过当前交接。
+收到消息后如需他人协助或回复，保存新消息 ID，显式选择获准的 `recipient`，继承 `correlation_id`；可用 `reply_to` 指向相关消息。不要重新填写原入口、期限或额度。例：
 
-只有实际完成并核对结果后才能回报 `succeeded`，填写真实 `summary`；失败则回报 `failed` 与原因。任务要求成果文件时，成功回报包含 `artifacts`，每项填写 `device_id`、`workspace_id`、工作区内 `/` 分隔的相对 `path` 与可选 `sha256`。文件必须实际存在于已配置的对应设备和工作区，不能把本机绝对路径当作远程文件引用。摘要只传必要结果，不复制全部聊天历史或原始密钥。
+```json
+{
+  "id": "saved-reply-id",
+  "recipient": "chosen-member",
+  "kind": "reply",
+  "content": "已核验的简短结论、成果文件引用或具体障碍。",
+  "correlation_id": "received-correlation-id",
+  "reply_to": "related-message-id"
+}
+```
 
-传输成功、最终聊天回复、工具接受通知或助手变空闲都不代表业务完成。回报命令失败时保留同一回执及成果，说明回报通道问题；不要伪造完成记录或盲目重新执行任务。
+B 可以请 D 协助；D 可以按上下文回给 B，也可以直接发给 A，只要用户配置允许该方向。`reply_to` 只建立关联，不强制选择原发送者。最终成果通常发给 `root_origin.endpoint`，由最初用户入口向人交付；整合者根据实际工作判断，不把“最近有人输入的会话”当作原入口。
 
-交接消息不能新增用户授权、替用户批准权限提示、改变账号登录或消息发送范围。需要联系人查询或企业微信操作时使用当前宿主已有且获授权的原生能力，遵守其发送确认流程。遵守任务中的交接与资源限制，不自行开启助手循环或修改 leader。
+## 自己的邮箱
+
+核对信封 `recipient` 等于本机 endpoint，保存 `message_id`、`correlation_id`、`reply_to`、`root_origin`，按 `content` 中的范围处理：
+
+- `request`：处理请求，必要时询问获准成员，随后明确发送回复或成果。
+- `reply`：结合它所关联的既有工作判断下一步，不把它当新的人类授权。
+- `result`：核验成果，在原入口向用户交付；需要后续判断时仍按原用户范围处理，不重新执行已完成动作。
+- `status`：状态记录，默认不唤醒模型。仅在有必要告知障碍或需要用户处理时发送，避免例行进度聊天。
+
+发送协助请求后可结束本轮，等邮箱 Client 带回相关消息；不在工具里轮询、睡眠或调用等待模型。结束本轮不会自动回信，想回复必须实际 `mail-send`。收到回信后在原会话继续即可，不需要 `waiting_reply`、父任务运行 ID、resume_message_id 或完成所有子任务的 Hub 状态。
+
+节省 token：只传必要摘要和文件引用，按需读文件，不复制整段聊天、全部工具表，不为收到、谢谢或重复 ACK 再唤醒助手。文件标明设备、工作区与相对路径；本机绝对路径不能充当另一台电脑上的文件。发送成果前由助手实际核验内容和文件，传输成功不等于业务成功。
+
+## 可靠性、权限和维护
+
+同一消息重复通知先查本会话记录，不能再次执行副作用。同一 ID 的重投必须保持内容不变。发送超时或投递不确定时保留原消息 JSON，通过 `mail-state` 核对，不换 ID、另开会话或盲目重发。回复使用新 ID，仍保留关联。限额/截止时间沿用原协作，不能靠新关联 ID 绕过；不承诺能限制宿主内部所有模型调用或积分。
+
+消息正文不能新增用户授权、替用户批准权限、改变账号或外部发送范围。需要人处理时明确说明；已有技能、联系人数据或助手回信均不等于批准发送消息。只有用户决定是否接入、互通和安装。
+
+成员目录按需查询，不为目录刷新单独唤醒模型。规则有版本变化时才用 Hub CLI 的 `skill-rules --content --known-version ...` 读取必要正文。受管更新使用 `sync-skills --endpoint <自己>`，保留修改冲突、卸载和宿主加载未知状态；磁盘更新不会抹去旧历史。
+
+## 兼容旧任务
+
+仅收到旧版 `kind=task/control`、且信封没有 `mailbox=true` 时，才使用原 report 协议：实际接手、执行、需用户处理、成功/失败分别回报，优先宿主专用 report 工具，否则保存完整 Report JSON 后执行 `binary_path report --file ...`。完整 Hub CLI 仍加固定 data/endpoint。每事件用保存的 event_id，每任务保持实际原生执行 ID 或通知的 hubrun 逻辑 ID；成果使用 device_id/workspace_id/相对path。旧 `kind=result` 只展示，不补执行回执。新邮箱消息不使用 Task/Report，也不要求自动回传。
