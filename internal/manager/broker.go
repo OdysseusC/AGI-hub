@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,7 +20,7 @@ type Broker struct {
 	mu          sync.Mutex
 	state       Snapshot
 	journal     *os.File
-	processLock net.Listener
+	processLock *os.File
 	deviceID    string
 	workspaces  map[string]string
 	order       []string

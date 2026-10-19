@@ -4,6 +4,7 @@
 /agi-hub.exe
 *.log
 *.journal
+.agi-hub.lock
 config.json
 state.jsonl
 .env

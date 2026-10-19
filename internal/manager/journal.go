@@ -9,12 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -26,22 +22,6 @@ const (
 type journalRecord struct {
 	Snapshot json.RawMessage `json:"snapshot"`
 	Checksum string          `json:"checksum"`
-}
-
-// A kernel-owned listener gives the process lock automatic crash cleanup on all
-// supported operating systems. A port collision fails closed; it is never stolen.
-func acquireDirectoryLock(dir string) (net.Listener, error) {
-	key := dir
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		key = strings.ToLower(key)
-	}
-	hash := sha256.Sum256([]byte(key))
-	port := 20000 + (int(hash[0])<<8|int(hash[1]))%40000
-	listener, err := net.Listen("tcp4", "127.0.0.1:"+strconv.Itoa(port))
-	if err != nil {
-		return nil, fmt.Errorf("data directory is already in use or its process-lock port is occupied: %w", err)
-	}
-	return listener, nil
 }
 
 func openJournal(dir string) (*os.File, Snapshot, []string, error) {
