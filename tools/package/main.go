@@ -33,69 +33,83 @@ func main() {
 	}
 }
 
+type buildTarget struct {
+	GOOS     string
+	PublicOS string
+	Arch     string
+}
+
+func releaseTargets() []buildTarget {
+	return []buildTarget{
+		{GOOS: "darwin", PublicOS: "macos", Arch: "amd64"},
+		{GOOS: "darwin", PublicOS: "macos", Arch: "arm64"},
+		{GOOS: "windows", PublicOS: "windows", Arch: "amd64"},
+		{GOOS: "windows", PublicOS: "windows", Arch: "arm64"},
+	}
+}
+
 func build() error {
+	return buildPackages(func(target buildTarget, binary, source string) error {
+		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", binary, source)
+		cmd.Env = buildEnvironment(target.GOOS, target.Arch)
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		return cmd.Run()
+	})
+}
+
+func buildPackages(compile func(buildTarget, string, string) error) error {
 	if err := os.MkdirAll("dist", 0755); err != nil {
 		return err
 	}
-	var checksums strings.Builder
-	for _, osname := range []string{"darwin", "windows", "linux"} {
-		for _, arch := range []string{"amd64", "arm64"} {
-			label := osname + "-" + arch
-			dir := filepath.Join("dist", label)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return err
-			}
-			name := "agi-hub"
-			if osname == "windows" {
-				name += ".exe"
-			}
-			binary := filepath.Join(dir, name)
-			cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", binary, "./cmd/agi-hub")
-			cmd.Env = buildEnvironment(osname, arch)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("build %s: %w", label, err)
-			}
-			setupName := "agi-hub-setup"
-			if osname == "windows" {
-				setupName += ".exe"
-			}
-			setup := filepath.Join(dir, setupName)
-			setupCmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", setup, "./tools/bootstrap")
-			setupCmd.Env = buildEnvironment(osname, arch)
-			setupCmd.Stdout, setupCmd.Stderr = os.Stdout, os.Stderr
-			if err := setupCmd.Run(); err != nil {
-				return fmt.Errorf("build setup %s: %w", label, err)
-			}
-			helperName := "agi-hub-endpoint"
-			if osname == "windows" {
-				helperName += ".exe"
-			}
-			helper := filepath.Join(dir, helperName)
-			helperCmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", helper, "./tools/endpoint-client")
-			helperCmd.Env = buildEnvironment(osname, arch)
-			helperCmd.Stdout, helperCmd.Stderr = os.Stdout, os.Stderr
-			if err := helperCmd.Run(); err != nil {
-				return fmt.Errorf("build endpoint helper %s: %w", label, err)
-			}
-			archive := filepath.Join("dist", "agi-hub-"+label+".zip")
-			if err := packageBinary(archive, binary, name, setup, setupName, helper, helperName, label); err != nil {
-				return err
-			}
-			f, err := os.Open(archive)
-			if err != nil {
-				return err
-			}
-			hash := sha256.New()
-			_, err = io.Copy(hash, f)
-			f.Close()
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(&checksums, "%x  %s\n", hash.Sum(nil), filepath.Base(archive))
-			fmt.Println("Built", label)
+	// Remove only outputs of the former release targets. Never discover release
+	// inputs through a glob, and never leave an old checksum list on build failure.
+	for _, old := range []string{"agi-hub-darwin-amd64.zip", "agi-hub-darwin-arm64.zip", "agi-hub-linux-amd64.zip", "agi-hub-linux-arm64.zip", "SHA256SUMS"} {
+		if err := os.Remove(filepath.Join("dist", old)); err != nil && !os.IsNotExist(err) {
+			return err
 		}
+	}
+	var checksums strings.Builder
+	for _, target := range releaseTargets() {
+		label := target.PublicOS + "-" + target.Arch
+		dir := filepath.Join("dist", label)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		suffix := ""
+		if target.GOOS == "windows" {
+			suffix = ".exe"
+		}
+		programs := []struct{ name, source string }{
+			{"agi-hub", "./cmd/agi-hub"},
+			{"agi-hub-setup", "./tools/bootstrap"},
+			{"agi-hub-endpoint", "./tools/endpoint-client"},
+		}
+		for _, program := range programs {
+			if err := compile(target, filepath.Join(dir, program.name+suffix), program.source); err != nil {
+				return fmt.Errorf("build %s %s: %w", label, program.name, err)
+			}
+		}
+		archive := filepath.Join("dist", "agi-hub-"+label+".zip")
+		name, setupName, helperName := "agi-hub"+suffix, "agi-hub-setup"+suffix, "agi-hub-endpoint"+suffix
+		// Public naming stays friendly; bootstrap still compares native GOOS.
+		if err := packageBinary(archive, filepath.Join(dir, name), name, filepath.Join(dir, setupName), setupName, filepath.Join(dir, helperName), helperName, target.GOOS+"-"+target.Arch); err != nil {
+			return err
+		}
+		f, err := os.Open(archive)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		_, err = io.Copy(hash, f)
+		closeErr := f.Close()
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		fmt.Fprintf(&checksums, "%x  %s\n", hash.Sum(nil), filepath.Base(archive))
+		fmt.Println("Built", label)
 	}
 	return os.WriteFile("dist/SHA256SUMS", []byte(checksums.String()), 0644)
 }
@@ -146,7 +160,7 @@ func packageBinary(path, binary, name, setup, setupName, helper, helperName, pla
 		header.Name = target
 		header.Method = zip.Deflate
 		mode := uint32(0644)
-		if target == name || target == setupName || target == helperName || target == "install.command" || target == "install.sh" {
+		if target == name || target == setupName || target == helperName || target == "install.command" {
 			header.SetMode(0755)
 			mode = 0755
 		} else {
@@ -180,7 +194,8 @@ func packageBinary(path, binary, name, setup, setupName, helper, helperName, pla
 	} else if strings.HasPrefix(platform, "darwin-") {
 		files["tools/package/install.command"] = "install.command"
 	} else {
-		files["tools/package/install.sh"] = "install.sh"
+		z.Close()
+		return fmt.Errorf("unsupported release platform: %s", platform)
 	}
 	keys := make([]string, 0, len(files))
 	for source := range files {

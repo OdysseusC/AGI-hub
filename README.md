@@ -55,13 +55,15 @@ Hub 不建立任务树、DAG、团队计划或统一智能路由，不判断谁�
 | Codex Client | Node 标准库，通过官方 Desktop MCP 发到指定原聊天 |
 | WorkBuddy Client | Python 标准库，通过官方 CodeBuddy CLI `--resume` 指定原会话 |
 | 安装器 | Go 便携引导程序、包内校验清单和分系统启动入口 |
-| 目标平台 | Windows、macOS、Linux，amd64/arm64 六目标构建；原生能力逐平台验收 |
+| 目标平台 | Windows、macOS，各提供 amd64/arm64 两种安装包；原生能力逐平台验收 |
 
 不需要 Redis、RabbitMQ、数据库、Docker 或 Agent 调度框架。运行已编译 Hub 和安装器不需要 Go；按所选 Client 准备对应原生应用及其运行时。一个助手一个目录，可以独立维护和更新。
 
 ## 安装包
 
 正式安装包由 GitHub Actions 编译和校验，发布在 [GitHub Releases](https://github.com/OdysseusC/AGI-hub/releases/latest)。PR 可下载对应 CI 构建产物；版本标签触发自动发布，无需在开发电脑手工打包上传。
+
+Mac 按芯片选择：Apple 芯片（M 系列）用 `macos-arm64`，Intel 用 `macos-amd64`。Windows 的 Intel / AMD 电脑用 `windows-amd64`，ARM 电脑用 `windows-arm64`。每次 Release 直接列出本版更新内容和下载说明，详见[安装说明](INSTALL.md)。
 
 选对应系统的便携 ZIP，解压后将整个目录和 `START-HERE.md` 交给 Codex。可以这样说：
 
@@ -112,6 +114,6 @@ node --test clients/codex/test_desktop_mcp_client.mjs
 go run ./tools/package
 ```
 
-`dist/` 生成六个平台 ZIP 和 `SHA256SUMS`。构建需要 Go 1.22+；包内包含实际目标平台程序，用户安装不需要编译。测试使用模拟接入点；原生验收证据另记在 [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.md)。
+`dist/` 生成四个 Windows / macOS ZIP 和 `SHA256SUMS`。构建需要 Go 1.22+；包内包含实际目标平台程序，用户安装不需要编译。测试使用模拟接入点；原生验收证据另记在 [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.md)。
 
 代码与个人配置从一开始分开，凭据、真实聊天和私密成果均放在仓库外，不进入安装包。

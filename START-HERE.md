@@ -2,7 +2,7 @@
 
 AGI Hub 让你从已有的 AI 助手聊天发起协作，再把结果送回最初输入的聊天。Hub 保存和投递消息，分工由各助手的技能决定。
 
-下载与你电脑匹配的 ZIP，完整解压，然后把**解压目录**拖给能操作本机文件的 Codex，并发送：
+下载与你电脑匹配的 ZIP：Mac 的 Apple 芯片（M 系列）选 `macos-arm64`，Intel 芯片选 `macos-amd64`；Windows 的 Intel / AMD 电脑选 `windows-amd64`，ARM 电脑选 `windows-arm64`。完整解压，然后把**解压目录**拖给能操作本机文件的 Codex，并发送：
 
 > 请读取这个目录的 START-HERE.md 和 docs/INSTALL-FOR-ASSISTANT.md，按文档帮我安装 AGI Hub。先核对系统与架构，检查是否已经安装并保留原配置。以当前 Codex 原聊天作为本次入口，先接入 WorkBuddy。可以运行本机安装器；需要我在 WorkBuddy 输入消息、登录或确认原生权限时，给我准确步骤。先用本地文件做一次可逆协作，最后在当前聊天给我验收结果。不要调用 Claude，不发送企业微信消息，不读取无关聊天历史。
 
@@ -13,7 +13,7 @@ AGI Hub 让你从已有的 AI 助手聊天发起协作，再把结果送回最�
 - `agi-hub` / `agi-hub.exe`：本机消息边车。
 - `agi-hub-setup` / `agi-hub-setup.exe`：离线基础安装器。
 - `agi-hub-endpoint` / `agi-hub-endpoint.exe`：只供配置后的单个助手收发与回报，不含管理能力；通过安装器生成其私有固定绑定后使用。
-- `install.command`、`install.sh` 或 `install.ps1`：对应系统的入口。
+- `install.command` 或 `install.ps1`：对应系统的入口。
 - `clients/`：产品独立 Client；Codex 与 WorkBuddy 分别接入各自原生能力。
 - `docs/INSTALL-FOR-ASSISTANT.md`：交给安装助手执行的核对和验收步骤。
 - `package-manifest.json`：公开文件清单与 SHA-256，用于检查解压文件是否完整；发行来源仍须由下载渠道和 Release 校验值确认。
@@ -22,7 +22,7 @@ AGI Hub 让你从已有的 AI 助手聊天发起协作，再把结果送回最�
 
 ## 可以自己启动检查
 
-macOS / Linux 在解压目录执行：
+macOS 在解压目录执行：
 
 ```sh
 ./agi-hub-setup --verify-only
