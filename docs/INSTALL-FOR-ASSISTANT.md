@@ -67,6 +67,10 @@ Windows 使用 `agi-hub.exe` 及该电脑的绝对路径。上述 endpoint 必�
 
 技能安装记录程序路径、数据目录和 endpoint，不包含凭据。默认支持 Codex、当前 WorkBuddy 桌面版本、Claude Code 的用户技能目录；在原生应用核对是否发现并启用，其他宿主用明确验证过的 `--skills-dir`。[技能安装支持范围](SKILLS.md)
 
+安装成功会登记受管位置，并同步该 Hub 已登记的技能；后续 `serve` 启动也同步。原有安装须在原路径重装一次加入登记。使用专属回报 helper 时保留 `--binary <原 helper>`，加 `--hub-binary <本机 Hub CLI>` 分开查询与回报；不修改原生工具授权。`skills-status` 核对磁盘，`sync-skills --endpoint ID` 限定更新范围。用户修改的文件或已卸载目录不会被覆盖或恢复；加载状态仍为 unknown，按宿主机制核对。
+
+其他助手可见范围在 binding 设置 `"visible_peers": ["获准成员ID"]`，默认空，变化后重启 `serve`。技能按需查询目录，新增成员不发送模型通知。当前目录不授予端到端发起任务权限，多跳协作仍在后续方案中。
+
 Codex、WorkBuddy、Grok 使用独立 Client 进程，例如：
 
 ```sh

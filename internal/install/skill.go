@@ -20,6 +20,11 @@ import (
 )
 
 const (
+	// SkillRevision must increase whenever the released embedded rules change.
+	// It prevents an older installed CLI from replacing newer approved rules.
+	// This release counter is independent of manifest and registry schemas.
+	SkillRevision = 1
+
 	skillName    = "agi-hub-client"
 	manifestName = ".agi-hub-manifest.json"
 	owner        = "agihub/skill-installer"
@@ -34,16 +39,20 @@ type Options struct {
 	Host       string
 	Endpoint   string
 	BinaryPath string
-	DataDir    string
-	SkillsDir  string
+	// HubBinaryPath is optional when BinaryPath is a restricted, endpoint-scoped
+	// report helper rather than the general Hub CLI.
+	HubBinaryPath string
+	DataDir       string
+	SkillsDir     string
 }
 
 // installation deliberately contains no credentials or copied host config.
 type installation struct {
-	Host       string `json:"host"`
-	EndpointID string `json:"endpoint_id"`
-	BinaryPath string `json:"binary_path"`
-	DataDir    string `json:"data_dir"`
+	Host          string `json:"host"`
+	EndpointID    string `json:"endpoint_id"`
+	BinaryPath    string `json:"binary_path"`
+	HubBinaryPath string `json:"hub_binary_path,omitempty"`
+	DataDir       string `json:"data_dir"`
 }
 
 type manifest struct {
@@ -55,16 +64,57 @@ type manifest struct {
 // Skill returns the installed skill folder. Repeating an unchanged installation
 // is a no-op. It refuses to overwrite unmanaged or locally edited files.
 func Skill(options Options) (string, error) {
-	return installSkill(options, embeddedSkill)
+	options, err := normalizeOptions(options)
+	if err != nil {
+		return "", err
+	}
+	unlock, err := lockRegistry(options.DataDir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	registry, err := readRegistry(options.DataDir)
+	if err != nil {
+		return "", err
+	}
+	body, desiredVersion, err := CurrentSkill()
+	if err != nil {
+		return "", err
+	}
+	if err := approveSource(options.DataDir, &registry, SkillRevision, desiredVersion); err != nil {
+		return "", err
+	}
+	folder, err := installSkill(options, func() ([]byte, error) { return body, nil })
+	if err != nil {
+		return "", err
+	}
+	if err := registerInstallation(options.DataDir, &registry, options); err != nil {
+		return folder, fmt.Errorf("skill installed but managed update registration failed: %w", err)
+	}
+	return folder, nil
 }
 
 func embeddedSkill() ([]byte, error) {
 	return skillFiles.ReadFile("skills/agi-hub-client/SKILL.md")
 }
 
+// CurrentSkill returns this binary's collaboration rules and their content
+// digest. The digest is a skill version, independent of the manifest schema.
+func CurrentSkill() ([]byte, string, error) {
+	body, err := embeddedSkill()
+	if err != nil {
+		return nil, "", err
+	}
+	return body, skillVersion(body), nil
+}
+
 // installSkill accepts a source function so upgrade behavior is testable without
 // altering the embedded production skill.
 func installSkill(options Options, source func() ([]byte, error)) (string, error) {
+	return installSkillMode(options, source, true)
+}
+
+func installSkillMode(options Options, source func() ([]byte, error), allowCreate bool) (string, error) {
 	options, err := normalizeOptions(options)
 	if err != nil {
 		return "", err
@@ -103,6 +153,7 @@ func installSkill(options Options, source func() ([]byte, error)) (string, error
 	metadata, err := json.MarshalIndent(installation{
 		Host: options.Host, EndpointID: options.Endpoint,
 		BinaryPath: options.BinaryPath, DataDir: options.DataDir,
+		HubBinaryPath: options.HubBinaryPath,
 	}, "", "  ")
 	if err != nil {
 		return "", err
@@ -111,6 +162,9 @@ func installSkill(options Options, source func() ([]byte, error)) (string, error
 
 	info, err := os.Lstat(folder)
 	if errors.Is(err, os.ErrNotExist) {
+		if !allowCreate {
+			return "", errors.New("registered skill folder disappeared; explicit installation is required to restore it")
+		}
 		if err := createSkill(options.SkillsDir, folder, files); err != nil {
 			return "", err
 		}
@@ -175,6 +229,12 @@ func normalizeOptions(options Options) (Options, error) {
 		}
 	}
 	options.BinaryPath = filepath.Clean(options.BinaryPath)
+	if options.HubBinaryPath != "" {
+		if err := absolutePath("hub binary path", options.HubBinaryPath); err != nil {
+			return options, err
+		}
+		options.HubBinaryPath = filepath.Clean(options.HubBinaryPath)
+	}
 	options.DataDir = filepath.Clean(options.DataDir)
 	if options.SkillsDir == "" {
 		var hostDir string

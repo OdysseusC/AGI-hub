@@ -35,7 +35,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("AGI Hub sidecar v0\nCommands: init, serve, doctor, status, submit, report, session, leader, dashboard, install-skill, client-config, inbox, delivery\nUse <command> --help for options.")
+		fmt.Println("AGI Hub sidecar v0\nCommands: init, serve, doctor, status, submit, report, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.")
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
@@ -61,15 +61,23 @@ func run(args []string) error {
 	host := fs.String("host", "", "native host for skill installation")
 	skillsDir := fs.String("skills-dir", "", "explicit native skill directory")
 	binaryPath := fs.String("binary", "", "absolute installed AGI Hub executable path")
+	hubBinaryPath := fs.String("hub-binary", "", "absolute Hub CLI path when --binary is a scoped report-only helper")
 	messageID := fs.String("message-id", "", "message for delivery reconciliation")
 	outcome := fs.String("outcome", "", "delivered, uncertain, or failed")
 	detail := fs.String("detail", "", "minimal nonsecret delivery evidence")
+	includeContent := fs.Bool("content", false, "include current skill rules (only fetch on a version change)")
+	knownVersion := fs.String("known-version", "", "omit skill content when this digest is current")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return errors.New("unexpected arguments")
 	}
+	absoluteData, err := filepath.Abs(*data)
+	if err != nil {
+		return err
+	}
+	*data = absoluteData
 	if args[0] == "init" {
 		if err := app.InitConfig(*data); err != nil {
 			return err
@@ -82,6 +90,51 @@ func run(args []string) error {
 		return fmt.Errorf("load config (run init first): %w", err)
 	}
 	switch args[0] {
+	case "peers", "skill-rules":
+		if *endpoint == "" {
+			return errors.New("peers and skill-rules require --endpoint")
+		}
+		path := "/v1/catalog?endpoint=" + url.QueryEscape(*endpoint)
+		if args[0] == "skill-rules" {
+			path = "/v1/skills?endpoint=" + url.QueryEscape(*endpoint)
+			if *includeContent {
+				path += "&content=1&known_version=" + url.QueryEscape(*knownVersion)
+			}
+		}
+		return request(cfg, "GET", path, *endpoint, nil)
+	case "sync-skills":
+		if err := checkSkillSource(cfg); err != nil {
+			return err
+		}
+		var results []install.SyncResult
+		var err error
+		if *endpoint == "" {
+			results, err = install.Sync(*data)
+		} else {
+			results, err = install.SyncEndpoint(*data, *endpoint)
+		}
+		if err != nil {
+			return err
+		}
+		if err := output(results); err != nil {
+			return err
+		}
+		return skillSyncError(results)
+	case "skills-status":
+		results, err := install.Status(*data)
+		if err != nil {
+			return err
+		}
+		if *endpoint != "" {
+			filtered := []install.SyncResult{}
+			for _, result := range results {
+				if result.EndpointID == *endpoint {
+					filtered = append(filtered, result)
+				}
+			}
+			results = filtered
+		}
+		return output(results)
 	case "client-config":
 		path, err := writeClientConfig(cfg, *endpoint, *file)
 		if err != nil {
@@ -89,6 +142,16 @@ func run(args []string) error {
 		}
 		return output(map[string]string{"private_client_config": path, "next": "fill only this client's native settings; no native messages sent"})
 	case "install-skill":
+		if err := checkSkillSource(cfg); err != nil {
+			return err
+		}
+		configured := false
+		for _, binding := range cfg.Bindings {
+			configured = configured || binding.Endpoint.ID == *endpoint
+		}
+		if !configured {
+			return errors.New("install-skill requires an endpoint registered in this Hub configuration")
+		}
 		if *binaryPath == "" {
 			*binaryPath, err = os.Executable()
 			if err != nil {
@@ -99,11 +162,18 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		path, err := install.Skill(install.Options{Host: *host, Endpoint: *endpoint, BinaryPath: *binaryPath, DataDir: absoluteData, SkillsDir: *skillsDir})
+		path, err := install.Skill(install.Options{Host: *host, Endpoint: *endpoint, BinaryPath: *binaryPath, HubBinaryPath: *hubBinaryPath, DataDir: absoluteData, SkillsDir: *skillsDir})
 		if err != nil {
 			return err
 		}
-		return output(map[string]string{"installed_skill": path, "native_discovery": "must be verified in the host"})
+		results, err := install.Sync(absoluteData)
+		if err != nil {
+			return fmt.Errorf("skill installed, but managed sync failed: %w", err)
+		}
+		if err := output(map[string]any{"installed_skill": path, "native_discovery": "must be verified in the host", "managed_sync": results}); err != nil {
+			return err
+		}
+		return skillSyncError(results)
 	case "inbox":
 		if *endpoint == "" {
 			return errors.New("inbox requires --endpoint")
@@ -264,6 +334,15 @@ func serve(dir string, cfg app.Config, open bool) error {
 		return err
 	}
 	defer listener.Close()
+	// Only explicitly registered, unchanged installations are synchronized.
+	// A conflict in a host skill must not prevent durable message recovery.
+	if results, syncErr := install.Sync(dir); syncErr != nil {
+		fmt.Fprintln(os.Stderr, "Managed skill sync:", syncErr)
+	} else {
+		for _, result := range results {
+			fmt.Fprintln(os.Stderr, "Managed skill:", result.EndpointID, result.State, "(host load unknown)")
+		}
+	}
 	b, err := manager.Open(dir, cfg.DeviceID, cfg.Workspaces)
 	if err != nil {
 		return err
@@ -314,6 +393,44 @@ func serve(dir string, cfg app.Config, open bool) error {
 		return nil
 	}
 	return err
+}
+
+func skillSyncError(results []install.SyncResult) error {
+	for _, result := range results {
+		if result.State != "current" && result.State != "updated" {
+			return errors.New("some managed skills were not synchronized; inspect the per-installation results")
+		}
+	}
+	return nil
+}
+
+// Refuse to overwrite files using an executable that disagrees with the running
+// Hub. An absent Hub permits offline maintenance, still guarded by the registry's
+// monotonic source revision. Timeouts/auth failures are not treated as absence.
+func checkSkillSource(cfg app.Config) error {
+	value, err := requestValue(cfg, "GET", "/v1/skill-release", "", nil)
+	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return nil
+		}
+		return fmt.Errorf("cannot verify skill source against running Hub; update/restart the Hub before syncing: %w", err)
+	}
+	body, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	var release app.SkillRules
+	if err := json.Unmarshal(body, &release); err != nil {
+		return err
+	}
+	_, version, err := install.CurrentSkill()
+	if err != nil {
+		return err
+	}
+	if release.ProtocolVersion != 1 || release.Revision != install.SkillRevision || release.Version != version {
+		return errors.New("running Hub and this CLI provide different skill rules; use the matching Hub executable before syncing")
+	}
+	return nil
 }
 
 func openDashboard(c app.Config) error {

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agihub/internal/app"
+	"agihub/internal/install"
 	"agihub/internal/manager"
 )
 
@@ -35,6 +36,95 @@ func TestCLIReadsLegalStateLargerThanTwoMiB(t *testing.T) {
 	value, err := requestValue(app.Config{Listen: strings.TrimPrefix(server.URL, "http://"), AdminToken: strings.Repeat("test", 16)}, "GET", "/v1/state", "", nil)
 	if err != nil || len(value.(map[string]any)["tasks"].(map[string]any)) != 17 {
 		t.Fatal("legal state was truncated:", err)
+	}
+}
+
+func TestCLIManagedSkillSyncPreservesConflictsAndScopedReportHelper(t *testing.T) {
+	data, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.InitConfig(data); err != nil {
+		t.Fatal(err)
+	}
+	config, err := app.LoadConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, version, err := install.CurrentSkill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(app.SkillRules{ProtocolVersion: 1, Revision: install.SkillRevision, Version: version})
+	}))
+	defer server.Close()
+	config.Listen = strings.TrimPrefix(server.URL, "http://")
+	encoded, _ := json.Marshal(config)
+	if err := os.WriteFile(filepath.Join(data, "config.json"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	hub := filepath.Join(data, "hub")
+	report := filepath.Join(data, "report-helper")
+	args := []string{"install-skill", "--data", data, "--host", "workbuddy", "--endpoint", "workbuddy", "--skills-dir", skills, "--binary", report, "--hub-binary", hub}
+	if err := run(args); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"sync-skills", "skills-status"} {
+		if err := run([]string{command, "--data", data}); err != nil {
+			t.Fatalf("global %s failed: %v", command, err)
+		}
+		if err := run([]string{command, "--data", data, "--endpoint", "workbuddy"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata, err := os.ReadFile(filepath.Join(skills, "agi-hub-client", "installation.json"))
+	if err != nil || !strings.Contains(string(metadata), report) || !strings.Contains(string(metadata), hub) {
+		t.Fatal("report and management paths were not separately preserved", err)
+	}
+	path := filepath.Join(skills, "agi-hub-client", "SKILL.md")
+	modified := []byte("user modified instructions\n")
+	if err := os.WriteFile(path, modified, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"sync-skills", "--data", data}); err == nil {
+		t.Fatal("CLI reported sync success despite a conflict")
+	}
+	content, _ := os.ReadFile(path)
+	if string(content) != string(modified) {
+		t.Fatal("conflict was overwritten")
+	}
+	states, err := install.Status(data)
+	if err != nil || len(states) != 1 || states[0].HostLoadState != "unknown" {
+		t.Fatal("file updates were confused with native loading", err)
+	}
+}
+
+func TestSkillSyncRefusesRunningHubWithDifferentRules(t *testing.T) {
+	_, version, err := install.CurrentSkill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, match := range []bool{false, true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/v1/skill-release" || r.Header.Get("Authorization") != "Bearer local-test-only" {
+				t.Error("wrong release check route or credentials")
+			}
+			digest := version
+			if !match {
+				digest = "sha256:different-release"
+			}
+			_ = json.NewEncoder(w).Encode(app.SkillRules{ProtocolVersion: 1, Revision: install.SkillRevision, Version: digest})
+		}))
+		err := checkSkillSource(app.Config{Listen: strings.TrimPrefix(server.URL, "http://"), AdminToken: "local-test-only"})
+		server.Close()
+		if (err == nil) != match {
+			t.Fatalf("source agreement %v produced error %v", match, err)
+		}
 	}
 }
 

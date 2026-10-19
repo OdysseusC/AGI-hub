@@ -114,6 +114,9 @@ Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wa
 | `POST /v1/leader` | 设置后续任务 leader | 管理 |
 | `POST /v1/session` | 核实并更新会话状态 | 管理 |
 | `GET /v1/endpoint?endpoint=ID` | 查询自身协议版本、会话绑定及状态 | 对应 endpoint 或管理 |
+| `GET /v1/catalog?endpoint=ID` | 查询显式可见且已启用的成员、目录摘要及规则版本 | 对应已启用 endpoint 或管理 |
+| `GET /v1/skills?endpoint=ID[&content=1&known_version=HASH]` | 查询规则摘要；仅按需返回正文，相同摘要不重复正文 | 对应已启用 endpoint 或管理 |
+| `GET /v1/skill-release` | 本机安装器核对运行中 Hub 的规则修订与摘要 | 管理，只读 |
 | `POST /v1/inbox?endpoint=ID[&wait_ms=N]` | 原子领取；可等待消息变更，最长 25 秒 | 对应 endpoint 或管理 |
 | `POST /v1/client-lease?endpoint=ID` | 原子获取、续期或释放该 endpoint 的消费者租约 | 对应 endpoint 或管理 |
 | `POST /v1/delivery?endpoint=ID` | 汇报投递证据 | 对应 endpoint 或管理 |
@@ -121,6 +124,8 @@ Endpoint 的 `result_queue_while_busy_verified` 默认为 `false`，与 `idle_wa
 | `GET /v1/events?endpoint=ID` | SSE 变更提示 | 对应 endpoint 或管理 |
 
 SSE 首次连接发送一次变更提示，随后按事件推送；完整状态和消息通过授权接口读取。连接保活不轮询业务任务。独立 Client 应先订阅、再领取，重连后只领取仍为 `pending` 且满足条件的消息；已经领取但投递不确定的消息不会被重新领取。Hub 没有内置助手执行器，也不把 SSE 断开当作原生操作失败的证据。
+
+目录是按需读取的短数据，不是完整状态：只列对应 binding 的 `visible_peers` 中当前已启用成员，默认空；不含原生会话地址、私有路径、凭据与历史。`purpose` 由本机用户配置，不是可执行指令或能力排名；验证字段仍是配置声明。目录可见性不赋予提交任务权限，不改变当前单次交接行为。更新规则文件、读取目录或版本不会创建消息、改变会话状态或启动模型。[技能维护与宿主加载](SKILLS.md)
 
 Client 在连接与领取前先读取自身 `/v1/endpoint`。返回 `protocol_version: 1`、该 `endpoint`、`session` 和 `outstanding`；后者只包含该 endpoint 的 `dispatching/uncertain` 消息，供重启核对。它不是可领取列表，不返回其他 endpoint 或管理凭据。Client 校验产品类型、支持模式及原生会话 ID 与私有配置一致；不兼容协议或目标错配时拒绝消费，不能以不同会话执行后再冒认原绑定。
 

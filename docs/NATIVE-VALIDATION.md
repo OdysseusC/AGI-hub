@@ -1,6 +1,18 @@
 # 本机原生接入记录
 
-记录日期：2026-10-14 至 2026-10-16，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+记录日期：2026-10-14 至 2026-10-19，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+
+## 2026-10-19：受管技能同步，无模型调用
+
+本机 Codex、Claude Code、WorkBuddy 三处原有受管技能均通过原清单校验后显式更新和登记，使用同一私有 Hub；规则修订 `1`，正文 SHA256 为 `5cb0cf94da3b55863c0b219f924cde722c7d9ebace27c762ce49f90f4ce096f5`。更新前备份留在仓库外，未改变原生工具权限、插件代码或账号授权。
+
+WorkBuddy 原 `binary_path` 继续指向专属报告 helper，仅新增可选 `hub_binary_path` 用于查询和维护，未用通用 CLI 替换报告入口。三处 `skills-status` 均为 `current`、`host_load_state=unknown`；再次同步三份文件修改时间完全不变。配置仅为三个已启用接入点设置互相可见目录，不启用其他接入点、不授予新增任务发送权。
+
+实际 Hub 启动后，三个 endpoint 查询目录都只得到另外两个成员，规则摘要一致；相同 `known_version` 的规则请求不返回正文。启动后的原生会话状态仍为 `unknown`，没有虚设 idle、提交业务任务或发送更新唤醒。全部维护操作的原生模型调用数为 **0**。磁盘和目录通过不代表三个旧会话的模型已读入新正文。
+
+宿主核查：Codex `0.163.0-alpha.10.2` 的独立 app-server 实际 `skills/list(forceReload:true)` 发现该受管技能，未创建 thread/turn；Claude Code `2.1.299` 的本机程序包含 `/reload-skills`，官方说明支持文件监测，但旧正文仍保留在历史；WorkBuddy `5.8.3` 程序包含技能目录文件事件监听，CodeBuddy CLI `2.161.0` 新进程会扫描对应配置目录。未为了刷新执行 Claude 模型续接、`/reload-plugins --force` 或 WorkBuddy 扩展重载。Grok Bot 的云端技能维护未实测，不加入本地文件同步。[宿主机制与官方资料](SKILLS.md#各宿主如何生效)
+
+软件验证：Go race 测试、vet，Windows/macOS/Linux 的 amd64/arm64 六目标构建通过。真实 Hub 的模拟协议 smoke 保持单次交接、文件校验和一次返回；技能 smoke 核对三处登记、幂等时间戳、修改冲突保留、卸载不重装、禁用后目录版本变化及零消息产生。降级、同修订不同正文、Hub 与 CLI 来源不一致由测试拒绝。技能前置信息和代码围栏用标准库检查；上游技能校验脚本因本机缺少 PyYAML 未运行成功，未为此添加依赖。
 
 ## 2026-10-14：WorkBuddy 默认恢复与历史
 

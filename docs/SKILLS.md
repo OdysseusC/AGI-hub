@@ -56,11 +56,46 @@ agi-hub-client/
   .agi-hub-manifest.json
 ```
 
-`installation.json` 只包含 `host`、`endpoint_id`、`binary_path`、`data_dir` 四个字段，供技能找到同一台电脑的回报程序与对应 endpoint。它不复制管理凭据、原生登录态或聊天记录。CLI 在内部加载私有边车配置并使用对应 endpoint 凭据；技能不需要读取 token。
+`installation.json` 包含 `host`、`endpoint_id`、`binary_path`、`data_dir`，可选 `hub_binary_path`。`binary_path` 始终用于回报；若它是固定 endpoint 的专属报告程序，使用 `--hub-binary <实际 Hub CLI>` 单独登记查询与同步程序，不能覆盖报告程序或修改宿主权限。未设置时两个用途共用 `binary_path`。元数据不包含凭据、登录态或聊天记录；CLI 内部完成对应 endpoint 鉴权。
 
 所有权清单记录安装器标识与两个受管文件的 SHA256。相同内容再次安装保持文件不变；升级只替换清单仍匹配的受管文件，保留其他本地文件。没有清单、内容被手工编辑、目标为软链接或目录路径包含软链接时拒绝覆盖，用户可以先检查并备份冲突目录，再明确选择安装位置。
 
 文件先写入同目录临时文件、同步后重命名；安装器不会在失败时删除原文件来强行覆盖。Windows 上宿主占用文件可能使更新失败，应关闭占用后重试。多个本安装器通过本机锁协调；崩溃留下的锁需要先检查，不能盲删正在使用的锁。升级中途异常也可能留下清单与文件不匹配，此时停止更新并保留文件供核对。这不是对同一 OS 账号下其他进程的安全隔离。
+
+### 自动同步与版本
+
+`install-skill` 成功后将该位置登记到私有数据目录的 `skill-installations.json`，并同步本 Hub 已登记的受管位置；`serve` 启动时也同步。旧安装需要按原路径、endpoint 和报告程序显式重装一次才能加入登记，不扫描其他应用。删除技能目录视为卸载，同步只报告 `missing`，不会偷偷装回来。
+
+```sh
+agi-hub skills-status
+agi-hub sync-skills
+agi-hub sync-skills --endpoint workbuddy
+agi-hub peers --endpoint codex
+agi-hub skill-rules --endpoint codex --content --known-version 'sha256:previous-digest'
+```
+
+均支持 `--data <私有数据目录>`。`skills-status` 只读；全量同步供本机安装维护，技能请求维护时只用自身 `--endpoint`。同步返回每处 `current / updated / conflict / missing / error / incompatible`、磁盘版本、期望版本及 `host_load_state=unknown`；冲突会使同步命令失败，但不会阻止 Hub 恢复消息记录。修改、未托管目录、符号链接、目录路由不一致和占用失败均保留供核对。
+
+规则版本使用完整 SHA256，独立于 manifest 格式 `1`。维护者修改内嵌技能时必须增加 `install.SkillRevision`；私有登记保存认可的修订与摘要，拒绝旧修订降级和相同修订换正文。同步前还核对运行中 Hub 与 CLI 的规则是否一致；只有连接明确被拒绝才允许离线维护，超时或鉴权错误不能当作离线。尚未实现本机文件同步的旧版本程序仍可能显式覆盖技能，不要保留旧安装脚本并行维护同一位置。
+
+目录 API `GET /v1/catalog?endpoint=ID` 只返回该 endpoint 配置的 `visible_peers` 中已启用的成员，默认空；没有凭据、原生会话地址、工作区路径或聊天历史。可在 binding 中设置 `"visible_peers": ["workbuddy", "claude"]`，用 `purpose` 填短用途；可见性不授予任务提交权。配置仍需重启 `serve` 才生效。目录内容有独立摘要版本，包含规则版本，业务按需查询即可获得最新目录，不把名单写进每份技能，也不发送模型唤醒通知。
+
+`GET /v1/skills?endpoint=ID` 默认只返回版本；加 `content=1` 才取正文，`known_version` 相同时省略正文。旧回报专用安装不能查询时继续处理原协议内已投递任务，标明同步查询不可用，不用管理提交绕过能力限制。多跳发送与关联回复仍属于[后续对等协作方案](TEAM-ORCHESTRATION.md)，本次维护接口不扩大消息协议。
+
+### 各宿主如何生效
+
+核查于 2026-10-19；安装文件、宿主发现、模型已经读取是三个不同事实。
+
+| 宿主 | 更新和加载方式 | 唤醒或发消息的作用 |
+| --- | --- | --- |
+| Codex | 官方支持自动检测；本机 `0.163.0-alpha.10.2` 零模型 `skills/list(forceReload:true)` 实际发现受管技能；未发现时按官方说明重启 | 可以请求助手执行获准的安装器，但无需为写文件启动模型；目录发现不证明原聊天已读新正文。[官方技能说明](https://learn.chatgpt.com/docs/build-skills) |
+| Claude Code / 本机 Claude-3p Code `2.1.299` | 监测本地 `SKILL.md`；必要时 `/reload-skills`。旧正文仍留在历史，下次协作按需读最新版本 | 原生命令与注入普通消息不同，不能假设投递 `/reload-skills` 文本就执行命令；不要为了同步续接大上下文。[技能生命周期](https://code.claude.com/docs/en/skills#skill-content-lifecycle) |
+| WorkBuddy Desktop `5.8.3` / CodeBuddy CLI `2.161.0` | 本机桌面包监听技能目录变化；新 `--resume` 进程重新扫描其实际配置目录。长驻 CLI 的 `/reload-plugins` 会同时重载 Skills、Hooks、MCP/LSP，需单独选择 | 写受管文件无需模型；不会抹掉原会话历史中的旧说明。`CODEBUDDY_CONFIG_DIR` 决定实际目录，不混用桌面和独立 profile。[技能](https://www.codebuddy.cn/docs/cli/skills) · [刷新命令](https://www.codebuddy.cn/docs/cli/slash-commands) |
+| Grok Bot | 当前确认的是云端 Private skills 与 Routine，没有核实通用技能 CRUD API 或本机技能目录，不加入文件同步 | 官方支持通过聊天保存技能，但要消耗模型并核对保存结果；Routine webhook 只启动任务。该维护通道待本机验收。[官方说明](https://docs.x.ai/grok-bot/skills-routines-and-automations) |
+
+Claude 的 Client 插件代码更新另走原生 plugin update 和 `/reload-plugins`，普通技能或目录变化不重装插件。不要自动 `--force`，它可能让下一次请求失去提示词缓存。[插件更新](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)
+
+因此，消息唤醒可以作为用户已授权维护的入口，不是统一的技能更新机制。默认让本机安装器直接更新受管文件；需要原生刷新或云端保存时按适配器能力处理。普通协作消息不能新增安装位置、批准权限或扩大互通范围。[同步设计](TEAM-ORCHESTRATION.md#技能随-hub-同步更新)
 
 ## 收件与回报标识
 

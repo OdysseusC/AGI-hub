@@ -13,6 +13,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"agihub/internal/manager"
 )
@@ -26,6 +28,9 @@ type ClientBinding struct {
 type Binding struct {
 	Endpoint manager.Endpoint `json:"endpoint"`
 	Driver   ClientBinding    `json:"driver"`
+	// Directory visibility does not grant task submission rights.
+	VisiblePeers []string `json:"visible_peers,omitempty"`
+	Purpose      string   `json:"purpose,omitempty"`
 }
 
 type Config struct {
@@ -127,6 +132,18 @@ func LoadConfig(dir string) (Config, error) {
 	for id, root := range c.Workspaces {
 		if id == "" || !filepath.IsAbs(root) {
 			return c, errors.New("workspace roots must have an ID and an absolute local path")
+		}
+	}
+	for _, binding := range c.Bindings {
+		if len(binding.Purpose) > 240 || strings.IndexFunc(binding.Purpose, unicode.IsControl) != -1 {
+			return c, errors.New("binding purpose must be short single-line text (at most 240 bytes)")
+		}
+		peers := map[string]bool{}
+		for _, id := range binding.VisiblePeers {
+			if !seen[id] || id == binding.Endpoint.ID || peers[id] {
+				return c, errors.New("visible_peers must contain unique configured endpoints other than self")
+			}
+			peers[id] = true
 		}
 	}
 	return c, nil

@@ -87,7 +87,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease"
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills"
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -95,6 +95,17 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var result any = map[string]bool{"ok": true}
 	var err error
 	switch {
+	case r.URL.Path == "/v1/skill-release" && r.Method == http.MethodGet:
+		result, err = currentSkillRules(false)
+	case r.URL.Path == "/v1/catalog" && r.Method == http.MethodGet:
+		result, err = s.catalog(endpoint)
+	case r.URL.Path == "/v1/skills" && r.Method == http.MethodGet:
+		var rules SkillRules
+		rules, err = s.skillRules(endpoint, r.URL.Query().Get("content") == "1")
+		if rules.Version == r.URL.Query().Get("known_version") {
+			rules.Content = ""
+		}
+		result = rules
 	case r.URL.Path == "/v1/endpoint" && r.Method == http.MethodGet:
 		snapshot := s.Broker.Snapshot()
 		binding, ok := snapshot.Endpoints[endpoint]

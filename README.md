@@ -36,6 +36,8 @@
 | 去重与恢复 | 稳定任务 ID、回执事件 ID、校验日志；投递不确定时保留记录 |
 | 协调并发 | 对边车管理的运行按会话排队，支持声明共享工作区或桌面资源 |
 | 本地状态页 | 查看当前处理者、结果位置和需要介入的情况，使用 SSE 更新 |
+| 受管技能同步 | 登记选定宿主目录，接入与启动时更新，保护本地修改，单独显示未知的宿主加载状态 |
+| 可见成员目录 | 按 endpoint 配置返回简短目录与规则版本，不通过模型通知刷新 |
 
 第一版每个用户任务只交接一次，终态只生成一次结果通知，`max_handoffs` 固定为 `1`。暂不做自动规划、递归互答、智能能力排名、账号体系或插件市场。
 
@@ -82,9 +84,10 @@ go vet ./...
 go run ./tools/package
 python3 -m unittest discover -s clients/tests
 python3 tools/smoke_client.py --hub dist/darwin-arm64/agi-hub
+python3 tools/smoke_skill_sync.py --hub dist/darwin-arm64/agi-hub
 ```
 
-最后一条需换成当前系统对应的已构建程序。它运行真实 Hub 与 Python 协议，使用临时目录和模拟 Adapter 核对一次交接、成果校验、结果返回及不重复消费，不向真实助手发消息。
+两条 smoke 命令需换成当前系统对应的已构建程序。第一条用真实 Hub 与模拟 Adapter 核对交接、成果校验、返回及去重；第二条核对受管同步、冲突、卸载保护、目录撤销与无模型调用。均使用临时目录，不向真实助手发消息。
 
 打包命令生成 Windows、macOS、Linux 的 amd64/arm64 Hub 程序、便携 ZIP 和 `SHA256SUMS`，输出到 `dist/`。包内含 Client 源码、Claude Code 插件、运行说明和空凭据配置示例；插件只包含明确列出的 JavaScript 与三类插件 JSON，不打包私有配置或持久记录。每种原生助手的唤醒、原生工具和发送模式仍需在目标系统实测。
 
@@ -128,6 +131,8 @@ Windows PowerShell 使用 `go build -o agi-hub.exe ./cmd/agi-hub`，后续命令
 | `report` | 从任务接收端回报完整 Report JSON |
 | `install-skill` | 自动安装会话接手与回报技能；拒绝覆盖用户改动 |
 | `client-config` | 将 endpoint 专用凭据写入仓库外的新私有文件，不打印 token |
+| `sync-skills` / `skills-status` | 同步已登记技能或只读核对版本；`--endpoint` 限定维护范围 |
+| `peers` / `skill-rules` | 查询获准可见的成员、规则版本，按需获取正文 |
 | `inbox` / `delivery` | 领取指定 endpoint 的消息；记录或核对投递结果 |
 
 每个命令可以使用 `--help`，也可以通过 `--data` 指定本机私有数据目录。带文件引用的任务与回报示例见 [安装指南](docs/INSTALL-FOR-ASSISTANT.md)。
