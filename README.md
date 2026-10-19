@@ -61,6 +61,8 @@ Hub 不建立任务树、DAG、团队计划或统一智能路由，不判断谁�
 
 ## 安装包
 
+正式安装包由 GitHub Actions 编译和校验，发布在 [GitHub Releases](https://github.com/OdysseusC/AGI-hub/releases/latest)。PR 可下载对应 CI 构建产物；版本标签触发自动发布，无需在开发电脑手工打包上传。
+
 选对应系统的便携 ZIP，解压后将整个目录和 `START-HERE.md` 交给 Codex。可以这样说：
 
 > 按这个目录的 START-HERE.md，帮我接通当前 Codex 和本机 WorkBuddy。保留已有配置，先检查实际环境，再引导我完成必要的会话和权限确认。

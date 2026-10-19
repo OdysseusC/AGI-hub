@@ -26,6 +26,10 @@ Use your platform's binary path for the local smoke scripts (`darwin-arm64`, `da
 
 ## Releases
 
-Release from a reviewed commit on `main`, update the changelog and use a SemVer tag such as `v0.2.0`. Publish the six portable ZIP files with their `SHA256SUMS`. Do not replace an existing version's assets with different contents. Document protocol or configuration incompatibilities explicitly; preserve unresolved delivery records during upgrades.
+Compilation and packaging run on GitHub Actions. Each pull request and push to `main` uploads a `portable-packages` artifact after the offline checks; feature pushes do not duplicate the pull request run. Local packaging remains available for development.
+
+For a release, merge the version and changelog update through a pull request, then push a strict SemVer tag such as `v0.2.1` pointing to that reviewed `main` commit. The **Release** workflow checks main ancestry, runs the full reusable checks at the exact tag commit, downloads that run's immutable artifact, and verifies its commit, six checksums and packaged binary version. It uploads all seven assets into a draft before publishing. Only the publication job receives repository write permission.
+
+The workflow can also be run manually with an **existing** `vX.Y.Z` tag; its source is the tag commit, regardless of the selected dispatch branch. An existing release or draft is never overwritten. If upload or publication fails, inspect the preserved draft and run before choosing recovery; do not use `--clobber` or silently replace published assets. Document protocol or configuration incompatibilities explicitly; preserve unresolved delivery records during upgrades.
 
 Hub, Client, skill and journal versions describe different compatibility boundaries. Increase the managed skill revision when its released instructions change. Avoid coupling all adapters to an identical version number or claiming an untested platform is supported merely because it builds.

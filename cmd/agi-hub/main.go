@@ -26,6 +26,8 @@ import (
 	"agihub/internal/manager"
 )
 
+const version = "0.2.1"
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -35,11 +37,11 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("AGI Hub 0.2.0\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.")
+		fmt.Printf("AGI Hub %s\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.\n", version)
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
-		fmt.Println("AGI Hub 0.2.0", runtime.GOOS+"/"+runtime.GOARCH)
+		fmt.Println("AGI Hub "+version, runtime.GOOS+"/"+runtime.GOARCH)
 		return nil
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)

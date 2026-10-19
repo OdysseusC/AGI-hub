@@ -13,4 +13,6 @@
 
 安装器与 Hub 只依赖操作系统。所选助手的官方 CLI、运行时、登录和原生工具权限分别核对；某平台构建成功不表示该平台的原生助手接入已经实测。
 
-开发者在仓库根目录运行 `go run ./tools/package`，得到六个平台的 ZIP 和 `dist/SHA256SUMS`。包内不包含用户配置、凭据或运行记录。源码构建方式仍见安装助手指南。
+正式安装包由 GitHub 的 **Release** 工作流编译、检查并发布；下载对应版本的 ZIP，可用同页 `SHA256SUMS` 核对。PR 和 `main` 的检查运行也提供 `portable-packages` 临时构建产物，保留 14 天，适合提前验证。
+
+本地构建仍可在仓库根目录运行 `go run ./tools/package`，得到六个平台的 ZIP 和 `dist/SHA256SUMS`。包内不包含用户配置、凭据或运行记录。发版操作见 [CONTRIBUTING.md](CONTRIBUTING.md)，源码构建方式仍见安装助手指南。

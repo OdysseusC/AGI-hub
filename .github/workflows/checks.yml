@@ -4,14 +4,28 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, 'feat/**', 'fix/**', 'docs/**', 'chore/**', 'release/**']
+    branches: [main]
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable source commit selected by the release workflow
+        type: string
+        required: false
+        default: ''
+    outputs:
+      artifact_id:
+        description: This run's verified portable packages artifact
+        value: ${{ jobs.portable.outputs.artifact_id }}
+      source_commit:
+        description: Commit checked out and packaged
+        value: ${{ jobs.portable.outputs.source_commit }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.workflow }}-${{ inputs.source_ref || github.ref }}
+  cancel-in-progress: ${{ inputs.source_ref == '' }}
 
 env:
   PYTHONUTF8: '1'
@@ -39,6 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -67,9 +82,13 @@ jobs:
     name: portable packages and offline smokes
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.packages.outputs.artifact-id }}
+      source_commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -85,6 +104,23 @@ jobs:
           python tools/smoke_client.py --hub "$PWD/dist/linux-amd64/agi-hub"
           python tools/smoke_skill_sync.py --hub "$PWD/dist/linux-amd64/agi-hub"
           python tools/smoke_mailbox.py --hub "$PWD/dist/linux-amd64/agi-hub"
+      - name: Record packaged source
+        id: source
+        run: |
+          git rev-parse HEAD > dist/SOURCE-COMMIT
+          printf 'commit=%s\n' "$(cat dist/SOURCE-COMMIT)" >> "$GITHUB_OUTPUT"
+      - name: Upload verified packages
+        id: packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portable-packages
+          path: |
+            dist/agi-hub-*.zip
+            dist/SHA256SUMS
+            dist/SOURCE-COMMIT
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   # Keep this one context stable for main's required status check.
   checks:
