@@ -797,7 +797,9 @@ func TestLegacyJournalWithoutMessageLinksLoadsWithoutMigration(t *testing.T) {
 	}
 	f.b = nil
 	path := filepath.Join(f.dir, journalName)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
+	// This fixture replaces the journal once; it does not need append mode.
+	// Combining O_TRUNC and O_APPEND is invalid on older Windows Go runtimes.
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}

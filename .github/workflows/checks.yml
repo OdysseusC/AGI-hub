@@ -18,14 +18,21 @@ env:
 
 jobs:
   test:
-    name: test (${{ matrix.os }}, Go ${{ matrix.go }})
-    runs-on: ${{ matrix.os }}
+    name: test (${{ matrix.runner || matrix.os }}, Go ${{ matrix.go }})
+    runs-on: ${{ matrix.runner || matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         go: ['1.22.x', stable]
+        include:
+          # Go 1.22's Mach-O linker predates macOS 26's required LC_UUID.
+          # Keep minimum-version coverage on maintained macOS 15; latest Go
+          # still runs on macos-latest. https://go.dev/issue/78012
+          - os: macos-latest
+            go: '1.22.x'
+            runner: macos-15
     defaults:
       run:
         shell: bash

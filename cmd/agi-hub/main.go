@@ -448,7 +448,7 @@ func skillSyncError(results []install.SyncResult) error {
 func checkSkillSource(cfg app.Config) error {
 	value, err := requestValue(cfg, "GET", "/v1/skill-release", "", nil)
 	if err != nil {
-		if errors.Is(err, syscall.ECONNREFUSED) {
+		if connectionRefused(err) {
 			return nil
 		}
 		return fmt.Errorf("cannot verify skill source against running Hub; update/restart the Hub before syncing: %w", err)

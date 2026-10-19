@@ -45,7 +45,11 @@ func acquireDirectoryLock(dir string) (net.Listener, error) {
 }
 
 func openJournal(dir string) (*os.File, Snapshot, []string, error) {
-	file, err := os.OpenFile(filepath.Join(dir, journalName), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
+	path := filepath.Join(dir, journalName)
+	// Recovery may truncate an incomplete tail. On Windows an O_APPEND handle
+	// lacks the general write access required by Truncate, so replay with a
+	// writable handle and reopen in append mode only after recovery is complete.
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, Snapshot{}, nil, err
 	}
@@ -111,6 +115,13 @@ func openJournal(dir string) (*os.File, Snapshot, []string, error) {
 		}
 		state = next
 		validOffset += int64(len(line))
+	}
+	if err = file.Close(); err != nil {
+		return nil, Snapshot{}, nil, err
+	}
+	file, err = os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, Snapshot{}, nil, err
 	}
 	return file, state, order, nil
 }
