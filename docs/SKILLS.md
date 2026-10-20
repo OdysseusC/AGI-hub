@@ -57,6 +57,7 @@ Windows PowerShell：
 agi-hub-client/
   SKILL.md
   installation.json
+  communication-policy.md
   .agi-hub-manifest.json
 ```
 
@@ -64,7 +65,9 @@ agi-hub-client/
 
 `installation.json` 包含 `host`、`endpoint_id`、`binary_path`、`data_dir`，可选 `hub_binary_path`。`binary_path` 指向所选消息入口或旧版报告程序；WorkBuddy 专属 helper 可固定自身 endpoint，完整 Hub CLI 则显式携带安装元数据中的 data 与 endpoint。若维护程序不同，使用 `--hub-binary <实际 Hub CLI>` 单独登记查询与同步程序，不能覆盖专属 helper 或修改宿主权限。未设置时两个用途共用 `binary_path`。元数据不包含凭据、登录态或聊天记录；CLI 内部完成对应 endpoint 鉴权。
 
-所有权清单记录安装器标识与两个受管文件的 SHA256。相同内容再次安装保持文件不变；升级只替换清单仍匹配的受管文件，保留其他本地文件。没有清单、内容被手工编辑、目标为软链接或目录路径包含软链接时拒绝覆盖，用户可以先检查并备份冲突目录，再明确选择安装位置。
+`communication-policy.md` 是独立的英文运行配置文件，保存本 endpoint 及其 `visible_peers` 的最小语言表；不复制 token、原生会话、工作区或不可见成员。发送助手在协作前读取它，每次新发送前再查询实时 `peers.send_language`；目录优先于本地快照和旧聊天历史。Claude 默认英语，但 UI 可选择其他语言，包括中文。翻译由发送助手完成，只给 Hub 一份必要消息；原材料和交付物语言保持原要求，最终对人的回复跟随用户指定语言或其原始输入语言。
+
+所有权清单格式 `2` 记录安装器标识与三个受管文件的 SHA256，并支持旧格式 `1` 的两文件安装安全升级。相同内容再次安装保持文件不变；升级只替换清单仍匹配的受管文件，保留其他本地文件。若旧目录已有不受管的同名策略文件，也拒绝覆盖。没有清单、内容被手工编辑、目标为软链接或目录路径包含软链接时拒绝覆盖，用户可以先检查并备份冲突目录，再明确选择安装位置。
 
 文件先写入同目录临时文件、同步后重命名；安装器不会在失败时删除原文件来强行覆盖。Windows 上宿主占用文件可能使更新失败，应关闭占用后重试。多个本安装器通过本机锁协调；崩溃留下的锁需要先检查，不能盲删正在使用的锁。升级中途异常也可能留下清单与文件不匹配，此时停止更新并保留文件供核对。这不是对同一 OS 账号下其他进程的安全隔离。
 
@@ -80,11 +83,13 @@ agi-hub peers --endpoint codex
 agi-hub skill-rules --endpoint codex --content --known-version 'sha256:previous-digest'
 ```
 
-均支持 `--data <私有数据目录>`。`skills-status` 只读；全量同步供本机安装维护，技能请求维护时只用自身 `--endpoint`。同步返回每处 `current / updated / conflict / missing / error / incompatible`、磁盘版本、期望版本及 `host_load_state=unknown`；冲突会使同步命令失败，但不会阻止 Hub 恢复消息记录。修改、未托管目录、符号链接、目录路由不一致和占用失败均保留供核对。
+均支持 `--data <私有数据目录>`。`skills-status` 只读；全量同步供本机安装维护，技能请求维护时只用自身 `--endpoint`。同步返回每处 `current / updated / conflict / missing / error / incompatible`、静态技能及动态策略的磁盘/期望版本与 `host_load_state=unknown`；冲突会使同步命令失败，但不会阻止 Hub 恢复消息记录。修改、未托管目录、符号链接、目录路由不一致和占用失败均保留供核对。
 
-规则版本使用完整 SHA256，独立于 manifest 格式 `1`。维护者修改内嵌技能时必须增加 `install.SkillRevision`；私有登记保存认可的修订与摘要，拒绝旧修订降级和相同修订换正文。同步前还核对运行中 Hub 与 CLI 的规则是否一致；只有连接明确被拒绝才允许离线维护，超时或鉴权错误不能当作离线。尚未实现本机文件同步的旧版本程序仍可能显式覆盖技能，不要保留旧安装脚本并行维护同一位置。
+UI 保存 Agent 交互语言后，不调用模型就同步已登记且未被修改的本机策略文件；结果逐个返回，冲突或已卸载的位置不会被覆盖或恢复。语言变动不修改静态 `SKILL.md`、发布修订或来源摘要，也不会自动唤醒原生会话。磁盘同步不等于正在运行的模型已加载，下一次协作仍应读取当前策略和实时目录。Grok 等未核实本地技能目录的平台不自动加入本机文件同步。
 
-目录 API `GET /v1/catalog?endpoint=ID` 只返回该 endpoint 配置的 `visible_peers` 中已启用的成员，默认空；没有凭据、原生会话地址、工作区路径或聊天历史。可在 binding 中设置 `"visible_peers": ["workbuddy", "claude"]`，用 `purpose` 填短用途；可见性不授予消息发送权；另用 `allowed_peers` 显式允许接收者。配置仍需重启 `serve` 才生效。目录内容有独立摘要版本，包含规则版本，业务按需查询即可获得最新目录，不把名单写进每份技能，也不发送模型唤醒通知。
+规则版本使用完整 SHA256，独立于 manifest 格式。维护者修改内嵌技能时必须增加 `install.SkillRevision`；私有登记保存认可的修订与摘要，拒绝旧修订降级和相同修订换正文。动态策略有单独摘要，不写入静态规则的发布身份。同步前还核对运行中 Hub 与 CLI 的规则是否一致；只有连接明确被拒绝才允许离线维护，超时或鉴权错误不能当作离线。尚未实现本机文件同步的旧版本程序仍可能显式覆盖技能，不要保留旧安装脚本并行维护同一位置。
+
+目录 API `GET /v1/catalog?endpoint=ID` 返回该 endpoint 配置的 `visible_peers` 中已启用的成员，以及明确共享后可见的受信任远程成员；默认没有其他成员。没有凭据、原生会话地址、工作区路径或聊天历史。可在 binding 中设置 `"visible_peers": ["workbuddy", "claude"]`，用 `purpose` 填短用途；可见性不授予消息发送权；另用 `allowed_peers` 显式允许本地接收者。目录包含 `self_communication_language`，每个成员包含 `communication_language` 与针对当前发送者计算的 `send_language`。UI 保存语言即时更新目录；手工修改其他静态配置仍需重启 `serve`。目录有独立摘要版本和规则版本，业务发送前查询，不为更新唤醒模型。
 
 `GET /v1/skills?endpoint=ID` 默认只返回版本；加 `content=1` 才取正文，`known_version` 相同时省略正文。旧报告专用安装不能查询时继续处理兼容协议内已投递任务，标明同步查询不可用，不用管理凭据绕过能力限制。当前定址邮箱已支持助手自主转发与关联回复；未启用邮箱的宿主不能仅凭技能更新开始消费。见[协议](PROTOCOL.md)。
 

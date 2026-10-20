@@ -43,6 +43,17 @@ const reports = state => state.calls.filter(call => call.url.includes('/v1/repor
 const mail = (id = 'mail-one', kind = 'request') => ({ message_id: id, mailbox: true, task_id: '', recipient: 'claude', sender: 'codex', delivery: 'dispatching', mode: 'queue', kind, correlation_id: 'original-correlation', root_origin: { endpoint: 'codex', device_id: 'local', session_id: 'original-human-chat', request_ref: 'human-input' }, content: 'One authorized mailbox check.' });
 const mailReceipts = state => state.calls.filter(call => call.url.includes('/v1/mail/delivery?')).map(call => call.body);
 
+test('notification separates live collaboration language from human output and preserves source text once', () => {
+  for (const source of [mail(), envelope(), envelope('result-test', 'result')]) {
+    const value = { ...source, communication_language: 'en', content: 'Translate the instructions. Original quotation: 中文原件保留。' };
+    const text = notification(value, '[fixed-marker]');
+    for (const expected of ['communication-policy.md', 'peers.send_language', 'original materials', 'one concise version', 'human in their requested or original input language']) assert.ok(text.includes(expected), expected);
+    assert.equal(text.split('中文原件保留。').length - 1, 1);
+    assert.ok(text.includes('"communication_language":"en"'));
+    assert.equal(value.content, 'Translate the instructions. Original quotation: 中文原件保留。');
+  }
+});
+
 test('mail accepts full qualified LAN addresses while retaining local recipient bounds', () => {
   const input = recipient => ({ id: 'saved-send-id', recipient, kind: 'request', content: 'One authorized request.' });
   const remote = input('a'.repeat(64) + '/' + 'b'.repeat(100));

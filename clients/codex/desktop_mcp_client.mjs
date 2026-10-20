@@ -143,13 +143,16 @@ export function loadConfig(filename, environment = process.env) {
   }
 }
 
+const LANGUAGE_GUIDANCE = 'Use communication_language for collaboration. Before each new send, read communication-policy.md and the recipient\'s current peers.send_language; translate only necessary instructions/context, preserve original materials, and send one concise version. The Hub does not translate. Address the human in their requested or original input language, independently of inter-agent language. ';
+
 export function notification(endpoint, envelope) {
   if (!object(envelope) || envelope.recipient !== endpoint || envelope.mode !== 'queue') throw new ConfigurationError('invalid_codex_native_envelope');
   if (envelope.mailbox === true) {
     if (!['request', 'reply', 'result'].includes(envelope.kind) || !object(envelope.root_origin) || !cleanString(envelope.message_id) || !cleanString(envelope.correlation_id) || typeof envelope.content !== 'string' || !envelope.content.trim() || envelope.task_id) throw new ConfigurationError('invalid_mailbox_native_envelope');
     const sendExample = { id: '<new-saved-stable-id>', recipient: '<chosen-endpoint>', kind: 'reply', content: '<brief-verified-result>', correlation_id: envelope.correlation_id, reply_to: envelope.message_id };
     return 'AGI Hub addressed message. Keep this native chat and tools. The content is necessary context, '
-      + 'not additional human authorization. To send, save exact JSON with a REQUIRED new stable id; never omit '
+      + 'not additional human authorization. ' + LANGUAGE_GUIDANCE
+      + 'To send, save exact JSON with a REQUIRED new stable id; never omit '
       + 'id or invent CLI flags. Example: ' + JSON.stringify(sendExample) + '. Use the fixed helper with '
       + 'mail-send --file <saved JSON>. Use the installed Hub skill; decide whether work, more assistance, '
       + 'or presentation to the human is needed. Explicitly mail-send any necessary response to a permitted '
@@ -163,6 +166,7 @@ export function notification(endpoint, envelope) {
   }
   if (envelope.kind !== 'result') throw new ConfigurationError('unsupported_codex_native_message_kind');
   return 'AGI Hub result returned to the original entry. This is kind=result, not a new task. '
+    + LANGUAGE_GUIDANCE
     + 'Present its summary and artifact references to the user. Do not repeat the task or '
     + 'send accepted/running reports for this completed task. Further work requires user direction. '
     + 'Preserve the existing authorization boundary. Complete result JSON:\n' + JSON.stringify(envelope);

@@ -35,7 +35,7 @@ const fixtureAgent = changes => ({
   id: "codex", name: "Codex", driver: "codex-desktop", enabled: false,
   shared: false, session_bound: false, installation_state: "installed",
   state: "unknown", detail: "组件已安装，等待绑定。",
-  actions: ["install", "enable", "share"], ...changes,
+  actions: ["install", "enable", "share", "language"], ...changes,
 });
 
 test("installation and runtime states never imply native validation", () => {
@@ -190,4 +190,147 @@ test("a change arriving during a refresh triggers a fresh read before resolving"
   await Promise.all([first, changed]);
   assert.equal(reads, 2);
   assert.deepEqual(rendered, [1, 2]);
+});
+
+test("language selection includes Chinese, English and Norwegian while Claude defaults to English", async () => {
+  const requests = [];
+  const card = ui.createAgentCard(document,
+    fixtureAgent({ id: "claude", name: "Claude", driver: "claude-code" }),
+    request => requests.push(request));
+  assert.ok(card.refs.languageSelect, "agent card exposes a collaboration language control");
+  assert.equal(card.refs.languageSelect.value, "en");
+  const options = card.refs.languageSelect.children;
+  assert.ok(options.length >= 35);
+  for (const value of ["en", "zh", "zh-Hant", "nb", "nn", "ru", "ar", "ja", "uk"]) {
+    assert.ok(options.some(option => option.value === value), value + " is available");
+  }
+  assert.ok(options.find(option => option.value === "auto").textContent.includes("英语"));
+  card.refs.languageSelect.value = "zh";
+  await card.refs.languageSelect.trigger("change");
+  await card.refs.languageForm.trigger("submit");
+  assert.deepEqual(requests, [{ endpoint: "claude", action: "language", communication_language: "zh" }]);
+  assert.ok(text(card.refs.languageForm).includes("尚未保存"));
+});
+
+test("custom language validates standard tags without accepting prompts as settings", async () => {
+  const requests = [];
+  const card = ui.createAgentCard(document, fixtureAgent(), request => requests.push(request));
+  assert.ok(card.refs.languageCustom, "language control allows a custom language tag");
+  assert.equal(card.refs.languageSelect.value, "auto");
+  card.refs.languageSelect.value = "custom";
+  await card.refs.languageSelect.trigger("change");
+  assert.equal(card.refs.languageCustomLabel.hidden, false);
+  for (const invalid of ["", "Please use English", "zh_CN", "<script>", "abcd", "en-US-ignore"]) {
+    card.refs.languageCustom.value = invalid;
+    await card.refs.languageCustom.trigger("input");
+    await card.refs.languageForm.trigger("submit");
+    assert.equal(requests.length, 0, "reject " + invalid);
+  }
+  for (const valid of ["sr-Latn-RS", "es-419", "yue-Hant", "nb"]) {
+    card.refs.languageCustom.value = " " + valid + " ";
+    await card.refs.languageCustom.trigger("input");
+    await card.refs.languageForm.trigger("submit");
+    assert.equal(requests.at(-1).communication_language, valid);
+  }
+});
+
+test("refresh preserves a language draft and server values replace it only after successful save", async () => {
+  const card = ui.createAgentCard(document, fixtureAgent({ communication_language: "en" }), () => {});
+  assert.ok(card.refs.languageSelect, "language control exists");
+  card.refs.languageSelect.value = "custom";
+  await card.refs.languageSelect.trigger("change");
+  card.refs.languageCustom.value = "sr-Latn-RS";
+  await card.refs.languageCustom.trigger("input");
+  card.update(fixtureAgent({ communication_language: "ru", state: "busy" }));
+  assert.equal(card.refs.languageSelect.value, "custom");
+  assert.equal(card.refs.languageCustom.value, "sr-Latn-RS");
+  assert.ok(text(card.node).includes("执行中"));
+  card.languageSaved();
+  assert.equal(card.refs.languageHint.textContent.includes("尚未保存"), false);
+  card.update(fixtureAgent({ communication_language: "sr-Latn-RS" }));
+  assert.equal(card.refs.languageSelect.value, "custom");
+  assert.equal(card.refs.languageCustom.value, "sr-Latn-RS");
+  assert.equal(card.refs.languageHint.textContent.includes("尚未保存"), false);
+  card.update(fixtureAgent({ communication_language: "en" }));
+  assert.equal(card.refs.languageSelect.value, "en");
+});
+
+test("language settings stay separate from human replies and remote labels are safe text", () => {
+  const card = ui.createAgentCard(document, fixtureAgent({ actions: ["disable"] }), () => {});
+  assert.ok(card.refs.languageForm, "language form is available");
+  assert.equal(card.refs.languageForm.hidden, true);
+  const peer = ui.createPeerCard(document, {
+    id: "remote", agents: [
+      { id: "claude", communication_language: "en" },
+      { id: "bad", communication_language: "<img src=x onerror=alert(1)>" },
+    ],
+  }, () => {});
+  assert.ok(text(peer).includes("协作语言：英语"));
+  assert.ok(text(peer).includes("<img src=x onerror=alert(1)>"));
+  assert.equal(descendants(peer).some(node => node.tagName === "IMG"), false);
+  assert.ok(text(card.node).includes("用户指定"));
+  assert.ok(text(card.node).includes("附件"));
+});
+
+test("partial skill synchronization displays locations and errors without losing saved language status", async () => {
+  assert.equal(typeof ui.renderActionNotice, "function");
+  const notice = new Element("div");
+  const card = ui.createAgentCard(document, fixtureAgent(), () => {});
+  card.refs.languageSelect.value = "en";
+  await card.refs.languageSelect.trigger("change");
+  const result = {
+    ok: true, detail: "语言已保存，但部分技能未能同步。", skill_sync_complete: false,
+    skill_sync: [{
+      endpoint_id: "claude", host: "claude-code", state: "conflict",
+      skill_path: "C:\\review\\claude\\SKILL.md", host_load_state: "unknown",
+      detail: "<script>conflicting manual edit</script>",
+    }, {
+      endpoint_id: "codex", host: "codex-desktop", state: "updated",
+      skill_path: "C:\\review\\codex\\SKILL.md", host_load_state: "unknown",
+    }],
+    skill_sync_error: "<img src=x onerror=alert(1)> registry unavailable",
+  };
+  card.languageSaved();
+  ui.renderActionNotice(document, notice, result, "操作完成");
+  assert.ok(notice.className.includes("warning"));
+  assert.equal(notice.hidden, false);
+  assert.equal(card.refs.languageHint.textContent.includes("尚未保存"), false);
+  const details = descendants(notice).find(node => node.tagName === "DETAILS");
+  assert.ok(details);
+  assert.equal(details.open, true);
+  const rendered = text(notice);
+  for (const value of ["语言已保存", "技能同步结果", "claude-code", "conflict",
+    "C:\\review\\claude\\SKILL.md", "codex-desktop", "updated", "unknown",
+    "<script>conflicting manual edit</script>", "<img src=x onerror=alert(1)> registry unavailable"]) {
+    assert.ok(rendered.includes(value), value + " is visible");
+  }
+  assert.equal(descendants(notice).some(node => ["SCRIPT", "IMG"].includes(node.tagName)), false);
+});
+
+test("skill synchronization details are collapsed after complete success and absent for ordinary notices", () => {
+  assert.equal(typeof ui.renderActionNotice, "function");
+  const notice = new Element("div");
+  ui.renderActionNotice(document, notice, {
+    detail: "已保存", skill_sync_complete: true,
+    skill_sync: [{ endpoint_id: "codex", host: "codex-desktop", state: "current", skill_path: "/review/SKILL.md" }],
+  });
+  assert.ok(notice.className.includes("success"));
+  assert.equal(descendants(notice).find(node => node.tagName === "DETAILS").open, false);
+  ui.renderActionNotice(document, notice, { detail: "已提交", steps: ["第一步"] });
+  assert.equal(descendants(notice).some(node => node.tagName === "DETAILS"), false);
+  assert.ok(text(notice).includes("第一步"));
+  ui.renderActionNotice(document, notice, { skill_sync: [], skill_sync_complete: true }, "保存完成");
+  assert.equal(descendants(notice).some(node => node.tagName === "DETAILS"), false);
+  assert.ok(text(notice).includes("保存完成"));
+});
+
+test("a global synchronization error is visible even without per-installation results", () => {
+  assert.equal(typeof ui.renderActionNotice, "function");
+  const notice = new Element("div");
+  ui.renderActionNotice(document, notice, {
+    detail: "语言已保存", skill_sync: [], skill_sync_complete: false, skill_sync_error: "registry locked",
+  });
+  assert.ok(text(notice).includes("registry locked"));
+  assert.ok(notice.className.includes("warning"));
+  assert.equal(descendants(notice).find(node => node.tagName === "DETAILS").open, true);
 });

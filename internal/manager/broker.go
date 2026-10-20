@@ -218,6 +218,9 @@ func (b *Broker) Register(endpoint Endpoint) error {
 	if err := b.writable(); err != nil {
 		return err
 	}
+	if err := normalizeEndpointLanguage(&endpoint); err != nil {
+		return err
+	}
 	if strings.TrimSpace(endpoint.ID) == "" || strings.TrimSpace(endpoint.DeviceID) == "" || strings.TrimSpace(endpoint.Driver) == "" {
 		return errors.New("endpoint ID, device, and driver are required")
 	}
@@ -400,6 +403,7 @@ func (b *Broker) Submit(submission Submission) (Task, error) {
 		kind = "control"
 	}
 	envelope := Envelope{ID: taskMessageID(submission.ID), TaskID: submission.ID, CorrelationID: submission.ID, Kind: kind, Sender: submission.Origin, Recipient: submission.Recipient, Mode: submission.Mode, TargetRunID: submission.TargetRunID, Content: string(content), Delivery: "pending"}
+	envelope.CommunicationLanguage = collaborationLanguage(b.state.Endpoints[submission.Origin], recipient)
 	next := cloneSnapshot(b.state)
 	next.Tasks[task.ID] = task
 	next.Messages[envelope.ID] = envelope
@@ -945,7 +949,8 @@ func addResult(state *Snapshot, task Task) {
 		return
 	}
 	content, _ := json.Marshal(task)
-	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, ReplyTo: taskMessageID(task.ID), CorrelationID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending"}
+	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, ReplyTo: taskMessageID(task.ID), CorrelationID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending",
+		CommunicationLanguage: collaborationLanguage(state.Endpoints[task.Recipient], state.Endpoints[task.Origin])}
 }
 func resolveInterruptControls(state *Snapshot, original Task) {
 	for id, task := range state.Tasks {

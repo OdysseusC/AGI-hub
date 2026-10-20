@@ -10,14 +10,14 @@ func TestFederatedMailRoundTripDedupBudgetAndSession(t *testing.T) {
 	ha, hb := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	req := rootMail("same-client-id", hb+"/worker")
 	req.MaxMessages = 4
-	sent, err := a.b.PublishRemote(ha, "origin", req)
+	sent, err := a.b.PublishRemote(ha, "origin", req, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sent.Network == nil || sent.ID == req.ID || sent.Delivery != "network_pending" {
 		t.Fatalf("bad outbound: %+v", sent)
 	}
-	dup, err := a.b.PublishRemote(ha, "origin", req)
+	dup, err := a.b.PublishRemote(ha, "origin", req, "")
 	if err != nil || dup.ID != sent.ID {
 		t.Fatalf("retry: %+v %v", dup, err)
 	}
@@ -35,7 +35,7 @@ func TestFederatedMailRoundTripDedupBudgetAndSession(t *testing.T) {
 		t.Fatalf("remote address or session privacy: %+v", in)
 	}
 	reply := MailSubmission{ID: "reply", Recipient: ha + "/origin", Kind: "result", Content: "done", CorrelationID: sent.CorrelationID, ReplyTo: sent.ID}
-	result, err := b.b.PublishRemote(hb, "worker", reply)
+	result, err := b.b.PublishRemote(hb, "worker", reply, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,11 +51,11 @@ func TestFederatedMailRoundTripDedupBudgetAndSession(t *testing.T) {
 		b                      *Broker
 		hub, sender, recipient string
 	}{{a.b, ha, "origin", hb + "/worker"}, {b.b, hb, "worker", ha + "/origin"}} {
-		_, err = f.b.PublishRemote(f.hub, f.sender, MailSubmission{ID: "second", Recipient: f.recipient, Kind: "status", Content: "status", CorrelationID: sent.CorrelationID})
+		_, err = f.b.PublishRemote(f.hub, f.sender, MailSubmission{ID: "second", Recipient: f.recipient, Kind: "status", Content: "status", CorrelationID: sent.CorrelationID}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = f.b.PublishRemote(f.hub, f.sender, MailSubmission{ID: "third", Recipient: f.recipient, Kind: "status", Content: "over cap", CorrelationID: sent.CorrelationID})
+		_, err = f.b.PublishRemote(f.hub, f.sender, MailSubmission{ID: "third", Recipient: f.recipient, Kind: "status", Content: "over cap", CorrelationID: sent.CorrelationID}, "")
 		if err == nil {
 			t.Fatal("minted extra message permit")
 		}
@@ -77,10 +77,10 @@ func TestFederationRejectsSpoofingAndDoesNotCrossLocalConversation(t *testing.T)
 	f := mailFixture(t)
 	ha, hb := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	local := publishMail(t, f.b, "origin", rootMail("local", "worker"))
-	if _, err := f.b.PublishRemote(ha, "origin", MailSubmission{ID: "remote", Recipient: hb + "/worker", Kind: "request", Content: "x", CorrelationID: local.ID}); err == nil {
+	if _, err := f.b.PublishRemote(ha, "origin", MailSubmission{ID: "remote", Recipient: hb + "/worker", Kind: "request", Content: "x", CorrelationID: local.ID}, ""); err == nil {
 		t.Fatal("silently federated local context")
 	}
-	sent, err := f.b.PublishRemote(ha, "origin", rootMail("remote", hb+"/worker"))
+	sent, err := f.b.PublishRemote(ha, "origin", rootMail("remote", hb+"/worker"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestFederationRejectsSpoofingAndDoesNotCrossLocalConversation(t *testing.T)
 func TestFederatedJournalRetainsOutboxAndDisablesLocalReinterpretation(t *testing.T) {
 	f := mailFixture(t)
 	ha, hb := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	sent, err := f.b.PublishRemote(ha, "origin", rootMail("persistent", hb+"/worker"))
+	sent, err := f.b.PublishRemote(ha, "origin", rootMail("persistent", hb+"/worker"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

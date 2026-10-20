@@ -35,6 +35,26 @@
   const string = value => value == null ? "" : String(value);
   const values = value => value && typeof value === "object" ? Object.values(value) : [];
   const retryDelay = attempt => Math.min(1000 * 2 ** Math.min(Math.max(attempt, 0), 5), 30000);
+  const languages = [
+    ["en", "英语 · English"], ["zh", "中文"], ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"],
+    ["ja", "日语 · 日本語"], ["ko", "韩语 · 한국어"], ["fr", "法语 · Français"],
+    ["de", "德语 · Deutsch"], ["es", "西班牙语 · Español"], ["pt", "葡萄牙语 · Português"],
+    ["it", "意大利语 · Italiano"], ["nl", "荷兰语 · Nederlands"], ["ru", "俄语 · Русский"],
+    ["uk", "乌克兰语 · Українська"], ["pl", "波兰语 · Polski"], ["cs", "捷克语 · Čeština"],
+    ["sk", "斯洛伐克语 · Slovenčina"], ["ro", "罗马尼亚语 · Română"], ["hu", "匈牙利语 · Magyar"],
+    ["bg", "保加利亚语 · Български"], ["el", "希腊语 · Ελληνικά"], ["tr", "土耳其语 · Türkçe"],
+    ["sv", "瑞典语 · Svenska"], ["da", "丹麦语 · Dansk"], ["fi", "芬兰语 · Suomi"],
+    ["nb", "挪威书面语 · Bokmål"], ["nn", "新挪威语 · Nynorsk"], ["is", "冰岛语 · Íslenska"],
+    ["ar", "阿拉伯语 · العربية"], ["he", "希伯来语 · עברית"], ["fa", "波斯语 · فارسی"],
+    ["hi", "印地语 · हिन्दी"], ["bn", "孟加拉语 · বাংলা"], ["ur", "乌尔都语 · اردو"],
+    ["ta", "泰米尔语 · தமிழ்"], ["th", "泰语 · ไทย"], ["vi", "越南语 · Tiếng Việt"],
+    ["id", "印度尼西亚语 · Bahasa Indonesia"], ["ms", "马来语 · Bahasa Melayu"],
+    ["fil", "菲律宾语 · Filipino"], ["sw", "斯瓦希里语 · Kiswahili"],
+  ];
+  const languageName = value => value === "auto" || !value ? "自由协作" :
+    (languages.find(([code]) => code === value)?.[1] || string(value));
+  const languageTag = value => value.length <= 35 && /^[a-z]{2,3}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|[0-9]{3}))?$/i.test(value);
+  const defaultLanguage = agent => /claude/i.test(agent.driver || agent.id) ? "en" : "auto";
 
   function bootstrapToken(hash) {
     try { return decodeURIComponent(string(hash).replace(/^#/, "")); } catch (_) { return ""; }
@@ -134,6 +154,7 @@
 
   function createAgentCard(document, initialAgent, action) {
     let agent = initialAgent;
+    let languageDirty = false;
     const refs = {};
     const node = element(document, "article", "agent-card");
     const heading = element(document, "div", "agent-heading");
@@ -183,7 +204,60 @@
     });
     refs.bindingForm.append(label, refs.bind, refs.validation);
     refs.binding.append(refs.bindingForm);
-    node.append(heading, states, refs.detail, meta, actions, refs.binding);
+    refs.languageForm = element(document, "form", "language-form");
+    const languageLabel = element(document, "label", "", "协作语言");
+    refs.languageSelect = element(document, "select");
+    refs.languageDefault = element(document, "option");
+    refs.languageDefault.value = "auto";
+    refs.languageSelect.append(refs.languageDefault);
+    for (const [code, name] of [...languages, ["custom", "其他语言标签…"]]) {
+      const option = element(document, "option", "", name);
+      option.value = code;
+      refs.languageSelect.append(option);
+    }
+    languageLabel.append(refs.languageSelect);
+    refs.languageCustomLabel = element(document, "label", "", "自定义语言标签");
+    refs.languageCustom = element(document, "input");
+    refs.languageCustom.type = "text";
+    refs.languageCustom.maxLength = 35;
+    refs.languageCustom.autocomplete = "off";
+    refs.languageCustom.spellcheck = false;
+    refs.languageCustom.placeholder = "例如 sr-Latn-RS 或 es-419";
+    refs.languageCustomLabel.append(refs.languageCustom);
+    refs.languageSave = element(document, "button", "secondary", "保存语言");
+    refs.languageSave.type = "submit";
+    refs.languageHint = element(document, "p", "hint");
+    refs.languageValidation = element(document, "p", "validation-error");
+    refs.languageValidation.setAttribute("role", "alert");
+    const languageScope = element(document, "p", "hint",
+      "仅约束助手间的提示与回复；与人交流仍按用户指定的语言。代码、附件及引用原文保留。");
+    refs.languageForm.append(languageLabel, refs.languageCustomLabel, refs.languageSave,
+      refs.languageHint, refs.languageValidation, languageScope);
+    function languageInput() {
+      refs.languageCustomLabel.hidden = refs.languageSelect.value !== "custom";
+      refs.languageHint.textContent = languageDirty ? "有尚未保存的语言设置。" : "保存后更新已登记的受管协作技能；运行中的会话须重新读取，不会自动调用模型。";
+    }
+    refs.languageSelect.addEventListener("change", () => {
+      languageDirty = true;
+      refs.languageValidation.textContent = "";
+      languageInput();
+    });
+    refs.languageCustom.addEventListener("input", () => {
+      languageDirty = true;
+      refs.languageValidation.textContent = "";
+      languageInput();
+    });
+    refs.languageForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const language = refs.languageSelect.value === "custom" ? refs.languageCustom.value.trim() : refs.languageSelect.value;
+      if (language !== "auto" && !languageTag(language)) {
+        refs.languageValidation.textContent = "请输入语言标签，例如 en、zh、sr-Latn-RS 或 es-419。";
+        return;
+      }
+      refs.languageValidation.textContent = "";
+      return action({ endpoint: agent.id, action: "language", communication_language: language });
+    });
+    node.append(heading, states, refs.detail, meta, actions, refs.languageForm, refs.binding);
     function update(next) {
       agent = next;
       refs.name.textContent = agent.name || agent.id;
@@ -199,9 +273,18 @@
         refs[key].hidden = !list(agent.actions).includes(key) || (key === "enable" && !agent.session_bound);
       }
       refs.binding.hidden = agent.session_bound || !list(agent.actions).includes("enable");
+      refs.languageForm.hidden = !list(agent.actions).includes("language");
+      refs.languageDefault.textContent = defaultLanguage(agent) === "en" ? "默认（英语）" : "自由协作（auto）";
+      if (!languageDirty) {
+        const language = agent.communication_language || defaultLanguage(agent);
+        const known = language === "auto" || languages.some(([code]) => code === language);
+        refs.languageSelect.value = known ? language : "custom";
+        refs.languageCustom.value = known ? "" : language;
+      }
+      languageInput();
     }
     update(agent);
-    return { node, refs, update };
+    return { node, refs, update, languageSaved() { languageDirty = false; languageInput(); } };
   }
 
   function createPeerCard(document, peer, action) {
@@ -217,7 +300,8 @@
       const row = element(document, "div", "remote-agent");
       const label = element(document, "div");
       label.append(element(document, "strong", "", agent.name || agent.id),
-        element(document, "p", "mono", peer.id + "/" + agent.id));
+        element(document, "p", "mono", peer.id + "/" + agent.id),
+        element(document, "p", "remote-language", "协作语言：" + languageName(agent.communication_language)));
       row.append(label, badge(document, sessionStatus(agent.state)));
       body.append(row);
     }
@@ -249,6 +333,40 @@
     return row;
   }
 
+  function renderActionNotice(document, node, result, fallback) {
+    const sync = list(result.skill_sync);
+    const incomplete = result.skill_sync_complete === false || !!result.skill_sync_error ||
+      sync.some(item => !["current", "updated"].includes(item.state));
+    node.className = "notice " + (incomplete ? "warning" : "success");
+    node.replaceChildren(element(document, "span", "", result.detail || fallback));
+    const steps = list(result.steps);
+    if (steps.length) {
+      const stepsNode = element(document, "ol");
+      for (const step of steps) stepsNode.append(element(document, "li", "", step));
+      node.append(stepsNode);
+    }
+    if (sync.length || result.skill_sync_error) {
+      const details = element(document, "details", "skill-sync");
+      details.open = incomplete;
+      details.append(element(document, "summary", "", "技能同步结果" + (incomplete ? " · 部分未同步" : "")));
+      if (result.skill_sync_error) details.append(element(document, "p", "sync-error", result.skill_sync_error));
+      const entries = element(document, "ul");
+      for (const item of sync) {
+        const entry = element(document, "li");
+        const heading = element(document, "div", "row");
+        heading.append(element(document, "strong", "", string(item.endpoint_id) + " · " + string(item.host)),
+          badge(document, status(item.state || "unknown", ["current", "updated"].includes(item.state) ? "good" : "warn")));
+        entry.append(heading, element(document, "p", "mono", item.skill_path || "路径未提供"));
+        if (item.detail) entry.append(element(document, "p", "", item.detail));
+        entry.append(element(document, "p", "hint", "会话读取状态：" + (item.host_load_state || "unknown")));
+        entries.append(entry);
+      }
+      if (sync.length) details.append(entries);
+      node.append(details);
+    }
+    node.hidden = false;
+  }
+
   function start(window) {
     const document = window.document;
     const el = id => document.getElementById(id);
@@ -271,14 +389,7 @@
     }
     function clearError() { errorBox.hidden = true; errorBox.textContent = ""; }
     function notice(result, fallback) {
-      noticeBox.replaceChildren(element(document, "span", "", result.detail || fallback));
-      const steps = list(result.steps);
-      if (steps.length) {
-        const stepsNode = element(document, "ol");
-        for (const step of steps) stepsNode.append(element(document, "li", "", step));
-        noticeBox.append(stepsNode);
-      }
-      noticeBox.hidden = false;
+      renderActionNotice(document, noticeBox, result, fallback);
     }
     function connection(label, tone = "neutral") { setBadge(el("connection"), status(label, tone)); }
 
@@ -440,6 +551,7 @@
         }
         if (body.action === "pair") el("pair-invitation").value = "";
         if (path === "/v1/manage/settings") settingsDirty = false;
+        if (path === "/v1/manage/agent" && body.action === "language") cards.get(body.endpoint)?.languageSaved();
         notice(result, "操作已提交，当前状态见下方列表。");
         await refresh();
       } catch (failure) { error(failure); }
@@ -600,5 +712,5 @@
   }
 
   return { start, installationStatus, sessionStatus, agentStatus, networkCounts, recentMessages, createAPI,
-    createEventDecoder, createRefreshQueue, createAgentCard, createPeerCard, createPendingCard, retryDelay, bootstrapToken };
+    createEventDecoder, createRefreshQueue, createAgentCard, createPeerCard, createPendingCard, renderActionNotice, retryDelay, bootstrapToken };
 });

@@ -99,6 +99,7 @@ func (b *Broker) Publish(sender string, request MailSubmission) (Envelope, error
 	}
 	origin := conversation.RootOrigin
 	envelope := Envelope{Mailbox: true, MailFingerprint: fingerprint, ID: request.ID, CorrelationID: request.CorrelationID, RootOrigin: &origin, ReplyTo: request.ReplyTo, Kind: request.Kind, Sender: sender, Recipient: request.Recipient, Mode: "queue", Content: request.Content, Delivery: "pending"}
+	envelope.CommunicationLanguage = collaborationLanguage(endpoint, b.state.Endpoints[request.Recipient])
 	next := cloneSnapshot(b.state)
 	if next.Version < 3 {
 		next.Version = 3 // older binaries must reject rather than drop mailbox fields

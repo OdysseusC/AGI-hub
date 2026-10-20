@@ -16,6 +16,19 @@ import {
 const target = 'bound-original-thread';
 const initialize = () => ({ protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'codex-app-tools', version: '0.1.0' } });
 const tools = () => ({ tools: [{ name: 'send_message_to_thread', inputSchema: { type: 'object', required: ['threadId', 'prompt'], properties: { threadId: { type: 'string' }, prompt: { type: 'string' } } } }] });
+
+test('notifications use current communication policy without translating or duplicating original materials', () => {
+  const legacy = envelope();
+  const mailbox = { ...legacy, mailbox: true, task_id: '', kind: 'request', root_origin: { endpoint: 'human-entry' } };
+  for (const source of [legacy, mailbox]) {
+    const message = { ...source, communication_language: 'ru', content: 'Necessary context. 中文原件保留。' };
+    const text = notification(message.recipient, message);
+    for (const expected of ['communication-policy.md', 'peers.send_language', 'original materials', 'one concise version', 'human in their requested or original input language']) assert.ok(text.includes(expected), expected);
+    assert.equal(text.split('中文原件保留。').length - 1, 1);
+    assert.ok(text.includes('"communication_language":"ru"'));
+    assert.equal(message.content, 'Necessary context. 中文原件保留。');
+  }
+});
 const acknowledgement = (threadId = target) => ({ isError: false, content: [{ type: 'text', text: JSON.stringify({ threadId }) }] });
 const envelope = () => ({ message_id: 'message-test', task_id: 'task-test', correlation_id: 'correlation-test', recipient: 'codex-test', sender: 'workbuddy-test', kind: 'result', mode: 'queue', delivery: 'dispatching', content: 'verified result' });
 const binding = () => ({ protocol_version: 1, endpoint: { id: 'codex-test', enabled: true, driver: 'codex', session_id: target, modes: ['queue'], idle_wake_verified: false, result_queue_while_busy_verified: true }, session: { state: 'busy' } });

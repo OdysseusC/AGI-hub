@@ -20,18 +20,20 @@ const registryName = "skill-installations.json"
 // SyncResult describes files on disk only. HostLoadState remains unknown:
 // updating a skill file does not prove that a running native session reloaded it.
 type SyncResult struct {
-	Host             string `json:"host"`
-	EndpointID       string `json:"endpoint_id"`
-	SkillsDir        string `json:"skills_dir"`
-	SkillPath        string `json:"skill_path"`
-	DesiredVersion   string `json:"desired_version"`
-	SourceRevision   int    `json:"source_revision"`
-	ApprovedRevision int    `json:"approved_revision,omitempty"`
-	ApprovedVersion  string `json:"approved_version,omitempty"`
-	DiskVersion      string `json:"disk_version,omitempty"`
-	State            string `json:"state"`
-	HostLoadState    string `json:"host_load_state"`
-	Detail           string `json:"detail,omitempty"`
+	Host                 string `json:"host"`
+	EndpointID           string `json:"endpoint_id"`
+	SkillsDir            string `json:"skills_dir"`
+	SkillPath            string `json:"skill_path"`
+	DesiredVersion       string `json:"desired_version"`
+	SourceRevision       int    `json:"source_revision"`
+	ApprovedRevision     int    `json:"approved_revision,omitempty"`
+	ApprovedVersion      string `json:"approved_version,omitempty"`
+	DiskVersion          string `json:"disk_version,omitempty"`
+	DesiredPolicyVersion string `json:"desired_policy_version,omitempty"`
+	DiskPolicyVersion    string `json:"disk_policy_version,omitempty"`
+	State                string `json:"state"`
+	HostLoadState        string `json:"host_load_state"`
+	Detail               string `json:"detail,omitempty"`
 }
 
 // installationRecord includes only explicit installer inputs, never host
@@ -122,6 +124,7 @@ func syncSkillsAtRevision(dataDir, endpoint string, source func() ([]byte, error
 			} else {
 				result.State = "updated"
 				result.DiskVersion = skillVersion(body)
+				result.DiskPolicyVersion = result.DesiredPolicyVersion
 			}
 		}
 		results = append(results, result)
@@ -199,7 +202,21 @@ func inspectInstallation(dataDir string, record installationRecord, desired stri
 	if body, err := readRegularFile(filepath.Join(folder, "SKILL.md")); err == nil {
 		result.DiskVersion = skillVersion(body)
 	}
-	if _, err := verifyOwned(folder); err != nil {
+	previous, err := verifyOwned(folder)
+	if err != nil {
+		result.Detail = err.Error()
+		return result
+	}
+	if previous.Files[policyName] != "" {
+		result.DiskPolicyVersion = "sha256:" + previous.Files[policyName]
+	}
+	policy, err := communicationPolicy(record.options(dataDir))
+	if err != nil {
+		result.State, result.Detail = "error", err.Error()
+		return result
+	}
+	result.DesiredPolicyVersion = skillVersion(policy)
+	if err := checkNewManagedFiles(folder, previous, map[string][]byte{policyName: policy}); err != nil {
 		result.Detail = err.Error()
 		return result
 	}
@@ -216,7 +233,7 @@ func inspectInstallation(dataDir string, record installationRecord, desired stri
 		result.Detail = "registered routing differs from installed metadata; explicit installation is required to reconcile it"
 		return result
 	}
-	if result.DiskVersion == desired {
+	if result.DiskVersion == desired && result.DiskPolicyVersion == result.DesiredPolicyVersion {
 		result.State = "current"
 	} else {
 		result.State = "outdated"

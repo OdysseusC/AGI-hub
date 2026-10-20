@@ -10,6 +10,7 @@ type Endpoint struct {
 	ResultQueueWhileBusyVerified bool     `json:"result_queue_while_busy_verified,omitempty"`
 	Modes                        []string `json:"modes"`
 	Driver                       string   `json:"driver"`
+	CommunicationLanguage        string   `json:"communication_language,omitempty"`
 	PeerProtocolVersion          int      `json:"peer_protocol_version,omitempty"`
 	PeerWhileBusyVerified        bool     `json:"peer_while_busy_verified,omitempty"`
 	MailboxProtocolVersion       int      `json:"mailbox_protocol_version,omitempty"`
@@ -70,6 +71,7 @@ type Collaboration struct {
 }
 
 type Envelope struct {
+	CommunicationLanguage string `json:"communication_language,omitempty"`
 	// SourceMessageID maps a canonical LAN ID to the caller's saved retry ID.
 	// It is populated only in client-facing network responses.
 	SourceMessageID string         `json:"source_message_id,omitempty"`

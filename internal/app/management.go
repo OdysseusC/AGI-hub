@@ -13,6 +13,7 @@ import (
 
 	"agihub/internal/discovery"
 	"agihub/internal/install"
+	"agihub/internal/language"
 )
 
 type discoveryPreferences struct {
@@ -148,12 +149,22 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 		return map[string]any{"ok": true, "detail": "已保存。网络连接和发现状态不代表原生 Agent 已完成执行。"}, nil
 	case "/v1/manage/agent":
 		var in struct {
-			Endpoint  string `json:"endpoint"`
-			Action    string `json:"action"`
-			SessionID string `json:"session_id,omitempty"`
+			Endpoint              string  `json:"endpoint"`
+			Action                string  `json:"action"`
+			SessionID             string  `json:"session_id,omitempty"`
+			CommunicationLanguage *string `json:"communication_language,omitempty"`
 		}
 		if err := decode(w, r, &in); err != nil {
 			return nil, err
+		}
+		if in.Action == "language" {
+			if in.CommunicationLanguage == nil || in.SessionID != "" {
+				return nil, errors.New("language action requires communication_language and cannot change a session binding")
+			}
+			return s.manageAgentLanguage(in.Endpoint, *in.CommunicationLanguage)
+		}
+		if in.CommunicationLanguage != nil {
+			return nil, errors.New("communication_language requires the language action")
 		}
 		return s.manageAgent(in.Endpoint, in.Action, in.SessionID)
 	case "/v1/manage/network":
@@ -322,7 +333,7 @@ func (s *Server) managementState() (any, error) {
 			installation = "unknown"
 			detail = "安装记录读取失败：" + installErr.Error()
 		}
-		actions := []string{"install"}
+		actions := []string{"install", "language"}
 		if e.Enabled {
 			actions = append(actions, "disable")
 		} else {
@@ -333,7 +344,8 @@ func (s *Server) managementState() (any, error) {
 		} else if e.Enabled && e.MailboxProtocolVersion == 1 {
 			actions = append(actions, "share")
 		}
-		agents = append(agents, map[string]any{"id": e.ID, "name": e.ID, "driver": e.Driver, "enabled": e.Enabled, "shared": contains(state.Config.Exports, e.ID), "session_bound": e.SessionID != "", "installation_state": installation, "state": status, "detail": detail, "actions": actions})
+		agents = append(agents, map[string]any{"id": e.ID, "name": e.ID, "driver": e.Driver, "enabled": e.Enabled, "shared": contains(state.Config.Exports, e.ID), "session_bound": e.SessionID != "", "installation_state": installation, "state": status, "detail": detail, "actions": actions,
+			"communication_language": language.Effective(e.Driver, e.CommunicationLanguage)})
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i]["id"].(string) < agents[j]["id"].(string) })
 	peers := []map[string]any{}
@@ -350,7 +362,8 @@ func (s *Server) managementState() (any, error) {
 		}
 		children := []map[string]string{}
 		for _, a := range p.Agents {
-			children = append(children, map[string]string{"id": a.ID, "name": a.Name, "state": a.Status})
+			children = append(children, map[string]string{"id": a.ID, "name": a.Name, "state": a.Status,
+				"communication_language": language.Effective(a.Driver, a.CommunicationLanguage)})
 		}
 		peers = append(peers, map[string]any{"id": p.HubID, "name": p.Name, "address": p.Address, "state": status, "route": routes[p.HubID], "agents": children})
 	}

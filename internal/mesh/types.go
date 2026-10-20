@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"agihub/internal/language"
 )
 
 const Version = 1
@@ -36,9 +38,19 @@ type Config struct {
 }
 
 type Agent struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status,omitempty"`
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	Status                string `json:"status,omitempty"`
+	Driver                string `json:"driver,omitempty"`
+	CommunicationLanguage string `json:"communication_language,omitempty"`
+}
+
+func validAgentProfile(agent Agent) bool {
+	if agent.Driver != "" && !validEndpoint(agent.Driver) {
+		return false
+	}
+	normalized, err := language.Normalize(agent.CommunicationLanguage)
+	return err == nil && (agent.CommunicationLanguage == "" || normalized == agent.CommunicationLanguage)
 }
 
 type Message struct {

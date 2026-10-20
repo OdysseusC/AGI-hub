@@ -29,6 +29,17 @@ def mail_envelope(kind="request"):
 
 
 class MailRuntimeTests(unittest.TestCase):
+    def test_language_guidance_preserves_sources_and_separates_human_output(self):
+        for source in (mail_envelope(), envelope(), envelope(kind="result")):
+            message = dict(source, communication_language="en", content="Necessary context. 中文原件保留。")
+            text = notification("endpoint-test", message)
+            for expected in ("communication-policy.md", "peers.send_language", "original materials",
+                             "one concise version", "human in their requested or original input language"):
+                self.assertIn(expected, text)
+            self.assertEqual(text.count("中文原件保留。"), 1)
+            self.assertIn('"communication_language":"en"', text)
+            self.assertEqual(message["content"], "Necessary context. 中文原件保留。")
+
     def test_supported_native_binding_required_before_claim(self):
         api = Mock(endpoint="endpoint-test")
         record = registered_binding()

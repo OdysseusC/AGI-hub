@@ -436,7 +436,7 @@ func (s *Service) exportedAgents() []Agent {
 	out := []Agent{}
 	seen := map[string]bool{}
 	for _, a := range agents {
-		if allow[a.ID] && validEndpoint(a.ID) && !seen[a.ID] && len(out) < 128 {
+		if allow[a.ID] && validEndpoint(a.ID) && validAgentProfile(a) && !seen[a.ID] && len(out) < 128 {
 			a.Name = strings.ToValidUTF8(a.Name[:min(len(a.Name), 120)], "")
 			a.Status = strings.ToValidUTF8(a.Status[:min(len(a.Status), 100)], "")
 			out = append(out, a)

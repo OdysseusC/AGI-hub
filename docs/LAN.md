@@ -60,6 +60,16 @@ Hub ID 是持久公钥导出的 64 位小写十六进制值；修改名称或 IP
 
 本版传递消息与共享目录，不同步文件。正文中提到的远端路径仍属于来源电脑和工作区，不能直接按本机路径打开；需要文件时使用另行授权的交付方式。
 
+## Agent 协作语言
+
+本机 Agent 卡片提供 41 种常用语言及自定义语言标签，例如 `en`、`zh-Hans`、`nb`、`sr-Latn-RS`。Claude 默认英语，其他 Agent 默认 `auto`；中文始终可选。每个设置只管助手间的提示、必要背景和回复，不覆盖用户要求的最终答复语言或交付物语言。
+
+保存后，Hub 更新该端点的 `communication_language`，并同步已登记的受管协作技能中的 `communication-policy.md`。仅同步未被手动修改的受管文件；同步结果和冲突显示在页面，配置保存与技能同步成功分别表示。未登记的平台不会被扫描或自动安装。运行中的 Agent 需重新读取规则，文件更新不代表原生会话已加载。
+
+发送 Agent 每次新发送前读取最新成员目录，按目标的 `send_language` 翻译必要指令，再提交一份精简消息。Claude 参与时优先采用 Claude 的选择；两端均为 Claude 时采用收件方选择。其他情况先采用收件方明确选择，再采用发件方选择；均为 `auto` 时由 Agent 合理决定。远端设置会通过签名目录传播，存在目录刷新延迟；建议各 Hub 使用同一版本。
+
+Hub 不翻译或检测正文语言，不增加模型调用。附件、代码、路径、标识符和原文引用保留；不要同时发送整段原文与译文。消息的 `communication_language` 记录提交时规则，之后改设置不会改写既有消息或相同 ID 重试。最终给人的回答按该用户明确指定的语言，未指定时沿用用户交流语言。实际模型是否遵循规则需原生验收，离线测试不证明翻译质量。
+
 ## 管理 API 与安装状态
 
 以下接口都在本机 loopback 管理监听器上，要求现有管理认证及 Host/Origin 校验。它们不在 LAN 监听器上开放。
@@ -68,7 +78,7 @@ Hub ID 是持久公钥导出的 64 位小写十六进制值；修改名称或 IP
 | --- | --- |
 | `GET /v1/manage` | 本机身份、开关、网卡、助手、候选、已配对主机与待确认请求；不返回私钥或 endpoint token |
 | `POST /v1/manage/settings` | `name`、`network_enabled`、`discovery_enabled`、`listen`、`interface` |
-| `POST /v1/manage/agent` | `endpoint`、`action`，必要时带真实 `session_id`；操作包括 `install`、`enable`、`disable`、`share`、`unshare` |
+| `POST /v1/manage/agent` | `endpoint`、`action`；`enable` 可带真实 `session_id`，`language` 必须带 `communication_language`；其他操作为 `install`、`disable`、`share`、`unshare` |
 | `POST /v1/manage/network` | `action` 为 `invite`、`pair`、`accept` 或 `disconnect`；`pair` 使用 `invitation` 和可选 `address`；`accept` 的 `peer_id` 填待确认请求 ID，`disconnect` 的 `peer_id` 填 Hub ID |
 
 常规状态更新通过本机 SSE 展示，不唤醒模型。选择错误的网卡、启动 socket 失败或运行中发生传输错误时，发现状态会显示为关闭并保留错误；应用重启后发现网卡不存在，不应让原有本机邮箱失效。

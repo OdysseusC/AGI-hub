@@ -60,6 +60,16 @@ Canceling a mailbox conversation has local scope. Messages already queued in mes
 
 This version exchanges messages and shared directories without file synchronization. A remote path still belongs to its source computer and workspace; do not open it as a local path. Transfer required files through a separately authorized delivery mechanism.
 
+## Agent collaboration language
+
+Local agent cards offer 41 common languages and custom language tags such as `en`, `zh-Hans`, `nb` and `sr-Latn-RS`. Claude defaults to English; other agents default to `auto`. Chinese remains selectable. The preference covers inter-agent instructions, necessary context and replies, without overriding the user's requested final-response or deliverable language.
+
+Saving updates the endpoint's `communication_language` and synchronizes `communication-policy.md` in registered managed skill installations. Only unmodified managed files are updated. The page reports synchronization outcomes and conflicts separately from a successful setting save. Unregistered platforms are not scanned or installed. Running agents must reread the rules; disk updates do not prove native loading.
+
+Before each new send, the sending agent reads the latest directory and translates necessary instructions according to the recipient's `send_language`, then submits one concise message. A Claude participant's preference takes priority; between two Claude endpoints, the recipient wins. Otherwise prefer the recipient's explicit choice, then the sender's; if both are `auto`, the agent chooses appropriately. Remote preferences propagate through signed directories with refresh delay; use matching Hub versions.
+
+Hub neither translates nor detects prose language and invokes no additional model. Preserve attachments, code, paths, identifiers and verbatim source passages; do not send full original and translated prompts together. A message's `communication_language` captures the submission-time rule. Later changes cannot rewrite existing messages or identical-ID retries. Human-facing answers follow the user's explicit language request, or their conversation language when unspecified. Actual compliance requires native validation; offline tests do not prove translation quality.
+
 ## Management APIs and installation states
 
 These endpoints are available only on the local loopback management listener and require existing administrator authentication and Host/Origin checks. They are not exposed on the LAN listener.
@@ -68,7 +78,7 @@ These endpoints are available only on the local loopback management listener and
 | --- | --- |
 | `GET /v1/manage` | Local identity, controls, interfaces, agents, candidates, paired hosts and pending requests; excludes private keys and endpoint tokens |
 | `POST /v1/manage/settings` | `name`, `network_enabled`, `discovery_enabled`, `listen`, `interface` |
-| `POST /v1/manage/agent` | `endpoint`, `action`, and a real `session_id` when needed; actions are `install`, `enable`, `disable`, `share`, `unshare` |
+| `POST /v1/manage/agent` | `endpoint`, `action`; `enable` may take a real `session_id`, while `language` requires `communication_language`; other actions are `install`, `disable`, `share`, `unshare` |
 | `POST /v1/manage/network` | `action`: `invite`, `pair`, `accept` or `disconnect`; `pair` takes `invitation` and optional `address`; `accept` uses the pending request ID in `peer_id`, while `disconnect` uses the Hub ID |
 
 Ordinary page updates use local SSE and do not wake models. An invalid interface, startup socket failure or runtime transport error disables discovery and exposes the error. A missing discovery adapter after restart does not make the existing local mailbox unavailable.

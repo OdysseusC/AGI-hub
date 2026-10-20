@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"agihub/internal/language"
 )
 
 // FederatedContext is deliberately pairwise in protocol 1. Permits are divided
@@ -23,20 +25,21 @@ type FederatedContext struct {
 // The mesh authenticates its sender and destination before ImportRemote.
 type NetworkMail struct {
 	FederatedContext
-	ID            string `json:"id"`
-	SourceID      string `json:"source_id"`
-	CorrelationID string `json:"correlation_id"`
-	FromHub       string `json:"from_hub"`
-	ToHub         string `json:"to_hub"`
-	Sender        string `json:"sender"`
-	Recipient     string `json:"recipient"`
-	Kind          string `json:"kind"`
-	Content       string `json:"content"`
-	OriginRef     string `json:"origin_ref"`
-	ReplyTo       string `json:"reply_to,omitempty"`
-	Deadline      string `json:"deadline"`
-	MaxMessages   int    `json:"max_messages"`
-	Sequence      int    `json:"sequence"`
+	CommunicationLanguage string `json:"communication_language,omitempty"`
+	ID                    string `json:"id"`
+	SourceID              string `json:"source_id"`
+	CorrelationID         string `json:"correlation_id"`
+	FromHub               string `json:"from_hub"`
+	ToHub                 string `json:"to_hub"`
+	Sender                string `json:"sender"`
+	Recipient             string `json:"recipient"`
+	Kind                  string `json:"kind"`
+	Content               string `json:"content"`
+	OriginRef             string `json:"origin_ref"`
+	ReplyTo               string `json:"reply_to,omitempty"`
+	Deadline              string `json:"deadline"`
+	MaxMessages           int    `json:"max_messages"`
+	Sequence              int    `json:"sequence"`
 }
 
 func validHubID(id string) bool {
@@ -67,7 +70,7 @@ func fingerprint(value any) string {
 
 // PublishRemote journals before exposing the message to network transport.
 // The caller must authenticate sender and enforce explicit sharing/pairing ACLs.
-func (b *Broker) PublishRemote(localHub, sender string, request MailSubmission) (Envelope, error) {
+func (b *Broker) PublishRemote(localHub, sender string, request MailSubmission, communicationLanguage string) (Envelope, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.writable(); err != nil {
@@ -123,10 +126,17 @@ func (b *Broker) PublishRemote(localHub, sender string, request MailSubmission) 
 			return Envelope{}, errors.New("message ID collision")
 		}
 		wire.Sequence = old.Network.Sequence
+		// A retry acknowledges the original immutable message, even if the
+		// directory's expression preference changed since the first send.
+		wire.CommunicationLanguage = old.Network.CommunicationLanguage
 		if fingerprint(wire) != fingerprint(*old.Network) {
 			return Envelope{}, errors.New("message ID already used with different content")
 		}
 		return cloneEnvelope(old), nil
+	}
+	wire.CommunicationLanguage, err = language.Normalize(communicationLanguage)
+	if err != nil {
+		return Envelope{}, err
 	}
 	wire.Sequence = 1
 	for _, old := range b.state.Messages {
@@ -151,6 +161,7 @@ func (b *Broker) PublishRemote(localHub, sender string, request MailSubmission) 
 	}
 	envelope := Envelope{Network: &wire, Mailbox: true, MailFingerprint: fingerprint(wire), ID: id, CorrelationID: conversation.ID, RootOrigin: &conversation.RootOrigin,
 		ReplyTo: wire.ReplyTo, Kind: wire.Kind, Sender: sender, Recipient: request.Recipient, Mode: "queue", Content: wire.Content, Delivery: "network_pending"}
+	envelope.CommunicationLanguage = wire.CommunicationLanguage
 	next := cloneSnapshot(b.state)
 	next.Version = 4
 	conversation.UsedMessages++
@@ -163,6 +174,9 @@ func (b *Broker) PublishRemote(localHub, sender string, request MailSubmission) 
 }
 
 func validateNetworkMail(m NetworkMail) error {
+	if normalized, err := language.Normalize(m.CommunicationLanguage); err != nil || m.CommunicationLanguage != "" && normalized != m.CommunicationLanguage {
+		return errors.New("invalid network communication language")
+	}
 	if !validHubID(m.FromHub) || !validHubID(m.ToHub) || m.FromHub == m.ToHub || m.ID != networkID(m.FromHub, m.SourceID) || checkIdentifier("source ID", m.SourceID) != nil {
 		return errors.New("invalid network message identity")
 	}
@@ -257,6 +271,10 @@ func (b *Broker) ImportRemote(localHub string, m NetworkMail) (Envelope, error) 
 	}
 	envelope := Envelope{Network: &m, Mailbox: true, MailFingerprint: fingerprint(m), ID: m.ID, CorrelationID: m.CorrelationID, RootOrigin: &conversation.RootOrigin,
 		ReplyTo: m.ReplyTo, Kind: m.Kind, Sender: RemoteAddress(m.FromHub, m.Sender), Recipient: m.Recipient, Mode: "queue", Content: m.Content, Delivery: "pending"}
+	envelope.CommunicationLanguage = m.CommunicationLanguage
+	if envelope.CommunicationLanguage == "" {
+		envelope.CommunicationLanguage = language.Effective(recipient.Driver, recipient.CommunicationLanguage)
+	}
 	next := cloneSnapshot(b.state)
 	next.Version = 4
 	conversation.UsedMessages++

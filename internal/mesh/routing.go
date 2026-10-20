@@ -91,7 +91,7 @@ func (s *Service) acceptDirectory(frame directoryFrame) {
 		}
 		valid := true
 		for _, a := range ad.Agents {
-			if !validEndpoint(a.ID) || len(a.Name) > 120 || len(a.Status) > 100 {
+			if !validEndpoint(a.ID) || len(a.Name) > 120 || len(a.Status) > 100 || !validAgentProfile(a) {
 				valid = false
 				break
 			}

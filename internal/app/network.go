@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"agihub/internal/language"
 	"agihub/internal/manager"
 	"agihub/internal/mesh"
 )
@@ -35,7 +36,8 @@ func (s *Server) StartManagement(ctx context.Context, dir string) error {
 		state := s.Broker.Snapshot()
 		for _, e := range state.Endpoints {
 			if e.Enabled && e.MailboxProtocolVersion == 1 {
-				out = append(out, mesh.Agent{ID: e.ID, Name: e.ID, Status: state.Sessions[e.ID].State})
+				out = append(out, mesh.Agent{ID: e.ID, Name: e.ID, Status: state.Sessions[e.ID].State,
+					Driver: e.Driver, CommunicationLanguage: language.Effective(e.Driver, e.CommunicationLanguage)})
 			}
 		}
 		return out
@@ -194,10 +196,17 @@ func (s *Server) remoteCatalog(endpoint string) []Peer {
 	if !state.Config.Enabled || !contains(state.Config.Exports, endpoint) {
 		return out
 	}
+	self := s.Broker.Snapshot().Endpoints[endpoint]
 	for _, hub := range state.Peers {
 		for _, agent := range hub.Agents {
-			out = append(out, Peer{ID: manager.RemoteAddress(hub.HubID, agent.ID), Driver: "remote", Purpose: hub.Name + " / " + agent.Name,
-				Modes: []string{"queue"}, CanSend: hub.Reachable, MailboxProtocolVersion: 1})
+			driver := agent.Driver
+			if driver == "" {
+				driver = "remote"
+			}
+			out = append(out, Peer{ID: manager.RemoteAddress(hub.HubID, agent.ID), Driver: driver, Purpose: hub.Name + " / " + agent.Name,
+				Modes: []string{"queue"}, CanSend: hub.Reachable, MailboxProtocolVersion: 1,
+				CommunicationLanguage: language.Effective(driver, agent.CommunicationLanguage),
+				SendLanguage:          language.Resolve(self.Driver, self.CommunicationLanguage, driver, agent.CommunicationLanguage)})
 		}
 	}
 	return out
@@ -216,15 +225,20 @@ func (s *Server) publishRemote(endpoint string, in manager.MailSubmission) (mana
 		return manager.Envelope{}, err
 	}
 	allowed := false
+	sendLanguage := ""
+	self := s.Broker.Snapshot().Endpoints[endpoint]
 	for _, peer := range state.Peers {
 		if peer.HubID == hub {
 			for _, a := range peer.Agents {
-				allowed = allowed || a.ID == recipient
+				if a.ID == recipient {
+					allowed = true
+					sendLanguage = language.Resolve(self.Driver, self.CommunicationLanguage, a.Driver, a.CommunicationLanguage)
+				}
 			}
 		}
 	}
 	if !allowed {
 		return manager.Envelope{}, errors.New("recipient must be an exported endpoint of a directly trusted Hub")
 	}
-	return s.Broker.PublishRemote(state.HubID, endpoint, in)
+	return s.Broker.PublishRemote(state.HubID, endpoint, in, sendLanguage)
 }
