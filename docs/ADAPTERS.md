@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | `clients/codex` | 官方 Desktop MCP / 已有线程 queue / app-server 结果引导 | `queue` / 结果专用 | 2026-10-15 独立 Node 经 Desktop MCP 即时引导已实测；常驻 Node Client 已通过完整 MQ 忙时返回；App Server proxy 缺少控制 socket，三条通道分别验收 |
 | `clients/workbuddy` | 官方 CLI 会话恢复或本地助理 OpenAPI | `queue` | 独立 CLI 的 MQ 已通过；用户重新授权、入口核对并显式续接一次后，原会话的单联系人新查询、主动回报和自动忙时回传已通过；完整桌面工具继承及 OpenAPI 未验收 |
-| `clients/grok-routine` | 用户配置的官方 Routine webhook | `queue` | 本地模拟 HTTP、模板、断线及重定向；实际 Routine 待配置验证 |
+| `clients/grok-routine` | 本机完整文件 + 官方 webhook 仅 ID 通知，或兼容正文模板 | 旧 queue，mailbox `0` | 固定 Windows 会话于 2026-10-16 通过双向 Task/Report；其他安装与新邮箱未验收 |
 | `clients/claude-code` | Claude Code 会话内 mod 的 `prompt.submit`、原生邮箱工具与兼容 report | `queue` | Client 0.2.2 于 2026-10-20 通过 macOS Claude-3p 2.1.299 原 Code 会话空闲邮箱执行与显式结果回传忙碌 Codex 原聊天；历史 N2/N3 另行保留；忙时排队、其他平台待验收 |
 
 Hub 没有内置助手驱动。现有 Python Client 使用 Python 3.11+ 标准库；Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。原生 Adapter、manifest 和配置示例放在各自目录，公共部分只处理本机协议。Claude Code 使用宿主 mods API 运行会话内 Client；不同实现使用同一本机 REST 协议，唤醒可选 SSE 或事件长轮询。[独立 Client 的配置和启动](CLIENTS.md)
@@ -80,9 +80,9 @@ Webhook URL 和请求体必须来自用户已核实的实际平台配置，Clien
 
 替换在结构化 JSON 值上进行，最后序列化；不会直接拼接未经转义的内容，也不会再次解释任务文本中的占位符。`{{envelope}}` 不能嵌入带前后缀的字符串。请求模板必须传递完整信封或完整通知，单独的摘要不能代替关联 ID、授权与文件引用。
 
-只允许 HTTPS，或指向 localhost/loopback 的 HTTP。不跟随重定向，防止把用户配置的 headers 带到其他地址。2xx 表示 `delivered`；请求发起后的非 2xx、断线或超时保守记为 `uncertain`。配置明显错误记为 `failed`。
+只允许 HTTPS，或指向 localhost/loopback 的 HTTP。不跟随重定向，防止把用户配置的 headers 带到其他地址。模板模式 2xx 表示 `delivered`；请求发起后的非 2xx、断线或超时保守记为 `uncertain`。配置明显错误记为 `failed`。
 
-用户此前在另一台 Windows 电脑验证过 Grok Routine 与 Codex 的事件交接。那是特定环境的经验；本项目不依赖其源工程，也不假设当前电脑存在相同配置。
+旧协议 file-webhook 于 2026-10-16 在固定 Windows 安装独立通过原生 Task/Report 验收。旧文件桥与新 Hub 证据分别保留，均不能证明新邮箱通过，见下文 Windows 记录。
 
 ## 扩展自己的 Client
 
@@ -151,3 +151,11 @@ HTTP 成功后还要核对官方 JSON 中严格整数 `code=0` 和合法非空 `
 每个适配器分别验证：绑定的真实会话、空闲接手、忙时行为、权限提示、关联回执、成果文件、返回原入口以及失败核对。需明确列出验证的 OS、宿主版本和会话类型。遇到只能新起独立 CLI/SDK 会话的入口，要标明该差别。
 
 返回 [README](../README.md) · 查看 [架构](ARCHITECTURE.md) · [安装指南](INSTALL-FOR-ASSISTANT.md)
+
+## Windows 旧协议任务与文件接入
+
+Codex Node Client `0.3.1` 在安装原聊天固定接手指引与 endpoint 专属报告入口后，可显式设置 `native.receive_tasks=true` 接收旧协议 task/queue；默认仍仅结果，拒绝 control，不改变邮箱协商、Hub 会话/资源门槛或能力标记。原聊天提交真实 Report，Client 只通知。Python Desktop MCP/App Server 仍结果专用，Python queue 保留原任务行为，所有 Python 入口均拒绝此 Node 开关。[Codex 细节](../clients/codex/README.md)
+
+Grok Client `0.2.0` 的 `native.transport="file-webhook"` 使用已存在的绝对 inbox_dir、固定 Routine 标签与私有 URL/headers，不填 body。原子发布完整 Envelope 和报告指引后仅发 SHA-256 派生 ID。持久目录 claim 兼容 exFAT，Grok 另存 processing 与稳定 Report。文件模式仅 HTTP 200 为 delivered，401/403 为 failed，其余尝试或不确定为 uncertain，不自动重发。省略 transport 保留原正文模板及其 2xx 语义。Grok 不启用 mailbox 1。[配置与回执规则](../clients/grok-routine/README.md) · [固定接收与报告模板](../clients/grok-routine/GROK_INSTRUCTIONS.md)
+
+2026-10-16 的 Windows 单入口自检与另一次 Codex/Grok 双向任务分别核对原生实读、Report、成果 SHA-256、关联结果实际消费和资源释放；保留原会话及所检查工具。不包括 Windows Claude、所有工具、其他安装或新的忙时能力标记。[日期证据](NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)

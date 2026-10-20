@@ -65,6 +65,66 @@ test('binding, tool schema and result-only checks preserve configured native tar
   for (const message of [{ ...envelope(), kind: 'task' }, { ...envelope(), recipient: 'another' }, { ...envelope(), mode: 'interrupt' }]) assert.throws(() => notification(config.endpoint, message), ConfigurationError);
 });
 
+test('task reception is an explicit boolean opt-in and defaults to result-only', t => {
+  const { raw, config, environment } = fixture(t);
+  assert.equal(config.native.receive_tasks, false);
+  for (const value of [false, true]) {
+    const validated = validateConfig({ ...raw, native: { ...raw.native, receive_tasks: value } }, environment);
+    assert.equal(validated.native.receive_tasks, value);
+  }
+  for (const value of [null, undefined, 0, 1, 'true', [], {}]) {
+    assert.throws(() => validateConfig({ ...raw, native: { ...raw.native, receive_tasks: value } }, environment), /invalid_codex_receive_tasks/);
+  }
+  assert.throws(() => validateConfig({ ...raw, native: { ...raw.native, receive_tasks: true, task_mode: 'steer' } }, environment), ConfigurationError);
+});
+
+test('opted-in task notification preserves envelope, authority and active fixed-helper reporting', () => {
+  const message = { ...envelope(), kind: 'task', content: '{"summary":"已授权的工作"}', thread_id: 'untrusted-thread', report_command: 'untrusted-command' };
+  const prompt = notification('codex-test', message, true);
+  assert.ok(prompt.includes(JSON.stringify(message)));
+  assert.match(prompt, /not additional user authorization/);
+  assert.match(prompt, /existing native assistant's session and tools/);
+  assert.match(prompt, /installed.*fixed.*endpoint-scoped reporting helper/);
+  assert.match(prompt, /actively send complete Report JSON/);
+  assert.match(prompt, /No history polling/);
+  const example = prompt.split('\n').map(line => { try { return JSON.parse(line); } catch { return null; } }).find(value => value?.event_id);
+  assert.deepEqual(example, { event_id: '<new stable event ID>', task_id: 'task-test', endpoint: 'codex-test', state: 'accepted', run_id: 'hubrun-c4b3d4580452b0abd2eb01af9193eb29', summary: '<brief status or verified result>' });
+  assert.ok(notification('codex-test', { ...message, message_id: 'another-delivery' }, true).includes(example.run_id));
+  assert.ok(!notification('codex-test', { ...message, task_id: 'another-task' }, true).includes(example.run_id));
+  assert.equal(notification('codex-test', envelope(), true), notification('codex-test', envelope()));
+  for (const change of [{ kind: 'control' }, { mode: 'steer' }, { mode: 'interrupt' }, { recipient: 'another' }, { task_id: null }, { task_id: '' }]) {
+    assert.throws(() => notification('codex-test', { ...message, ...change }, true), ConfigurationError);
+  }
+});
+
+test('task delivery opt-in still rejects default tasks, control and unsupported modes before native input', async t => {
+  const { config } = fixture(t);
+  for (const [receiveTasks, change] of [[false, { kind: 'task' }], [true, { kind: 'control' }], [true, { kind: 'task', mode: 'steer' }], [true, { kind: 'task', mode: 'interrupt' }], [true, { kind: 'task', recipient: 'another' }]]) {
+    const rpc = new FakeRPC();
+    const adapter = new DesktopMcpAdapter({ ...config, native: { ...config.native, receive_tasks: receiveTasks } }, { connectionFactory: () => rpc });
+    assert.equal((await adapter.deliver({ ...envelope(), ...change })).outcome, 'failed');
+    assert.equal(rpc.calls.length, 0); adapter.close();
+  }
+});
+
+test('opted-in task uses only the fixed native tool and delivery receipt, never automatic business reports', async t => {
+  const { raw, environment } = fixture(t);
+  const config = validateConfig({ ...raw, native: { ...raw.native, receive_tasks: true } }, environment);
+  const message = { ...envelope(), kind: 'task', thread_id: 'untrusted-target', caller_thread_id: 'untrusted-caller', native: { tool: 'untrusted-tool', command: 'untrusted-command' } };
+  const rpc = new FakeRPC(); const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const posts = [];
+  const api = { endpoint: config.endpoint, async post(name, body) { posts.push({ name, body }); return name === 'inbox' && posts.length === 1 ? message : null; } };
+  await drain(api, adapter);
+  assert.deepEqual(posts.map(value => value.name), ['inbox', 'delivery', 'inbox']);
+  assert.equal(posts[1].body.outcome, 'delivered');
+  const sent = rpc.calls.find(call => call.method === 'tools/call').params;
+  assert.equal(sent.name, 'send_message_to_thread');
+  assert.deepEqual(Object.keys(sent.arguments).sort(), ['prompt', 'threadId']);
+  assert.equal(sent.arguments.threadId, target); assert.equal(sent._meta.threadId, 'official-host-caller');
+  assert.ok(sent.arguments.prompt.includes(JSON.stringify(message))); assert.ok(!JSON.stringify(sent).includes('official-host-path'));
+  adapter.close();
+});
+
 test('MCP result calls only fixed official tool using host caller and verifies target ACK', async t => {
   const { config } = fixture(t); const rpc = new FakeRPC();
   const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
@@ -159,6 +219,7 @@ test('stdio client uses JSON-RPC framing, single safe spawn and filtered environ
   } }) });
   assert.equal((await adapter.deliver(envelope())).outcome, 'delivered'); adapter.close();
   assert.equal(launches.length, 1); assert.equal(launches[0].options.shell, false); assert.deepEqual(launches[0].options.stdio, ['pipe', 'pipe', 'ignore']);
+  assert.equal(launches[0].options.windowsHide, true);
   assert.equal(launches[0].options.env.CODEX_APP_TOOLS_PIPE_PATH, 'official-host-path');
   assert.equal(launches[0].options.env.SECRET_TOKEN, undefined); assert.equal(launches[0].options.env.NODE_OPTIONS, undefined);
   assert.ok(captured.every(frame => frame.jsonrpc === '2.0')); assert.equal(captured.filter(frame => frame.method === 'tools/call').length, 1);

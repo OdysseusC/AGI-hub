@@ -13,3 +13,7 @@ python3 -m unittest discover -s clients/tests -v
 ```
 
 The common tests' `load_tests` loads each assistant's tests under a unique module name, avoiding collisions between `test_adapter.py` files in different directories. This command combines shared and assistant-specific checks without duplicating tests. All transports and subprocesses are local simulations; no real assistant is called.
+
+## Legacy file-mode smoke check
+
+After building the local Hub, run `python3 tools/smoke_grok_client.py --hub /absolute/path/to/agi-hub` (actual `.exe` on Windows). The test uses a real Hub and file Client with a local simulated Routine and endpoint-scoped reporter. It verifies publication before ID-only webhook, file consumption, actual Reports, artifact SHA-256, one associated result and no resend after adapter reconstruction. It does not call a real assistant/webhook or alter native capability flags. `--temporary-parent <existing-directory-outside-repository>` selects a filesystem such as exFAT. This tests legacy Task/Report, separately from the mailbox suite.

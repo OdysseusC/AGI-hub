@@ -2,7 +2,7 @@
 
 # Local native integration records
 
-Recorded 2026-10-14 through 2026-10-20 on macOS arm64. October 14 used WorkBuddy 5.8.2 and official CodeBuddy CLI 2.161.0; October 16 added an original local Claude-3p Desktop Code session with bundled Claude Code 2.1.299. WorkBuddy was 5.8.3 on October 19, when zero-model skill-maintenance checks were added. Only methods, results and scope are public: no credentials, personal contacts, real session IDs or private absolute paths. Native Windows/Linux integration requires separate acceptance; compilation is not a substitute.
+Recorded 2026-10-14 through 2026-10-20 on macOS arm64. October 14 used WorkBuddy 5.8.2 and official CodeBuddy CLI 2.161.0; October 16 added an original local Claude-3p Desktop Code session with bundled Claude Code 2.1.299. WorkBuddy was 5.8.3 on October 19, when zero-model skill-maintenance checks were added. Only methods, results and scope are public: no credentials, personal contacts, real session IDs or private absolute paths. The Windows Codex/Grok legacy acceptance on October 16 is recorded separately below; Windows Claude, other Windows entries and Linux require separate acceptance. Compilation is not a substitute.
 
 ## 2026-10-19: Managed skill synchronization, zero model calls
 
@@ -194,3 +194,35 @@ Real session IDs, paths, nonces, usage IDs and transcript hashes remain private 
 WorkBuddy OpenAPI `localassistant/message` remains a separate candidate requiring an app and personal OAuth; that real grant is not configured here. CLI login does not grant it, and it is not an arbitrary ordinary desktop-chat targeting interface. See [official OpenAPI](https://open.workbuddy.cn/docs/openapi).
 
 Back to [Clients](CLIENTS.en.md) · [Integration scope](ADAPTERS.en.md)
+
+<a id="windows-codex-selfcheck-20261016"></a>
+
+## 2026-10-16: Windows Codex legacy self-check
+
+This installation used resident Node Client `0.3.0` with explicit `native.receive_tasks=true`. A separate native idle-wake probe had already verified actual original-chat startup and probe consumption with the inspected desktop tools. No new `result_queue_while_busy_verified` capability was enabled.
+
+An `origin=recipient=codex` self-check then traversed Hub SSE → independent Node Client → official Desktop MCP → the fixed original chat. The chat saved and submitted stable accepted/running/succeeded Reports with consistent association and execution identity; it actually read a fresh input nonce and called official desktop `list_artifacts`. Hub verified the actual artifact's workspace and SHA-256, produced the associated result, recorded both messages delivered and released the resources. An independent check of the original chat's final response explicitly confirmed result consumption, beyond a transport ACK. This was a self-check, not a Grok-originated or cross-assistant test; inspecting one tool did not verify every desktop capability.
+
+At that date six platform packages were rebuilt and checked against the Node `0.3.0` source/manifest, without private `client.json`. These historical package checks are not native acceptance on every target or a claim about the current release's package count.
+
+<a id="windows-grok-roundtrip-20261016"></a>
+
+## 2026-10-16: Windows Codex/Grok bidirectional legacy acceptance
+
+The preexisting file bridge's busy/idle delivery and Grok file receipts were migration context only. The new file Client used its own inbox, claims and receiver state and did not import old bridge tasks/receipts. A real local-Hub/simulated-Routine smoke test on Windows exFAT checked complete-file-before-ID publication, scoped Reports, artifact SHA-256, one result and no second notification after Adapter reconstruction; no real webhook or model was called by that test.
+
+An initial configuration request failed because the target machine was offline; that failure remained recorded. By local 12:13 a new request was processing, not completed. Five retired notification sources were later removed as authorized, while 84 historical message JSON hashes, handshake files, receipts, protocols, media and delivery scripts remained unchanged. Deleting sources did not prove business acceptance.
+
+Configuration closeout later had a formal reply, actual file-read proof, final receipts and Codex consumption. It needed one explicit entry continuation, so it was not idle-wake evidence. The Bot later explained that an already-approved Routine update card had been mistaken for a pending memory/profile approval; no original tool-error log was recovered, so the explanation was not described as recovered audit evidence. Only minimal long-term instructions changed; description did not. The final old-bridge exception closed.
+
+A separate single ID-only webhook probe was sent after the fixed Bot was actually confirmed idle. The Routine automatically read a previously unknown nonce from the new file and created the matching consumption record, without UI continuation or manual relay. It was a diagnostic, not a Hub business task or fabricated Report; its temporary branch was retired afterward. This proved idle trigger and real file consumption for that fixed Windows Routine. Its receipt did not name exact file tools or show a new main-chat turn, so neither was claimed. Only the tested idle-wake flag was enabled; busy flags were unchanged.
+
+New IDs, fresh nonce files and independent artifact paths then supported three real legacy Hub tasks, without replaying old drafts:
+
+1. **Codex → Grok:** SSE Client sent the ID-only webhook; the original Bot executed, actually read the nonce and submitted three Reports. Hub verified the artifact and generated the associated result; official Desktop MCP automatically woke the original Codex chat, whose final response confirmed consumption at local **16:15:37**.
+2. **Grok submission:** In a separate control task the original Bot invoked the fixed Submission launcher once. Its native submission receipt matched the newly created `origin=grok / recipient=codex` task. The control task recorded submission only and neither performed nor waited for the reverse business execution.
+3. **Grok → Codex:** The original Codex chat read a different fresh nonce, verified its fixed identity, used one official read-only desktop tool and submitted accepted/running/succeeded. Hub verified the artifact and returned a result to Grok; the fixed Routine saved the fully associated consumption record at local **16:21:36**. Official thread tools separately verified Codex reverse execution and control-result consumption.
+
+The three stable execution IDs, all **nine** actual Report event IDs/content fingerprints, **three** artifacts/workspace/SHA-256 values, **six** task/result messages and released resource locks were individually reconciled. No manual task-text forwarding, repeated webhook or UI continuation was used in this business run. Results were established from actual execution/file/result consumption, not HTTP 200, ordinary chat text or simulations.
+
+Both original sessions and their existing tools were retained. Grok artifacts recorded Shell, CopyToBox and Read; Codex actually called `list_artifacts`. Scope is this Windows installation and the tools checked, not every tool, other computers, sleep recovery, all host versions or Windows Claude. Hub restart still leaves session state unknown until actual native status is verified. No new busy-capability flag, status-polling service, scheduled inbox check or replacement AI executor was introduced. Historical failures, explicit continuation, standalone wake diagnostic and final business acceptance remain separate. **This is legacy Task/Report evidence; Grok mailbox capability remains `0`.**

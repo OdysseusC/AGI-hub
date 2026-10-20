@@ -3,10 +3,11 @@
   "endpoint": "grok",
   "endpoint_token": "<scoped endpoint token issued by this Hub>",
   "native": {
+    "transport": "file-webhook",
     "routine_id": "<user label matching this Hub endpoint session_id>",
     "url": "<official Routine webhook URL from the user's setup>",
     "headers": {},
-    "body": {"replace_with_official_routine_field": "{{notification}}"},
+    "inbox_dir": "<existing absolute inbox directory accessible to this Grok Bot>",
     "timeout_seconds": 30
   }
 }

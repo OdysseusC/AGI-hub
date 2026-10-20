@@ -10,7 +10,7 @@ This page distinguishes implemented delivery transports, official candidate capa
 | --- | --- | --- | --- |
 | `clients/codex` | Official Desktop MCP / existing-thread queue / app-server result guidance | `queue` / results only | Independent Node Desktop MCP guidance verified on 2026-10-15; resident Node Client passed a full MQ busy-return loop. App Server proxy lacked its control socket; verify the three transports separately. |
 | `clients/workbuddy` | Official CLI session resume or local-assistant OpenAPI | `queue` | Independent CLI MQ passed. After user reauthorization, entry checks and one explicit continuation, the original session passed a fresh single-contact query, active reports and automatic busy return. Full desktop-tool inheritance and OpenAPI remain unverified. |
-| `clients/grok-routine` | User-configured official Routine webhook | `queue` | Local simulated HTTP, templates, disconnects and redirects; the actual Routine still needs configuration and verification. |
+| `clients/grok-routine` | Local file + ID-only official webhook, or compatible body template | Legacy `queue`, mailbox `0` | Fixed Windows sessions passed bidirectional Task/Report on 2026-10-16; other installations and addressed mailboxes are unverified. |
 | `clients/claude-code` | In-session Claude Code mod using `prompt.submit`, native mailbox tools and legacy report | `queue` | Client 0.2.2 passed idle mailbox execution in the existing macOS Claude-3p 2.1.299 Code session and an explicit result return to busy original Codex on 2026-10-20. Historical N2/N3 evidence remains separate. Busy queuing/other platforms remain unverified. |
 
 The Hub contains no assistant drivers. Python Clients use Python 3.11+ standard libraries. Independent Codex Desktop MCP sending was tested with Node; a resident MQ Client is available and has local simulations. Each product directory holds its adapter, manifest and configuration example; shared code handles only the local protocol. Claude Code runs its Client through host mods APIs. Implementations share the local REST protocol, with SSE or event long polling for wake notifications. See [Client configuration and startup](CLIENTS.en.md).
@@ -80,9 +80,9 @@ The webhook URL and body must come from the user's verified platform configurati
 
 Replacement operates on structured JSON values before serialization. It neither concatenates unescaped content nor interprets placeholders inside task text a second time. `{{envelope}}` cannot have a string prefix/suffix. A template must carry the full envelope or notification; a summary alone cannot replace correlation IDs, authorization and file references.
 
-Only HTTPS or HTTP to localhost/loopback is allowed. Redirects are not followed, preventing configured headers from reaching another address. A 2xx means `delivered`; non-2xx responses, disconnects or timeouts after an attempt remain `uncertain`. Clearly invalid configuration is `failed`.
+Only HTTPS or HTTP to localhost/loopback is allowed. Redirects are not followed, preventing configured headers from reaching another address. In template mode a 2xx means `delivered`; non-2xx responses, disconnects or timeouts after an attempt remain `uncertain`. Clearly invalid configuration is `failed`.
 
-The user previously verified Grok Routine–Codex event handoff on another Windows machine. That was evidence for that environment. This project neither depends on its original source project nor assumes its configuration exists locally.
+Legacy file-webhook separately passed native Task/Report acceptance on the fixed Windows installation on 2026-10-16. Old file-bridge evidence and new Hub evidence remain distinct; neither validates the new mailbox path. See the dated Windows record below.
 
 ## Extend with your own Client
 
@@ -151,3 +151,11 @@ Separate actual evidence covers independent WorkBuddy CLI MQ execution/artifacts
 Verify each adapter's actual bound session, idle acceptance, busy behavior, permission prompts, associated receipts, artifact files, return to the original entry and failure reconciliation. State the tested OS, host version and session type. If an entry can only start a separate CLI/SDK session, label that difference.
 
 Back to [README](../README.en.md) · [Architecture](ARCHITECTURE.en.md) · [Installation guide](INSTALL-FOR-ASSISTANT.en.md)
+
+## Windows legacy task/file integration
+
+Codex Node Client `0.3.1` can explicitly enable `native.receive_tasks=true` for legacy `kind=task / mode=queue`, after fixed original-chat instructions and an endpoint-scoped report helper are installed. It defaults to results, rejects control and does not alter mailbox negotiation, Hub resource/session gates or verified capability flags. The original chat submits real Reports; the Client only delivers. Python Desktop MCP/App Server remain results-only, Python queue retains its existing task behavior and Python rejects this Node-only option. [Codex details](../clients/codex/README.en.md)
+
+Grok Client `0.2.0` uses `native.transport="file-webhook"`, an existing absolute `inbox_dir`, fixed Routine label and private URL/headers, without `body`. It publishes the full Envelope and report instructions atomically, then sends only the SHA-256-derived ID. Persistent directory claims work on exFAT; the Grok receiver separately saves processing state and stable Reports. File mode accepts only HTTP 200 as delivered, treats 401/403 as failed and retains other attempted/ambiguous deliveries as uncertain without retry. Omitted transport keeps the original full-body template and its 2xx semantics. Do not enable mailbox protocol 1 for Grok. [Configuration and receipt rules](../clients/grok-routine/README.en.md) · [Fixed Routine/report template](../clients/grok-routine/GROK_INSTRUCTIONS.en.md)
+
+The 2026-10-16 Windows self-check and independent bidirectional Codex/Grok run verified actual native file reading, Reports, artifacts/SHA-256, associated result consumption and released resources. Existing sessions and tested tools remained available. The scope does not include Windows Claude, all native tools, other installations or new busy-capability flags. [Dated acceptance](NATIVE-VALIDATION.en.md#windows-grok-roundtrip-20261016)

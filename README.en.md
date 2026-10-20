@@ -124,3 +124,7 @@ go run ./tools/package
 `dist/` contains four Windows/macOS ZIPs and `SHA256SUMS`. Building requires Go 1.22+. Packages contain actual target-platform executables, so users do not need to compile them. Tests use synthetic adapters; native acceptance evidence is recorded separately in [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.en.md).
 
 Code and personal configuration are separate from the start. Credentials, real chats and private artifacts stay outside the repository and packages.
+
+## Windows Codex/Grok legacy integration
+
+The local Windows Codex/Grok integration retains Node `native.receive_tasks=true` for legacy queue tasks and Grok Client `0.2.0`'s `file-webhook` transport. On 2026-10-16, the fixed original sessions completed independent idle-wake checks, a Codex self-check and a separate bidirectional Task/Report acceptance run: three tasks, nine actual Reports, three verified artifacts and six associated task/result deliveries, including actual result consumption at both entries. This evidence covers that Windows installation and those tested tools; it does not validate Grok mailbox messages, Windows Claude or new busy-delivery capabilities. Grok keeps mailbox capability `0`. [Configuration](clients/grok-routine/README.en.md) · [Dated evidence](docs/NATIVE-VALIDATION.en.md#windows-grok-roundtrip-20261016)

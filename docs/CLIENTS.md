@@ -22,7 +22,7 @@ clients/
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.3.0`，Grok Routine 为 `0.1.0`、Claude Code 为 `0.2.2`，接口协议都为 `1`，邮箱能力单独声明。Python 入口使用 shared `0.2.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy Client 为 `0.3.0`、Codex Node Client 为 `0.3.1`，Grok Routine 为 `0.2.0`、Claude Code 为 `0.2.2`，接口协议都为 `1`，邮箱能力单独声明。Python 入口使用 shared `0.2.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
 Client 具有独立维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖；Claude Code mod 只依赖宿主 mods API，直接分发完整插件目录与 marketplace。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
@@ -188,7 +188,7 @@ Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定
 
 ### Codex 程序配置
 
-Desktop MCP、queue 与 App Server proxy 是不同通道，配置与验收分别进行。2026-10-15 独立 Node 启动链已真实调用官方 Desktop MCP 并向忙碌原聊天即时引导消息；旧版常驻 MQ Client 0.2.0 曾用于该验收；当前 0.3.0 增加定址邮箱，使用 Node 22+，启动说明见 Codex 目录，不以内部模型工具调用充当独立 Client 的成功证据。仅使用固定目标会话与允许的发送工具，发现全部工具不等于获得调用它们的授权。
+Desktop MCP、queue 与 App Server proxy 是不同通道，配置与验收分别进行。2026-10-15 独立 Node 启动链已真实调用官方 Desktop MCP 并向忙碌原聊天即时引导消息；旧版常驻 MQ Client 0.2.0 曾用于该验收；0.3.0 引入使用 Node 22+ 的定址邮箱，当前 0.3.1 还支持显式启用的旧版 queue 任务，启动说明见 Codex 目录，不以内部模型工具调用充当独立 Client 的成功证据。仅使用固定目标会话与允许的发送工具，发现全部工具不等于获得调用它们的授权。
 
 Python 父进程链在本机 macOS 签名校验失败，官方 Node 链通过；不要因 App Server proxy 缺少 daemon socket 推断 Desktop MCP 也不可用。不新建另一套 daemon，不复制登录信息或访问未公开 IPC 来替代目标聊天。
 
@@ -242,3 +242,11 @@ python3 -m unittest discover -s clients/tests -v
 测试使用本地假 HTTP 和模拟子进程，检查订阅/领取顺序、Host/Origin、拒绝重定向、传输不确定状态、一次原生尝试、失败回执后停止、结果通知语义、WorkBuddy CLI 绑定与输入输出、OAuth 配置边界及模板的一次替换。它不会发送真实助手消息、读取联系人或证明任何原生平台已接入。
 
 新邮箱真实验收先用低成本、本地文件任务，核实原会话唤醒、助手明确选择接收者、关联回复、成果核对、最终回到最初入口及不确定投递恢复。旧版接手/执行 Report 的证据保留，不冒充新邮箱业务完成。访问业务系统或向联系人发送通知仍需具体人类指令和原生应用要求的本人确认。
+
+## Windows 旧协议任务与文件接入
+
+Codex Node Client `0.3.1` 在安装原聊天固定接手指引与 endpoint 专属报告入口后，可显式设置 `native.receive_tasks=true` 接收旧协议 task/queue；默认仍仅结果，拒绝 control，不改变邮箱协商、Hub 会话/资源门槛或能力标记。原聊天提交真实 Report，Client 只通知。Python Desktop MCP/App Server 仍结果专用，Python queue 保留原任务行为，所有 Python 入口均拒绝此 Node 开关。[Codex 细节](../clients/codex/README.md)
+
+Grok Client `0.2.0` 的 `native.transport="file-webhook"` 使用已存在的绝对 inbox_dir、固定 Routine 标签与私有 URL/headers，不填 body。原子发布完整 Envelope 和报告指引后仅发 SHA-256 派生 ID。持久目录 claim 兼容 exFAT，Grok 另存 processing 与稳定 Report。文件模式仅 HTTP 200 为 delivered，401/403 为 failed，其余尝试或不确定为 uncertain，不自动重发。省略 transport 保留原正文模板及其 2xx 语义。Grok 不启用 mailbox 1。[配置与回执规则](../clients/grok-routine/README.md) · [固定接收与报告模板](../clients/grok-routine/GROK_INSTRUCTIONS.md)
+
+2026-10-16 的 Windows 单入口自检与另一次 Codex/Grok 双向任务分别核对原生实读、Report、成果 SHA-256、关联结果实际消费和资源释放；保留原会话及所检查工具。不包括 Windows Claude、所有工具、其他安装或新的忙时能力标记。[日期证据](NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)
