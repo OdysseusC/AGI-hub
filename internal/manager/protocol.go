@@ -70,6 +70,9 @@ type Collaboration struct {
 }
 
 type Envelope struct {
+	// SourceMessageID maps a canonical LAN ID to the caller's saved retry ID.
+	// It is populated only in client-facing network responses.
+	SourceMessageID string         `json:"source_message_id,omitempty"`
 	Network         *NetworkMail   `json:"network,omitempty"`
 	Mailbox         bool           `json:"mailbox,omitempty"`
 	MailFingerprint string         `json:"mail_fingerprint,omitempty"`

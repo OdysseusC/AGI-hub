@@ -101,16 +101,30 @@ func TestTwoHubsSameNamedAgentsExchangeMailboxWithoutNativeCalls(t *testing.T) {
 		return e
 	}
 	first := send(a, body)
+	if first.SourceMessageID != body.ID || first.Network != nil {
+		t.Fatal("client response must map canonical ID without duplicating network payload")
+	}
 	if duplicate := send(a, body); duplicate.ID != first.ID {
 		t.Fatal("retry identity changed")
 	}
 	awaitNetwork(t, func() bool {
 		return len(b.Broker.Snapshot().Messages) == 1 && a.Broker.Snapshot().Messages[first.ID].Delivery == "remote_received"
 	})
-	got, err := b.Broker.NextMail("codex")
-	if err != nil || got == nil {
-		t.Fatal("local mailbox failed", err)
+	claim := func(s *Server) *manager.Envelope {
+		w := managementCall(t, s, "/v1/mail/inbox?endpoint=codex", "{}", EndpointToken(s.Config.AdminToken, "codex"))
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var e *manager.Envelope
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || e == nil {
+			t.Fatal("missing native envelope", err)
+		}
+		if e.Network != nil || e.MailFingerprint != "" {
+			t.Fatal("native prompt contains duplicate private transport payload")
+		}
+		return e
 	}
+	got := claim(b)
 	if got.Sender != ha+"/codex" || got.Recipient != "codex" || got.RootOrigin.SessionID != "" {
 		t.Fatalf("incorrect host/session boundary: %+v", got)
 	}
@@ -123,9 +137,9 @@ func TestTwoHubsSameNamedAgentsExchangeMailboxWithoutNativeCalls(t *testing.T) {
 		t.Fatal("different hosts collided on client message ID")
 	}
 	awaitNetwork(t, func() bool { return len(a.Broker.Snapshot().Messages) == 2 })
-	got, err = a.Broker.NextMail("codex")
-	if err != nil || got == nil || got.ID != reply.ID || got.RootOrigin.SessionID != "native-A" {
-		t.Fatalf("reply lost original local binding: %+v %v", got, err)
+	got = claim(a)
+	if got.ID != reply.ID || got.RootOrigin.SessionID != "native-A" {
+		t.Fatalf("reply lost original local binding: %+v", got)
 	}
 	if len(a.Broker.Snapshot().Tasks) != 0 || len(b.Broker.Snapshot().Tasks) != 0 {
 		t.Fatal("network invented workflow tasks")

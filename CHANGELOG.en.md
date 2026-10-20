@@ -9,6 +9,7 @@
 - Add a local management page for managed skill installation, real session binding, enable/share controls, Hub/agent trees, pairing and mailbox state. Management and offline testing invoke no models.
 - Federated mail preserves the original local binding, uses canonical message IDs, a durable outbox and deduplication, and distinguishes destination-Hub receipt from native execution. Protocol 1 fixes each conversation to an endpoint pair with disjoint message permits; files are not synchronized.
 - Advance managed rules to revision 6. Federated data requires journal version 4 and cannot be opened by older binaries. Real multi-computer discovery and native-assistant acceptance remain separate validation; see the [LAN guide](docs/LAN.en.md).
+- Claude Client 0.2.3 recognizes acknowledgements for canonical LAN message IDs. Native prompts contain one copy of the content, omitting duplicate network payload tokens. Installation and verification did not invoke Claude.
 
 ## 0.3.1 — 2026-10-20
 

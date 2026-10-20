@@ -4,7 +4,9 @@
 
 Connect one existing native Claude Code session to AGI Hub. A mod inside that session consumes its addressed inbox and exposes native tools for explicit outgoing messages. The original host, project, login and native tools stay available. Hub routes messages; the assistant chooses the recipient and decides when to reply.
 
-Client **0.2.2** supports mailbox protocol **1** and the legacy single-task protocol. It requires Claude Code **2.1.299 or later with the mods APIs used here**. Verify native support for each host/version/platform; a portable Hub build alone does not verify the native integration.
+Client **0.2.3** supports mailbox protocol **1** and the legacy single-task protocol. It requires Claude Code **2.1.299 or later with the mods APIs used here**. Verify native support for each host/version/platform; a portable Hub build alone does not verify the native integration.
+
+Version 0.2.3 supports canonical LAN message IDs: only qualified remote addresses accept `lan-…` acknowledgements carrying the original `source_message_id`; local acknowledgements still require the original ID. Hub omits duplicate network payloads from native prompts to avoid paying tokens for the same content twice. This version is validated offline and does not expand the historical 0.2.2 native acceptance below.
 
 ## Support boundary
 
@@ -51,7 +53,7 @@ Keep endpoint tokens and configuration outside this repository. Replace `claude`
 
    Replace the example paths and, if different, endpoint name with the actual binding. On Windows, use the actual `.exe` and PowerShell invocation shown in the skill guide. The portable `agi-hub-setup` currently handles Codex/WorkBuddy only; Claude uses the Hub's `install-skill` command above. In the native host, allow only tools needed for this binding: `mcp__agi-hub-endpoint__mail_send`, `mcp__agi-hub-endpoint__peers`, and `mcp__agi-hub-endpoint__mail_state`. Outgoing Claude messages do not need Bash. `mcp__agi-hub-endpoint__report` serves legacy tasks only.
 
-5. Reload the target session and run `/agi-hub-status`. Confirm **`client_version: "0.2.2"`** and `state: "running"`. The code is `listening`, or `confirm_hub_session_idle` while Hub session state is still unknown; continue with the checks below. The installed plugin index does not prove which code an existing session has loaded. An unconfigured plugin stays dormant; sessions whose UUID does not match never claim messages. Hub must advertise 25-second mailbox long polling and client-lease enforcement; an older Hub is rejected before claiming.
+5. Reload the target session and run `/agi-hub-status`. Confirm **`client_version: "0.2.3"`** and `state: "running"`. The code is `listening`, or `confirm_hub_session_idle` while Hub session state is still unknown; continue with the checks below. The installed plugin index does not prove which code an existing session has loaded. An unconfigured plugin stays dormant; sessions whose UUID does not match never claim messages. Hub must advertise 25-second mailbox long polling and client-lease enforcement; an older Hub is rejected before claiming.
 
 6. Verify idle wake **before** enabling mailbox delivery. Reuse already-checked evidence for the same host and transport when applicable. Otherwise, with the user's authorization and budget, run `/agi-hub-diagnose` once in the original Code session, leave it idle, and confirm that one plugin message starts a real new turn returning the matching nonce. This schedules one native prompt after 30 seconds and consumes a model turn, which can involve multiple paid API requests; it is not a zero-cost command or an MQ test. Do not repeat it merely to refresh existing valid evidence.
 

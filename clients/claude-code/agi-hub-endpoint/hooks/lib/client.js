@@ -5,7 +5,7 @@ const freshID = () => 'mod-' + Date.now().toString(36) + '-' + Math.random().toS
 const DELIVERED = 'A matching AGI Hub marker entered the bound Claude session in a native turn.start event.';
 const UNCERTAIN = 'Native entry is unconfirmed; reconcile the message marker in the bound session before retrying. No prompt will be resubmitted.';
 const TERMINAL = ['succeeded', 'failed'];
-export const CLIENT_VERSION = '0.2.2';
+export const CLIENT_VERSION = '0.2.3';
 
 /** Host-independent state machine. Only register.js knows the mod's $ API. */
 export class EndpointClient {
@@ -392,7 +392,16 @@ export class EndpointClient {
         let result;
         try {
           result = await this.request('/v1/mail/send', 'POST', payload, generation);
-          if (!object(result) || result.mailbox !== true || result.message_id !== payload.id || result.sender !== this.config.endpoint || result.recipient !== payload.recipient || result.kind !== payload.kind || result.content !== payload.content || result.correlation_id !== (payload.correlation_id || payload.id) || !object(result.root_origin)) throw new ClientError('mail_send_ack_unconfirmed');
+          if (!object(result) || result.mailbox !== true || result.sender !== this.config.endpoint || result.recipient !== payload.recipient || result.kind !== payload.kind || result.content !== payload.content || !object(result.root_origin)) throw new ClientError('mail_send_ack_unconfirmed');
+          const remote = /^[a-f0-9]{64}\/[a-zA-Z0-9_.-]{1,100}$/.test(payload.recipient);
+          // Only qualified LAN sends may replace the caller's stable ID. The
+          // original ID remains the journal/retry key, never the canonical ID.
+          const expectedCorrelation = remote && (!payload.correlation_id || payload.correlation_id === payload.id)
+            ? result.message_id : (payload.correlation_id || payload.id);
+          const matchingID = remote
+            ? result.source_message_id === payload.id && typeof result.message_id === 'string' && /^lan-[a-f0-9]{64}$/.test(result.message_id)
+            : result.message_id === payload.id;
+          if (!matchingID || result.correlation_id !== expectedCorrelation) throw new ClientError('mail_send_ack_unconfirmed');
         } catch (error) {
           this.guard(generation);
           pending.state = 'uncertain'; await this.port.set(key, pending);

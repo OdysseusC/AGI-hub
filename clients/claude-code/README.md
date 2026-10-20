@@ -4,7 +4,9 @@
 
 把一个现有的 Claude Code 原生会话接到 AGI Hub。会话内的 mod 插件消费自己的寻址收件箱，并提供原生工具供助手主动发消息，保留原宿主、项目、登录态和原生工具。Hub 负责消息传递；由助手选择接收方、决定何时回复。
 
-Client **0.2.2** 支持寻址消息协议 **1**，并保留旧的单任务协议。需要 **Claude Code 2.1.299 或更新版本，且具备这里使用的 mods API**。每个宿主、版本和平台都要分别验收；Hub 的跨平台构建不能代替原生接入验证。
+Client **0.2.3** 支持寻址消息协议 **1**，并保留旧的单任务协议。需要 **Claude Code 2.1.299 或更新版本，且具备这里使用的 mods API**。每个宿主、版本和平台都要分别验收；Hub 的跨平台构建不能代替原生接入验证。
+
+0.2.3 支持局域网规范消息 ID：仅对完整远程地址接受带原始 `source_message_id` 的 `lan-…` 回执，本机回执仍严格校验原 ID。Hub 不把重复的网络载荷发进原生提示，避免重复正文消耗 token。该版本使用离线测试验证，未扩大下文 0.2.2 的原生验收范围。
 
 ## 支持边界
 
@@ -51,7 +53,7 @@ endpoint token 和配置保存在仓库外。PATH 中没有 `claude` 时，用�
 
    将示例路径和 endpoint 名称替换为实际绑定；Windows 使用真实 `.exe`，PowerShell 调用方式见技能说明。便携引导程序 `agi-hub-setup` 当前仅处理 Codex/WorkBuddy，Claude 使用上方 Hub 的 `install-skill` 命令。在原生宿主中只允许本绑定需要的工具：`mcp__agi-hub-endpoint__mail_send`、`mcp__agi-hub-endpoint__peers`、`mcp__agi-hub-endpoint__mail_state`。Claude 向外发消息不需要 Bash。`mcp__agi-hub-endpoint__report` 只服务旧任务。
 
-5. 重新加载目标会话并执行 `/agi-hub-status`，确认 **`client_version: "0.2.2"`** 和 `state: "running"`。code 应为 `listening`；Hub 会话状态尚为 unknown 时可能显示 `confirm_hub_session_idle`，继续完成下方核验。插件安装索引不能证明现有会话加载的是哪个版本。未配置插件保持休眠，UUID 不匹配的会话不领消息。Hub 必须声明支持 25 秒寻址消息长轮询和 Client 租约校验；旧 Hub 会在领取前被拒绝。
+5. 重新加载目标会话并执行 `/agi-hub-status`，确认 **`client_version: "0.2.3"`** 和 `state: "running"`。code 应为 `listening`；Hub 会话状态尚为 unknown 时可能显示 `confirm_hub_session_idle`，继续完成下方核验。插件安装索引不能证明现有会话加载的是哪个版本。未配置插件保持休眠，UUID 不匹配的会话不领消息。Hub 必须声明支持 25 秒寻址消息长轮询和 Client 租约校验；旧 Hub 会在领取前被拒绝。
 
 6. **先验证空闲唤醒，再开启邮箱投递。** 同一宿主、同一传输已有核对过且适用的证据时可以复用；否则，在用户授权并确认预算后，于原 Code 会话只运行一次 `/agi-hub-diagnose`，保持空闲，确认一条插件消息实际启动新回合并返回匹配 nonce。诊断会在 30 秒后提交一次原生 prompt，消耗一个模型回合，一个回合可能包含多次付费 API 请求；它不是零成本命令，也不经过 MQ。不要只为刷新已有有效证据重复运行。
 

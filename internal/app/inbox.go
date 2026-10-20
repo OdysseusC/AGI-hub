@@ -48,6 +48,10 @@ func (s *Server) nextForRequest(r *http.Request, endpoint string, mailbox bool) 
 		}
 		return err
 	})
+	if envelope != nil {
+		filtered := clientEnvelope(*envelope)
+		envelope = &filtered
+	}
 	return envelope, err
 }
 

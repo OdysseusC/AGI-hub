@@ -174,6 +174,17 @@ func contains(values []string, value string) bool {
 	return false
 }
 
+// Native clients need one copy of the addressed content, not the durable mesh
+// frame inside it. Preserve IDs/context while omitting transport-only payload.
+func clientEnvelope(envelope manager.Envelope) manager.Envelope {
+	if envelope.Network != nil {
+		envelope.SourceMessageID = envelope.Network.SourceID
+		envelope.Network = nil
+		envelope.MailFingerprint = ""
+	}
+	return envelope
+}
+
 func (s *Server) remoteCatalog(endpoint string) []Peer {
 	out := []Peer{}
 	if s.management == nil {

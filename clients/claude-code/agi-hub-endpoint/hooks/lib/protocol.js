@@ -87,7 +87,8 @@ export function validateMail(input) {
   const allowed = ['id', 'recipient', 'kind', 'content', 'correlation_id', 'origin_ref', 'reply_to', 'deadline', 'max_messages'];
   if (!object(input) || Object.keys(input).some(key => !allowed.includes(key))) throw new ClientError('unsupported_mail_fields');
   if (!cleanString(input.id) || input.id.length > 128) throw new ClientError('mail_id_required');
-  if (!cleanString(input.recipient) || input.recipient.length > 128) throw new ClientError('mail_recipient_required');
+  const remoteRecipient = typeof input.recipient === 'string' && /^[a-f0-9]{64}\/[a-zA-Z0-9_.-]{1,100}$/.test(input.recipient);
+  if (!cleanString(input.recipient) || input.recipient.length > 128 && !remoteRecipient) throw new ClientError('mail_recipient_required');
   if (!['request', 'reply', 'status', 'result'].includes(input.kind)) throw new ClientError('mail_kind_invalid');
   if (typeof input.content !== 'string' || !input.content.trim() || byteLength(input.content) > 64 * 1024) throw new ClientError('mail_content_required');
   for (const field of ['correlation_id', 'reply_to', 'origin_ref', 'deadline']) if (input[field] !== undefined && (!cleanString(input[field]) || input[field].length > (field === 'origin_ref' ? 512 : 256))) throw new ClientError('invalid_mail_reference');

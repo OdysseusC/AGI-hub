@@ -1,7 +1,7 @@
 {
   "protocol": 1,
   "id": "claude-code",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "peer_protocol_version": 0,
   "mailbox_protocol_version": 1,
   "label": "Claude Code session mod (Desktop Code tab / interactive CLI)",

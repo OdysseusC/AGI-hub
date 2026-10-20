@@ -208,7 +208,7 @@ func outstandingMessages(snapshot manager.Snapshot, endpoint string) []manager.E
 	messages := []manager.Envelope{}
 	for _, envelope := range snapshot.Messages {
 		if envelope.Recipient == endpoint && (envelope.Delivery == "dispatching" || envelope.Delivery == "uncertain") {
-			messages = append(messages, envelope)
+			messages = append(messages, clientEnvelope(envelope))
 		}
 	}
 	sort.Slice(messages, func(i, j int) bool { return messages[i].ID < messages[j].ID })

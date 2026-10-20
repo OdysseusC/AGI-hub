@@ -35,7 +35,7 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 				message, err = s.publishRemote(endpoint, in)
 				return err
 			})
-			return message, err
+			return clientEnvelope(message), err
 		}
 		allowed := false
 		for _, binding := range s.Config.Bindings {

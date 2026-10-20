@@ -48,6 +48,8 @@ Replace the Hub ID placeholder before submitting. Both sending endpoints must be
 
 A successful submission returns a canonical `lan-…` message ID and `correlation_id`. Continue with that returned correlation ID, and use returned message IDs in `reply_to`; the original local `id` is not the canonical network ID. Preserve the original submission file and ID when reconciling a retry. Identical content under the same ID is idempotent; conflicting content is rejected.
 
+Client responses for federated messages retain the original submission ID in `source_message_id` so clients can verify the mapping. Native assistants receive one copy of the body, without the internal network payload or transport fingerprint, to avoid duplicate context.
+
 Each federation protocol 1 conversation has exactly two addressed endpoints. Its `max_messages` budget is assigned at creation: the initiating endpoint receives `ceil(max_messages / 2)` permits and the other receives `floor(max_messages / 2)`. A budget of 5 splits into 3 and 2; a budget of 16 splits into 8 and 8. Concurrent or disconnected writers cannot multiply permits, and an exhausted sender cannot borrow the other's remaining allocation.
 
 Participants, original entry reference, total budget and deadline are immutable within the conversation. Contacting a third endpoint requires a separate user-authorized conversation. Never create a new correlation, change IDs or reset a budget to evade the current conversation's exhausted limit. Defaults are 16 total messages and 30 minutes; the budget range is 1–64, with a deadline in the next 24 hours at submission.
