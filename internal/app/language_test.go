@@ -89,7 +89,12 @@ func TestLanguageSaveSynchronizesOtherManagedSkillsAndReportsConflict(t *testing
 	if err := writePrivateJSON(filepath.Join(s.management.dir, "config.json"), cfg); err != nil {
 		t.Fatal(err)
 	}
-	skillsDir := t.TempDir()
+	// macOS temporary paths may include the /var symlink; managed skill
+	// installation requires a real directory, just like the install fixtures.
+	skillsDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	folder, err := install.Skill(install.Options{
 		Host: "codex", Endpoint: "codex", DataDir: s.management.dir,
 		BinaryPath: filepath.Join(t.TempDir(), "agi-hub.exe"), SkillsDir: skillsDir,

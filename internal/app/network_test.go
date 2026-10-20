@@ -14,7 +14,12 @@ import (
 
 func networkFixture(t *testing.T, name string) *Server {
 	t.Helper()
-	dir := t.TempDir()
+	// Skill management validates every data-directory component. Resolve
+	// macOS's /var temporary-directory alias before starting the fixture.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := InitConfig(dir); err != nil {
 		t.Fatal(err)
 	}
