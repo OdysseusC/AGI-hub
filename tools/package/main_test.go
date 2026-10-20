@@ -25,14 +25,16 @@ func packageFixture(t *testing.T) string {
 	}
 	t.Cleanup(func() { os.Chdir(previous) })
 	files := map[string]string{
-		"hub": "binary", "setup": "installer", "helper": "scoped helper", "START-HERE.md": "guide", "INSTALL.md": "guide", "README.md": "readme", "README.zh-CN.md": "readme", "LICENSE": "license", "config.example.json": "public example", "tools/smoke_client.py": "public code", "tools/package/install.command": "macOS launcher", "tools/package/install.ps1": "Windows launcher",
-		"docs/INSTALL-FOR-ASSISTANT.md": "assistant guide", "docs/private/secret.md": "PRIVATE DOCUMENT", "docs/unlisted.json": "PRIVATE DATA",
+		"hub": "binary", "setup": "installer", "helper": "scoped helper", "LICENSE": "license", "config.example.json": "public example", "tools/smoke_client.py": "public code", "tools/package/install.command": "macOS launcher", "tools/package/install.ps1": "Windows launcher",
+		"docs/private/secret.md": "PRIVATE DOCUMENT", "docs/unlisted.json": "PRIVATE DATA",
 		"clients/workbuddy/main.py": "public code", "clients/workbuddy/client.example.json": "public example", "clients/shared/report.py": "public code",
 		"clients/workbuddy/client.json": "SECRET TOKEN", "clients/workbuddy/private/secret.md": "PRIVATE CLIENT", "clients/workbuddy/__pycache__/x.pyc": "CACHE",
 		"clients/claude-code/.claude-plugin/marketplace.json": "public marketplace", "clients/claude-code/agi-hub-endpoint/hooks/hooks.json": "public hooks",
-		"tools/smoke_skill_sync.py": "public skill smoke", "tools/smoke_mailbox.py": "public mailbox smoke", "tools/MAILBOX-SMOKE.md": "public smoke instructions",
-		"START-HERE.zh-CN.md": "Chinese start guide", "INSTALL.zh-CN.md": "Chinese install guide", "tools/MAILBOX-SMOKE.zh-CN.md": "Chinese smoke guide",
-		"internal/install/skills/agi-hub-client/SKILL.md": "English runtime skill", "internal/install/skills/agi-hub-client/SKILL.zh-CN.md": "Chinese skill reference",
+		"tools/smoke_skill_sync.py": "public skill smoke", "tools/smoke_mailbox.py": "public mailbox smoke",
+	}
+	for _, name := range publicDocumentFixtures() {
+		files[name] = "Chinese default document"
+		files[strings.TrimSuffix(name, ".md")+".en.md"] = "English optional document"
 	}
 	for name, body := range files {
 		if err := os.MkdirAll(filepath.Dir(name), 0700); err != nil {
@@ -43,6 +45,15 @@ func packageFixture(t *testing.T) string {
 		}
 	}
 	return dir
+}
+
+func publicDocumentFixtures() []string {
+	return []string{
+		"AGENTS.md", "CHANGELOG.md", "CONTEXT.md", "CONTRIBUTING.md", "INSTALL.md", "README.md", "START-HERE.md",
+		"docs/ADAPTERS.md", "docs/ARCHITECTURE.md", "docs/CLIENTS.md", "docs/INSTALL-FOR-ASSISTANT.md", "docs/NATIVE-VALIDATION.md", "docs/PROTOCOL.md", "docs/SKILLS.md", "docs/TEAM-ORCHESTRATION.md", "docs/adr/0001-native-coordination.md",
+		"clients/claude-code/README.md", "clients/codex/README.md", "clients/grok-routine/README.md", "clients/tests/README.md", "clients/workbuddy/README.md",
+		"tools/MAILBOX-SMOKE.md", "internal/install/skills/agi-hub-client/SKILL.md",
+	}
 }
 
 func TestPackageContainsOfflineInstallerAndOnlyPublicPayload(t *testing.T) {
@@ -77,9 +88,13 @@ func TestPackageContainsOfflineInstallerAndOnlyPublicPayload(t *testing.T) {
 			t.Errorf("missing %s", name)
 		}
 	}
-	for _, name := range []string{"START-HERE.zh-CN.md", "INSTALL.zh-CN.md", "tools/MAILBOX-SMOKE.zh-CN.md", "internal/install/skills/agi-hub-client/SKILL.md", "internal/install/skills/agi-hub-client/SKILL.zh-CN.md"} {
-		if _, ok := payload[name]; !ok {
-			t.Errorf("missing bilingual document %s", name)
+	for _, name := range publicDocumentFixtures() {
+		if string(payload[name]) != "Chinese default document" {
+			t.Errorf("missing Chinese default document %s", name)
+		}
+		english := strings.TrimSuffix(name, ".md") + ".en.md"
+		if string(payload[english]) != "English optional document" {
+			t.Errorf("missing English optional document %s", english)
 		}
 	}
 	for _, name := range []string{"docs/private/secret.md", "docs/unlisted.json", "clients/workbuddy/client.json", "clients/workbuddy/private/secret.md", "clients/workbuddy/__pycache__/x.pyc"} {

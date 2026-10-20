@@ -1,40 +1,46 @@
-# Changelog
+# 更新记录
 
-[English](CHANGELOG.md) | [简体中文](CHANGELOG.zh-CN.md)
+[简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
+
+## 0.3.1 — 2026-10-20
+
+- 公开文档默认展示中文，英文完整版本统一使用 `*.en.md`，语言导航中文在前。
+- Release 先展示中文更新和下载入口，再提供完整英文说明；两种语言均从对应版本更新记录生成。
+- 安装包保留全部双语文档；模型协作技能仍只安装一份英文正文，更新导航引用与受管修订，不改变消息协议或原生接入能力。
 
 ## 0.3.0 — 2026-10-20
 
-- Add Claude Code mod `0.2.2` mailbox tools for member discovery, explicit message sending and scoped state queries, with fixed endpoint/session binding and a consumer lease. Support is Code-only and queue-only, without busy steer or ordinary Chat/Cowork integration.
-- When activation options are absent, read only this plugin's own `client_config` path from official merged settings. Explicit options take priority; conflicting configured paths stop the Client rather than selecting one.
-- Pass the native mailbox round trip on the local macOS Claude-3p `2.1.299` original Code session at 11:48 Beijing time: idle wake, native Read of a 54-byte synthetic file, explicit native `mail_send`, and independent Desktop MCP send-now return to the busy original Codex chat. Two delivered messages carried the matching nonce and sum 51, without human forwarding, Task/Report or Bash. This is machine-specific evidence, not all-platform acceptance; see the [native record](docs/NATIVE-VALIDATION.md) for usage and preliminary diagnostics.
-- Provide separate complete English and Simplified Chinese public documentation, with English as the default and language-switch links throughout. Preserve historical acceptance evidence and support limits.
-- Generate full English and Chinese Release notes from both version-specific changelog sections, with language-specific installation and acceptance links. Missing, empty or duplicate sections in either language block publication.
+- 增加 Claude Code mod `0.2.2` 邮箱原生工具，用于成员发现、显式发送消息和查询本身份状态，保持固定 endpoint/会话绑定与消费者租约。仅支持 Code 会话 queue，不支持忙时 steer 或普通 Chat/Cowork。
+- 宿主未传激活选项时，仅从官方合并 settings 读取本插件自己的 `client_config` 路径。显式选项优先；配置路径冲突时停止，不自行选择。
+- 北京时间 11:48，在本机 macOS Claude-3p `2.1.299` 原 Code 会话完成原生邮箱闭环：空闲唤醒、原生 Read 读取 54 字节合成文件、显式原生 `mail_send`，再经独立 Desktop MCP send-now 返回忙碌的原 Codex 聊天。两封 delivered 消息携带匹配 nonce 和总和 51，没有人工搬运、Task/Report 或 Bash。这是本机证据，不代表全平台验收；消耗与预检诊断见[原生记录](docs/NATIVE-VALIDATION.md)。
+- 公开文档提供完整、独立的英文和简体中文版本，以英文为默认，并提供语言切换链接；保留历史验收证据与支持边界。
+- Release 从两种语言对应版本的更新记录生成完整英文、中文说明，分别链接到对应语言的安装和验收文档；任一语言章节缺失、空白或重复都会阻止发布。
 
 ## 0.2.3 — 2026-10-19
 
-- Focus official packages on Windows and macOS, each with amd64 and arm64 builds. Linux packages are no longer published.
-- Use clearer `macos-*` download names: choose `macos-arm64` for Apple silicon or `macos-amd64` for Intel. The internal `darwin` platform identifier remains compatible.
-- Generate Release pages with that version's changes, download and selection instructions for all four packages, and installation and acceptance scope. Block publication when the corresponding version section is missing.
-- Verify checksums for all four packages during GitHub publication and run the packaged programs on macOS to verify their version. The message protocol, personal configuration and journal format are unchanged.
+- 正式安装包聚焦 Windows 和 macOS，各提供 amd64、arm64 两种架构，不再发布 Linux 安装包。
+- Mac 下载文件改用直观的 `macos-*` 名称：Apple 芯片选择 `macos-arm64`，Intel 芯片选择 `macos-amd64`；程序内部的 `darwin` 系统标识保持兼容。
+- Release 页面自动展示本版本更新点、四种安装包的下载与选择说明、安装和验收范围；缺少对应版本更新记录时阻止发布。
+- GitHub 发布核对四个安装包的校验值，并在 macOS 上实际运行包内程序验证版本；消息协议、个人配置与日志格式不变。
 
 ## 0.2.2 — 2026-10-19
 
-- Use operating-system file locks for data directories, avoiding random Hub startup failures caused by reserved Windows ports. The operating system releases the lock on process exit, without polling or deleting a lock file.
-- Preserve the failed release-check record for `v0.2.1`. Resume official package publication with this version without moving existing tags or overwriting release files.
+- 数据目录改用操作系统文件锁，避免 Windows 保留端口导致 Hub 随机启动失败；进程退出后由系统释放，不依赖轮询或删除锁文件。
+- 保留 `v0.2.1` 发版检查拦截的失败记录，正式安装包从本版继续发布，不移动已有标签或覆盖版本文件。
 
-## 0.2.1 — 2026-10-19 (release checks failed)
+## 0.2.1 — 2026-10-19（发布检查未通过）
 
-- Automatically check pull requests and the main branch through GitHub Actions, providing downloadable portable build artifacts for six platform/architecture targets.
-- Trigger compilation, verification and Release publication from version tags. Require tags to come from main's history and match the program version; never overwrite existing release files.
-- Reuse cross-platform checks and artifacts from the same run, without compiling and uploading manually from the development machine.
+- PR 和主分支由 GitHub Actions 自动检查，并提供六平台便携构建的下载产物。
+- 版本标签触发 GitHub 编译、校验与 Release 发布；只允许来自主分支历史且程序版本匹配的标签，不覆盖已有发行文件。
+- 发布沿用跨平台检查与同一次运行的构建产物，无需在开发电脑编译和手工上传。
 
 ## 0.2.0 — 2026-10-19
 
-- Add skill-driven addressed mailboxes: assistants explicitly send requests, replies, status and results, choosing permitted recipients from context. The Hub creates no task tree or forced return chain.
-- Retain original entry context and share a message limit and deadline within one collaboration. Deduplicate stable IDs, preserve uncertain deliveries, serialize native channel use and block misdelivery when the original entry is rebound.
-- Enable the mailbox protocol independently in Codex and WorkBuddy Clients. Status messages do not wake a model; legacy task APIs remain compatible. Claude and Grok do not yet enable the new mailbox protocol.
-- Add portable packages for six platform/architecture targets, an offline verification installer, a fixed-identity messaging helper, and onboarding instructions for Codex and WorkBuddy. Keep personal configuration outside packages.
-- Add CI across three operating systems, offline multi-assistant mailbox acceptance tests and a feature-branch contribution process.
-- Fix Windows file access permissions for truncated-journal recovery and detection of a stopped local service during offline skill installation.
+- 增加技能驱动的寻址邮箱：助手显式发送请求、回复、状态与成果，可按上下文自由选择获准收件人。Hub 不建立任务树或强制回传链。
+- 同一协作保存原入口上下文，共享消息数和期限；稳定 ID 去重、不确定投递保留、原生通道串行占用。原入口改绑时阻止误投。
+- Codex 和 WorkBuddy Client 可单独启用邮箱协议。状态消息不唤醒模型；旧任务接口保持兼容。Claude 和 Grok 暂不启用新邮箱协议。
+- 增加六平台便携包、离线校验安装器、固定身份收发程序，以及交给 Codex 和 WorkBuddy 的接入引导。个人配置保存在包外。
+- 增加三平台 CI、离线多助手邮箱验收和功能分支贡献流程。
+- 修复 Windows 日志断尾恢复的文件访问权限，以及离线技能安装对本地服务未启动错误的识别。
 
-See the [native validation record](docs/NATIVE-VALIDATION.md) for actual native integration acceptance scope and limitations.
+实际原生接入的验收范围与限制见 [本机验证记录](docs/NATIVE-VALIDATION.md)。

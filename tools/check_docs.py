@@ -1,4 +1,4 @@
-"""Check that public Markdown has both languages and working local file links."""
+"""Check Chinese-default / optional-English Markdown and local file links."""
 
 import re
 import subprocess
@@ -11,17 +11,17 @@ def check(root: Path) -> list[str]:
     names = subprocess.check_output(
         ["git", "ls-files", "-co", "--exclude-standard", "-z", "--", "*.md"], cwd=root
     ).decode("utf-8").split("\0")
-    documents = sorted({root / name for name in names if name})
+    documents = sorted({root / name for name in names if name and (root / name).is_file()})
     errors = []
     for document in documents:
         name = document.name
-        other = name.removesuffix(".zh-CN.md") + ".md" if name.endswith(".zh-CN.md") else name.removesuffix(".md") + ".zh-CN.md"
+        other = name.removesuffix(".en.md") + ".md" if name.endswith(".en.md") else name.removesuffix(".md") + ".en.md"
         partner = document.with_name(other)
         relative = document.relative_to(root)
         if not partner.is_file():
             errors.append(f"{relative}: missing translation {other}")
         text = document.read_text(encoding="utf-8")
-        if other not in text or "English" not in text or "中文" not in text:
+        if other not in text or not re.search(r"(?m)^\[简体中文\]\([^\n]+\) \| \[English\]\([^\n]+\)$", text):
             errors.append(f"{relative}: missing language navigation")
         text = re.sub(r"(?ms)^```[^\n]*\n.*?^```[^\n]*(?:\n|$)", "", text)
         for match in re.finditer(r"\[[^\]\n]*\]\(([^\n)]+)\)", text):

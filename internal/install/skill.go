@@ -23,14 +23,14 @@ const (
 	// SkillRevision must increase whenever the released embedded rules change.
 	// It prevents an older installed CLI from replacing newer approved rules.
 	// This release counter is independent of manifest and registry schemas.
-	SkillRevision = 4
+	SkillRevision = 5
 
 	skillName    = "agi-hub-client"
 	manifestName = ".agi-hub-manifest.json"
 	owner        = "agihub/skill-installer"
 )
 
-//go:embed skills/agi-hub-client/SKILL.md
+//go:embed skills/agi-hub-client/SKILL.en.md
 var skillFiles embed.FS
 
 // Options selects one user's host and endpoint. The caller must ensure the
@@ -95,7 +95,7 @@ func Skill(options Options) (string, error) {
 }
 
 func embeddedSkill() ([]byte, error) {
-	return skillFiles.ReadFile("skills/agi-hub-client/SKILL.md")
+	return skillFiles.ReadFile("skills/agi-hub-client/SKILL.en.md")
 }
 
 // CurrentSkill returns this binary's collaboration rules and their content

@@ -2,14 +2,14 @@
 status: accepted
 ---
 
-[English](0001-native-coordination.md) | [简体中文](0001-native-coordination.zh-CN.md)
+[简体中文](0001-native-coordination.md) | [English](0001-native-coordination.en.md)
 
-# Skills decide collaboration; the Hub provides addressed mailboxes
+# 技能决定协作，Hub 提供定址邮箱
 
-Users start work in any connected native assistant. Skills discover permitted members; assistants explicitly choose each message's recipient and decide whether to forward, reply or combine results. Assistants send final results back to the session where the user first entered the request. The Hub provides only directory/send permissions, durable messages, delivery evidence, idempotency and shared message limits. It creates no team plan, dependency graph, parent/child task, waiting state or automatic reply.
+用户从任意已接入的原生助手发起工作。助手通过技能发现用户允许的成员，明确选择每条消息的接收者，并决定转交、回复或汇总；最终成果由助手发回最初输入的会话。Hub 只提供目录与互通权限、持久消息、投递证据、幂等及共享消息限额，不建立团队计划、依赖图、父子任务、等待状态或自动回复。
 
-`correlation_id` associates mail, `root_origin` preserves the original entry and `reply_to` is only a contextual reference. These fields do not force routing: B may ask D for help, and D may explicitly reply to B or directly to A within the permitted scope. The original entry still judges business success and result quality. A transport ACK confirms only native input or CLI transport. Status mail is recorded locally without waking a model; new mail uses neither Task/Report nor settled.
+`correlation_id` 关联邮件，`root_origin` 保存最初入口，`reply_to` 仅作上下文引用。这些字段不强制路由：B 可请 D 协助，D 可明确回 B，也可在许可范围内直接给 A。业务成功和成果质量仍由原入口判断，传输 ACK 只证明原生输入或 CLI 传输已确认。状态邮件本地记录、不唤醒模型；新邮件不使用 Task/Report 或 settled。
 
-The directory is fetched on demand. Rule changes synchronize managed skills without rewriting every prompt or starting models for member changes. Codex Desktop MCP, WorkBuddy CLI and Claude Code mod 0.2.2 support opt-in mailbox protocol `1`; Claude's original macOS Code idle mailbox execution and busy Codex return passed on 2026-10-20, while other native scopes remain unverified and Grok stays at `0`. The interface protocol remains `1`. The first mailbox publication uses journal format `3` so old programs cannot drop new fields. Historical v1 single-handoff tasks and unpublished v2 prototype diagnostics remain readable; the latter are not resumed.
+成员目录按需读取；规则更新同步受管技能，无需为成员变化重写全部提示或启动模型。Codex Desktop MCP、WorkBuddy CLI 与 Claude Code mod 0.2.2 提供显式启用的邮箱协议 `1`；Claude 于 2026-10-20 通过 macOS 原 Code 空闲邮箱执行与忙碌 Codex 回传，其他原生范围仍未验收，Grok 保持 `0`。接口保持协议 `1`，首次邮箱发布使用日志格式 `3` 防止旧程序丢弃新字段；历史 v1 单次任务和未发布 v2 原型诊断仍可读取，后者不再恢复执行。
 
-The tradeoff is that skills and assistants own division of work, return routing and authorization scope. The Hub cannot guarantee a model will reply or infer overall completion from a result's kind. This decision replaces the unpublished parent/child task prototype. The [protocol](../PROTOCOL.md), [skill maintenance](../SKILLS.md) and [Client support](../CLIENTS.md) describe the implementation.
+代价是技能与助手负责分工、回传和授权范围，Hub 不保证模型一定回复，也不以结果类别推断整个目标已完成。该决策替换未发布的父子任务协调原型；[协议](../PROTOCOL.md)、[技能维护](../SKILLS.md)和[Client 支持范围](../CLIENTS.md)描述当前实现。
