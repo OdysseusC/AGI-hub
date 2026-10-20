@@ -1,196 +1,197 @@
-[English](NATIVE-VALIDATION.md) | [简体中文](NATIVE-VALIDATION.zh-CN.md)
+[简体中文](NATIVE-VALIDATION.md) | [English](NATIVE-VALIDATION.en.md)
 
-# Local native integration records
+# 本机原生接入记录
 
-Recorded 2026-10-14 through 2026-10-20 on macOS arm64. October 14 used WorkBuddy 5.8.2 and official CodeBuddy CLI 2.161.0; October 16 added an original local Claude-3p Desktop Code session with bundled Claude Code 2.1.299. WorkBuddy was 5.8.3 on October 19, when zero-model skill-maintenance checks were added. Only methods, results and scope are public: no credentials, personal contacts, real session IDs or private absolute paths. Native Windows/Linux integration requires separate acceptance; compilation is not a substitute.
+记录日期：2026-10-14 至 2026-10-20，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
 
-## 2026-10-19: Managed skill synchronization, zero model calls
+## 2026-10-19：受管技能同步，无模型调用
 
-Existing managed skills for local Codex, Claude Code and WorkBuddy were explicitly updated/registered only after their original manifests passed validation, using one private Hub. Rule revision was `1`, body SHA256 `5cb0cf94da3b55863c0b219f924cde722c7d9ebace27c762ce49f90f4ce096f5`. Backups stayed outside the repository. Native tool permissions, plugin code and account grants were unchanged.
+本机 Codex、Claude Code、WorkBuddy 三处原有受管技能均通过原清单校验后显式更新和登记，使用同一私有 Hub；规则修订 `1`，正文 SHA256 为 `5cb0cf94da3b55863c0b219f924cde722c7d9ebace27c762ce49f90f4ce096f5`。更新前备份留在仓库外，未改变原生工具权限、插件代码或账号授权。
 
-WorkBuddy retained its dedicated report helper as `binary_path`, adding only optional `hub_binary_path` for queries/maintenance rather than replacing reporting with the full CLI. All three returned `skills-status=current`, `host_load_state=unknown`; a second synchronization left all three modification times identical. Configuration made only those three enabled entries mutually visible, enabling no other endpoint or new task-send permission.
+WorkBuddy 原 `binary_path` 继续指向专属报告 helper，仅新增可选 `hub_binary_path` 用于查询和维护，未用通用 CLI 替换报告入口。三处 `skills-status` 均为 `current`、`host_load_state=unknown`；再次同步三份文件修改时间完全不变。配置仅为三个已启用接入点设置互相可见目录，不启用其他接入点、不授予新增任务发送权。
 
-After actual Hub startup, each endpoint's directory contained only the other two and matching rule digests. Matching `known_version` returned no body. Native session state stayed unknown: no fake idle, business tasks or update wake messages. Native model calls for all maintenance were **0**. Correct disk/catalog state does not prove any old session's model read new text.
+实际 Hub 启动后，三个 endpoint 查询目录都只得到另外两个成员，规则摘要一致；相同 `known_version` 的规则请求不返回正文。启动后的原生会话状态仍为 `unknown`，没有虚设 idle、提交业务任务或发送更新唤醒。全部维护操作的原生模型调用数为 **0**。磁盘和目录通过不代表三个旧会话的模型已读入新正文。
 
-Host checks: Codex `0.163.0-alpha.10.2` actually discovered the skill through independent app-server `skills/list(forceReload:true)` without creating a thread/turn. Local Claude Code `2.1.299` contained `/reload-skills`, and official docs describe file watching while historical content remains. WorkBuddy `5.8.3` contained skill-directory file event listeners; a new CodeBuddy CLI `2.161.0` process scanned its selected profile. No Claude continuation, `/reload-plugins --force` or WorkBuddy extension reload was used to refresh. Grok cloud skill maintenance was not tested or included in local synchronization. See [host mechanisms and official sources](SKILLS.md#how-updates-take-effect-in-each-host).
+宿主核查：Codex `0.163.0-alpha.10.2` 的独立 app-server 实际 `skills/list(forceReload:true)` 发现该受管技能，未创建 thread/turn；Claude Code `2.1.299` 的本机程序包含 `/reload-skills`，官方说明支持文件监测，但旧正文仍保留在历史；WorkBuddy `5.8.3` 程序包含技能目录文件事件监听，CodeBuddy CLI `2.161.0` 新进程会扫描对应配置目录。未为了刷新执行 Claude 模型续接、`/reload-plugins --force` 或 WorkBuddy 扩展重载。Grok Bot 的云端技能维护未实测，不加入本地文件同步。[宿主机制与官方资料](SKILLS.md#各宿主如何生效)
 
-Software verification passed Go race/vet and six Windows/macOS/Linux amd64/arm64 builds. Actual-Hub simulated protocol smoke retained one handoff, file checks and one return. Skill smoke covered three registered installs, idempotent timestamps, edited-file preservation, no reinstall after deletion, catalog version change after disabling and zero generated messages. Tests rejected downgrades, changed content under one revision and Hub/CLI source mismatch. Standard-library checks covered skill frontmatter/fences. Upstream skill validation did not pass because local PyYAML was absent; no dependency was added for it.
+软件验证：Go race 测试、vet，Windows/macOS/Linux 的 amd64/arm64 六目标构建通过。真实 Hub 的模拟协议 smoke 保持单次交接、文件校验和一次返回；技能 smoke 核对三处登记、幂等时间戳、修改冲突保留、卸载不重装、禁用后目录版本变化及零消息产生。降级、同修订不同正文、Hub 与 CLI 来源不一致由测试拒绝。技能前置信息和代码围栏用标准库检查；上游技能校验脚本因本机缺少 PyYAML 未运行成功，未为此添加依赖。
 
-## 2026-10-14: WorkBuddy default resume and history
+## 2026-10-14：WorkBuddy 默认恢复与历史
 
-The Client used configured existing session ID, cwd and profile with `--resume`. Complete Envelope entered through a regular stdin file; private regular temporaries captured stdout. Only noninteractive output formatting was added: no `--tools`, MCP/model/permission overrides or persistence-disabling flag.
+Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--resume`；完整 Envelope 经 stdin 普通文件输入，stdout 使用私有普通临时文件接收。只增加非交互输出格式，不传 `--tools`、MCP、模型、权限覆盖或禁止持久化参数。
 
-Before official CLI login, both full official CLI and desktop-bundled CLI resumed the original desktop session with `Authentication required`. The user then logged in personally in an official CLI profile outside the repository. An independent existing session under that profile resumed and remembered the previous turn, proving continuation for that independent CLI path.
+正式 CLI 登录前，完整官方 CLI 与桌面随包 CLI 恢复原桌面会话均返回 `Authentication required`。用户随后在仓库外的正式 CLI 配置目录完成本人登录。该目录下的独立既有会话默认恢复成功，正确记住前轮讨论，证明这条独立 CLI 路径的续聊能力。
 
-The original WorkBuddy profile still failed default resume that day, including site-environment comparisons. One failed default-persistence execution using final argv/stdin appended the original history; its old byte prefix was verified intact. Failure, empty stdout or exit code 0 cannot justify safe resend. This October 14 observation does not override the successful original-path evidence on October 15 below.
+当天原 WorkBuddy 配置目录的默认恢复仍返回登录错误，包括登录站点环境对照。一次默认持久化、使用最终 argv 和 stdin 的失败执行追加了原历史；核对确认旧内容前缀完整保留。失败、空 stdout 或退出码 0 都不能作为安全重发依据。这是 10 月 14 日的观察，不能覆盖下文 10 月 15 日原路径恢复成功的新证据。
 
-Earlier diagnostics disabling tools or selecting `Bash,Read` changed conditions. Repeating history does not prove default tools or WeCom access. Profiles are not account-isolation boundaries; official implementations may share authentication storage. No desktop token/IPC ticket was extracted or login state forcibly rewritten. See [official configuration directories](https://www.codebuddy.cn/docs/cli/installation) and [headless mode](https://www.workbuddy.cn/docs/cli/headless).
+早期关闭工具或设置 `Bash,Read` 的诊断改变了调用条件；历史复述不证明默认工具环境或企微接入。配置目录也不是账户隔离边界，官方实现可能使用共享认证存储。项目未提取桌面 token、IPC ticket 或强行改写登录态。[官方配置目录](https://www.codebuddy.cn/docs/cli/installation)、[官方无头模式](https://www.workbuddy.cn/docs/cli/headless)
 
-## 2026-10-14: Independent CLI MQ execution and reporting
+## 2026-10-14：独立 CLI 的 MQ 执行与回报
 
-A real MQ message entered an existing formally logged-in independent CLI session through Python Client, retaining context and installed `agi-hub-client`. Its first call was denied noninteractive Read/Write/Bash, producing neither Reports nor artifacts. Hub kept work unfinished rather than treating chat explanations or CLI success as business completion.
+真实 MQ 消息经 Python Client 送入正式登录的独立 CLI 既有会话，原上下文与已安装 `agi-hub-client` 技能可用。首次调用因非交互 Read/Write/Bash 权限被拒，没有回执和成果文件；Hub 保留任务未完成，没有把聊天说明或 CLI 成功状态当作业务完成。
 
-After verifying zero earlier file writes/Reports, narrow rules covered only skill reads, private acceptance-workspace read/write and an endpoint-specific report helper, with an explicit absolute workspace, before resuming the same task. No `-y`, `bypassPermissions` or blanket Bash grant. The native session actively sent accepted/running/succeeded, created files and passed Hub SHA-256. Native file tools saved Report JSON, followed by direct helper `report --file`, without a pipe or second interpreter. See [official permission rules](https://www.workbuddy.cn/docs/cli/iam).
+在核对前次零文件写入、零回执后，窄范围配置仅覆盖技能读取、私有验收工作区读写和 endpoint 专属报告 helper，并明确工作区绝对目录，再恢复同一任务。未使用 `-y`、`bypassPermissions` 或整体放行 Bash。原生会话随后主动发送 accepted/running/succeeded，生成文件并通过 Hub SHA-256 核对。报告用原生文件工具保存 JSON，再直接调用 helper 的 `report --file`，不包进管道或另一解释器。[官方权限规则](https://www.workbuddy.cn/docs/cli/iam)
 
-Resident SSE automatically claimed a second task and resumed the same existing CLI by default. It produced all three Reports and new files on its first execution without manual resume. Tasks used distinct execution IDs, results had independent message IDs/correct `reply_to`/`correlation_id`, and identical Submission/saved-success-Report retries did not increase task/result counts. Terminal resources were released.
+第二个任务由常驻 SSE Client 自动领取，默认恢复同一既有 CLI 会话，首次执行即完成三种原生回执和新的成果文件，无手工恢复。两个任务使用不同执行标识；结果各有独立消息 ID、正确的 `reply_to` 与 `correlation_id`。原样重投 Submission 和已保存成功回执后，任务数、结果消息数不增加，终态资源已释放。
 
-The helper held only the endpoint token and called only `/v1/report`: no Hub admin config reads, assistant startup or endpoint switching. Report files were workspace-bound, rejecting escapes, symlinks and other subcommands. This proves independent CLI MQ execution/reporting/files, not execution of original WorkBuddy Desktop WeCom tools.
+报告 helper 只持有该 endpoint 的 scope token，只调用 `/v1/report`；不读 Hub 管理配置、不启动助手、不切换 endpoint。报告文件限定在声明工作区，拒绝越界、符号链接和其他 subcommand。该验收证明独立 CLI 的 MQ 执行、回报和文件核对，不证明原 WorkBuddy 桌面企微工具已执行。
 
-## 2026-10-14: Segmented Codex return-channel results
+## 2026-10-14：Codex 返回通道的分段结果
 
-`codex queue` saved a diagnostic but only entered the current turn after the user manually selected guidance: queue evidence only. Two later real MQ artifacts were guided into the same original chat by the running Codex entry's in-host official `send_message_to_thread` using send-now, without manual clicks or queue as immediate-return evidence. Actual delivery receipts were retained.
+`codex queue` 曾成功保存诊断消息，但用户手动点击“引导”后才进入当前轮次，只证明排队。此后两个真实 MQ 成果由正在运行的 Codex 入口调用宿主内官方 `send_message_to_thread` 工具，以 send-now 实际引导回同一原聊天，无需人工点击，未用 queue 充当即时返回证据；各自的真实投递回执已保存。
 
-The separate App Server Client used official `app-server proxy`, read only thread metadata/turn ID/status, and returned results through `turn/steer` with `expectedTurnId`. Idle startup was off by default; it neither resumed unloaded threads nor fell back to queue/new exec/resume. Actual proxy exited while connecting its control socket. This host managed its own app-server over stdio without exposing that daemon control socket. See [official protocol](https://learn.chatgpt.com/docs/app-server).
+独立 App Server Client 采用官方 `app-server proxy`，只读取线程元信息与轮次 ID/status，结果通过带 `expectedTurnId` 的 `turn/steer` 投递；默认不启用空闲启动，不自动恢复未加载线程，也不回退到 queue 或另起 exec/resume。当天实际 proxy 在连接控制 socket 时退出；当前宿主以 stdio 管理自己的 app-server，未开放该 daemon 控制 socket。[官方协议](https://learn.chatgpt.com/docs/app-server)
 
-That failure describes only App Server proxy, not official Desktop MCP. Later independent Desktop MCP evidence follows.
+这项失败只描述 App Server proxy 通道，不能推出官方 Desktop MCP 不可用；Desktop MCP 的独立进程新证据见下文。
 
-## 2026-10-15: Original WorkBuddy session and profile resume
+## 2026-10-15：原 WorkBuddy 会话与原配置恢复
 
-Using the original WorkBuddy session and `.workbuddy`, official `codebuddy` default `--resume` passed two read-only authentication continuations without tool/permission/MCP overrides. This verifies normal authenticated continuation on that original path; it must no longer be summarized as “the original profile cannot log in.”
+使用原 WorkBuddy 会话 ID 与原 `.workbuddy` 配置，通过官方 `codebuddy` 默认 `--resume`，两次只读认证续聊成功。未传工具、权限或 MCP 覆盖参数。这项新证据确认原路径可以正常认证续聊，不能再笼统写成“原配置仍无法登录”。
 
-A fresh contact search was initially denied local noninteractive Bash/Read and never reached remote execution. Precise allow rules were then corrected for outer JSON/shell-quote normalization based on the public command parser. Offline negative cases still rejected appended commands, changed keywords and redirections, without blanket Bash permission.
+新的联系人搜索最初在本地非交互 Bash/Read 权限阶段被拒，没有执行到远端。随后按公开命令解析器修正了精确 allow 规则的 JSON/shell 外层引号归一化；离线反例确认追加命令、改变关键词和重定向仍被拒绝，没有整体放行 Bash。
 
-Another default original-session `codebuddy --resume` actually executed the fresh search through an absolute path to official bundled wecom-cli `1.3.4-workbuddy-local.281`, not PATH's other `1.1.0`. Native tool evidence was checked: `completed` with raw remote `errcode=850003`, `authorization expired`, not merely the assistant's final interpretation. No contact data was obtained.
+再次使用原会话默认 `codebuddy --resume`，已实际执行本轮新联系人搜索。入口为官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径，未采用默认 PATH 中另一个 `1.1.0` 版本。已核对原生工具结果：调用状态为 `completed`，原始远端输出明确包含 `errcode=850003`、`authorization expired`；这不是只根据助手最后一段解释作出的归因。未取得联系人数据。
 
-The obstacle therefore moved from local rules to remote authorization: that robot's contact grant had expired. CLI login, actual search execution and data retrieval were recorded separately. Later user reauthorization enabled a new original-session query/MQ return below. `850003` remains historical, not a current blocker, while success still does not prove full desktop-tool injection.
+这一阶段的阻点从本地命令规则进入远端授权：该 CLI 路径使用的机器人通讯录授权过期，当时未取得联系人数据。原生 CLI 登录、搜索实际执行与数据获取分别记录。用户随后完成重新授权，原会话的新查询与 MQ 回传成功，见后文；`850003` 保留为历史错误，不再作为当前阻点，成功范围也不扩张为完整桌面工具注入。
 
-Bundled 1.3 has no `auth` subcommand; 1.1 `auth status` was not used as evidence for it. No private desktop env/auth/ticket was read/copied, sandbox disabled or remote search blindly retried. Five temporary allow rules were restored to original settings bytes. No contact messages were sent.
+官方随包 1.3 不支持 `auth` 子命令，不把 1.1 的 `auth status` 当作这条路径的登录证据。本次未读取或复制桌面私有 env/auth/ticket，没有禁用 sandbox，没有盲重试远端搜索；临时五条精确 allow 已将 settings 恢复到原字节。未发送联系人消息。
 
-## 2026-10-15: Independent Node immediate guidance through official Desktop MCP
+## 2026-10-15：独立 Node 经官方 Desktop MCP 即时引导
 
-An independent client ran under the official Node runtime in the natural host environment, spawned official Node/Desktop MCP server, initialized MCP/listed 57 tools, then actually called `send_message_to_thread` for the original chat. The ACK had `isError=false` and a matching thread ID; `codex_delegation` immediately entered the busy original chat without manually selecting guidance or using native queue.
+独立 Node 客户端在自然宿主环境下，由官方 Node runtime 执行，再 spawn 官方 Node runtime 和 Desktop MCP server，完成 MCP initialize 与 tools/list，发现 57 个工具。随后真实调用官方 `send_message_to_thread` 发送到原聊天，得到 `isError=false` 与匹配 thread ID 的 ACK；消息也已作为 `codex_delegation` 立即进入忙碌原聊天，无人工点击“引导”，未使用 native queue。
 
-This was a real independent-process MCP call, not the current model's internal sending tool masquerading as an external Client. Tool discovery does not authorize all 57 tools; this evidence covers only the selected original session's sender tool.
+这次来自独立进程的真实 MCP 调用，不是由当前模型内部工具代发充当外部 Client。发现 57 个工具不表示 Hub 获准调用所有工具；本条发送证据只对应指定原会话的发送工具。
 
-The same machine's Python parent chain failed macOS signature checks while official Node's natural host chain passed. This is launch-chain-specific, not “Python cannot use MCP.” Missing App Server daemon sockets were separate and not this Desktop MCP blocker. No new daemon or private application IPC was introduced as an imitation original chat.
+同机 Python 父进程链曾因 macOS 签名校验失败；官方 Node 的自然宿主启动链通过。结论限定于实际测试的启动链，不能概括成 Python 不支持 MCP。App Server proxy 所需 daemon socket 未开放是另一问题，不是这次 Desktop MCP 的阻点。没有新建 daemon 或自行接入未公开应用 IPC 来冒充原聊天。
 
-This section records transport-level send/busy-guidance evidence. Resident Node MQ Client 0.2.0 later completed two real busy-return loops, and idle original-chat startup was tested separately below. None implies the scope of another.
+本节记录独立 Desktop MCP 工具层的发送与忙时引导证据。随后常驻 Node MQ Client 0.2.0 完成两轮真实 MQ 忙时返回；同一传输的空闲原聊天启动也已单独实测，分别记录如下，不能将一种测试范围推导成另一种。
 
-## 2026-10-15: Complete busy-return MQ loops
+## 2026-10-15：完整 MQ 忙时返回闭环
 
-Both real local busy-return MQ runs passed. Clients subscribed before new task submission. Each showed:
+本轮两次真实 MQ 忙时返回均通过。消费者已订阅后再提交新任务，每轮依次观测到：
 
-1. Hub persisted a task; SSE prompted WorkBuddy Client to claim it automatically.
-2. Default `--resume` restored the fixed independent CLI coordination session without tool/permission/MCP overrides.
-3. That native session actively sent accepted/running/succeeded and created actual artifacts.
-4. Core verified device/workspace/relative path/SHA-256, then created a new terminal result linked to the original handoff through `reply_to`, retaining task/correlation IDs.
-5. An independent Node consumer claimed the result and sent it through official Desktop MCP to the original Codex chat as `codex_delegation` inside its then-busy original turn.
-6. No entry/operator manual forwarding, native queue or manual guidance clicks; file verification and terminal resource release were checked.
+1. Hub 持久化任务，经 SSE 通知由 WorkBuddy Client 自动领取。
+2. Client 用默认 `--resume` 恢复固定的独立 CLI 协调会话，不覆盖工具、权限或 MCP。
+3. 该原生会话主动提交 accepted/running/succeeded，生成实际成果文件。
+4. Core 核对 device、workspace、相对路径与 SHA-256；终态后生成全新的 result 消息，`reply_to` 指向原交接，`task_id` 与 `correlation_id` 保持关联。
+5. 独立 Node 消费者自动领取 result，通过官方 Desktop MCP 返回原 Codex 聊天；消息作为 `codex_delegation` 直接进入当时忙碌的原轮次。
+6. 无当前入口或其他操作者手工转发，无 native queue，无人工点“引导”；文件校验和终态资源释放均已核对。
 
-Distinct task-specific hubrun IDs accompanied four delivered task/result envelopes. Both current artifacts matched Core SHA-256 and resource locks were empty. The second artifact corrected return sequencing: execution assistant completion Report first, Hub verification/result creation next, Codex Client/Desktop MCP return last. The corrected artifact also returned automatically.
+两轮使用不同的任务专属 hubrun 标识，对应四条 task/result 消息均为 delivered；两份成果的当前内容与 Core 记录的 SHA-256 均匹配，资源锁已清空。第二轮交付的成果修正了回传顺序：先由执行助手提交完成 Report，再由 Hub 核验并生成 result，随后由 Codex Client 消费并通过 Desktop MCP 返回原聊天；修订后的成果也已自动返回。
 
-Thus two complete busy-return MQ loops passed locally. Execution used a fixed independent CLI coordination session; these acceptance-report artifacts are not contact retrieval evidence for the original WorkBuddy session. That later query and one entry-checked explicit continuation are below. A single Codex Desktop MCP idle start is recorded separately; a full idle MQ loop, complete WorkBuddy desktop-tool inheritance and other platforms remained unverified.
+因此本机两轮完整 MQ 忙时返回已通过。这两条工作流的执行端是固定独立 CLI 协调会话，不能把这两次验收报告交付写成原 WorkBuddy 会话的联系人获取证据。原会话后续的真实联系人查询与入口核对后的一次显式续接另见下文。相同 Codex Desktop MCP 的单次空闲启动也单独记录；idle 下完整 MQ 回路、WorkBuddy 完整桌面工具注入继承及其他平台仍未验收。
 
-## 2026-10-15: One idle start through the same Desktop MCP
 
-After the prior turn ended, an independent official Node program delayed once and called `read_thread` once before sending, verifying `thread.status.type=idle` and the previous turn `completed`. It did not loop/poll native state.
+## 2026-10-15：同一 Desktop MCP 的单次空闲启动
 
-One official Desktop MCP `send_message_to_thread` returned a successful matching-target ACK. The original chat actually received input and started a new turn, whose ID differed from the completed one. Official desktop read_thread remained callable; no separate CLI/SDK session replaced the chat.
+上一轮结束后，独立官方 Node 程序仅延时一次。发送前仅调用一次 `read_thread`，实际确认原聊天的 `thread.status.type=idle`，前一个 turn 已为 `completed`；没有循环轮询状态。
 
-This separately verifies local original-chat idle startup through that official MCP, with actual pre-send idle state, one send, a real new turn and retained desktop tools, not merely a tool ACK.
+随后仅调用一次官方 Desktop MCP `send_message_to_thread`，返回 `isError=false` 与匹配目标聊天的 ACK。原聊天已实际收到消息并开始新轮次，新 turn ID 与前一个 completed turn 不同；官方桌面 `read_thread` 仍可调用，原聊天没有换成独立 CLI/SDK 会话。
 
-No repeated wake, manual forwarding or new task occurred. This standalone diagnosis added no MQ business task and was not a complete idle MQ loop. Earlier independent CLI loops covered busy return. App Server proxy idle turn/start and other platforms still needed testing.
+因此本机同一官方 MCP 传输的空闲原聊天启动已单独实测通过，证据包括发送前的真实空闲状态、单次发送、新轮次实际启动和已核实桌面工具仍可用，不只是一条工具 ACK。
 
-## 2026-10-15: Original WorkBuddy single-contact query and MQ return
+这次没有重复唤醒、手工转发或新建任务。它是一次独立诊断，本身没有新增 MQ 业务任务，也不是 idle 下完整 MQ 回路。此前两轮独立 CLI 闭环验证的是 busy 返回；App Server proxy 的空闲 turn/start 和其他平台仍尚未实测。
 
-After user reauthorization, business work bound the original `workbuddy` endpoint, session, cwd and `.workbuddy`, not the earlier independent CLI test session. A managed skill used an endpoint-fixed helper calling only `/v1/report`; artifacts had a separate workspace. Four report-install permissions narrowly covered skill reads, artifact-directory writes and the helper, not unrelated directories/commands.
+## 2026-10-15：原 WorkBuddy 会话的单联系人查询与 MQ 回传
 
-The first real MQ input was delivered but not accepted under older diagnostic limits: zero tool calls, files and Reports were verified. Its stdin already was a new user message, so CLI history replay was not the explanation. Client then added a fixed short positional instruction identifying current work, while full Envelope remained stdin with no tool/permission/MCP/model override or authorization expansion.
+用户完成远端重新授权后，本次业务绑定原 `workbuddy` endpoint、原会话、原工作目录和原 `.workbuddy` 配置，未使用此前的独立 CLI 测试会话。受管技能安装绑定固定 endpoint 的报告 helper，只能向 `/v1/report` 提交；成果使用独立工作区。四条报告安装许可限定技能读取、成果目录读写和指定 helper，不放行无关目录或命令。
 
-One explicit continuation after entry checks was necessary. It retained task/resource locks and added operator continuation only to existing delivered detail: no requeue, new task/message IDs or fabricated Reports. The current Codex entry performed it under existing user authorization without another click; it was not an automatic Broker retry. Do not call this first-attempt automatic success.
+首条真实 MQ 已投递，但模型受旧诊断限制未接手；已核对零工具调用、零成果文件、零 Report。该 stdin 本来就是新的 user message，不能把未接手归因为 CLI 重放历史。Client 随后增加固定的简短 positional 指令，明确处理当前交接；完整 Envelope 仍从 stdin 传入，没有工具、权限、MCP 或模型覆盖参数，指令也不能扩大用户授权。
 
-Verified afterward:
+这次需要由入口核对后显式续接一次。保留同一任务与资源锁，只在 Core 已有 `delivered` 记录的 detail 中登记一次 operator continuation；未 requeue、未新建任务或消息 ID、未伪造 Report。该续接由当前 Codex 入口在用户已有任务授权下执行，无需用户再次点击确认，也不是 Broker 自动重试；不能将它描述为首轮即自动执行成功。
 
-1. Original-session `accepted/running/succeeded`, with all three event IDs individually matched to Core and one task/execution association.
-2. Exactly one newer bundled official contact search. Raw `function_call_result` returned `users`; artifact name/department/title matched candidates, without claiming address-book uniqueness.
-3. Core checked device/workspace/relative path/SHA-256 and generated a new result linked through `reply_to` with matching task/correlation.
-4. Independent Node/Desktop MCP automatically guided that result into the busy original Codex chat without forwarding/clicks. Locks released, all messages delivered, WorkBuddy returned idle and its original history prefix stayed intact.
+随后依次核实：
 
-No private desktop env/auth/ticket was read/copied. Four temporary query permissions were removed; only four narrow report-install permissions remained. The helper ran outside the repository independently of a development checkout. Local denial, remote expired authorization and later success are sequential stages. Single-contact retrieval now passed; the old expiry is not a current blocker. Scope is original session, specified query, active reports, artifact checks and automatic busy return, not every WeCom operation, all GUI-tool injection or WorkBuddy OpenAPI acceptance.
+1. 原会话真实提交 `accepted/running/succeeded`，三份 Report 的 `event_id` 已逐一与 Core 已保存事件核对，保持同一任务关联和本次执行标识。
+2. 仅执行一次新版官方随包 wecom-cli 的联系人 search；原始 `function_call_result` 成功返回 `users`。候选的姓名、部门、职务与成果文件一致，表明返回候选匹配，不声称全通讯录唯一。
+3. Core 核对成果的 device、workspace、相对文件路径与 SHA-256，生成新的 result 消息；`reply_to` 指向原交接，`task_id` 与 `correlation_id` 保持关联。
+4. 独立 Node Client 经官方 Desktop MCP 自动把 result 引导回忙碌的原 Codex 聊天，无手工转发或人工点引导；资源锁已释放、消息均为 delivered，原 WorkBuddy 会话已回到 idle，原历史前缀完整。
 
-## 2026-10-16: Original Claude-3p Code session
+本次未读取或复制桌面私有 env/auth/ticket。临时四条单查询许可已移除，只保留四条窄范围报告安装许可；报告 helper 使用仓库外独立 runtime，不依赖开发 checkout。此前本地拒绝、远端 `850003 / authorization expired` 与重新授权后的成功属于先后阶段；当前单联系人数据获取已通过，不再把旧授权错误列为当前阻点。这项证据覆盖原会话、指定查询、主动回报、成果核验和自动忙时返回，不代表全部企微业务、全部 GUI 工具注入或 WorkBuddy OpenAPI 已验收。
 
-The host was an open local Claude-3p Desktop Code page, native entry `claude-desktop-3p`, Claude Code `2.1.299`. The in-session `agi-hub-endpoint` mod's final version was `0.1.3`; no separate CLI/SDK session executed the tested work. It bound the original UUID and retained the original transcript's byte prefix. Times below are Beijing time (UTC+8).
+## 2026-10-16：Claude-3p 原 Code 会话
 
-### N2: One idle wake
+执行宿主为正在打开的 Claude-3p Desktop 本地 Code 页，原生入口标识为 `claude-desktop-3p`、Claude Code 版本为 `2.1.299`。Client 为会话内 `agi-hub-endpoint` mod，最终版本 `0.1.3`；没有另起 CLI/SDK 会话承担被测任务。绑定原会话 UUID，原历史字节前缀校验保持完整。下列时间均为北京时间（UTC+8）。
 
-Run `/agi-hub-diagnose` once in the original session, then leave it idle. At 17:16:35 the transcript contained one plugin-sourced random-nonce message. At 17:16:45 Claude automatically started a turn and returned only that nonce, with no tools or duplicate messages. This proves actual idle wake, not only `prompt.submit` ACK.
+### N2：单次空闲唤醒
 
-Client `0.1.0` did not recognize the host-added plugin source wrapper, so local diagnosis still showed `submitted_unconfirmed`. `0.1.1` strictly matched the observed full wrapper and first-line marker, with positive/negative tests. N3 later confirmed the same wrapper and actual main-thread turn ID. To avoid another expensive long-context run, a fresh standalone N2 was not repeated on the final version. `idle_wake_verified` was enabled only after actual wake; Claude busy-result capability remained false.
+在原会话运行一次 `/agi-hub-diagnose` 后保持空闲。17:16:35，原 transcript 出现唯一一条插件来源、带随机 nonce 的消息；17:16:45，Claude 自动启动回合并只回复同一 nonce，没有工具调用或重复消息。实际空闲唤醒成立，不只是一条 `prompt.submit` ACK。
 
-### N3: Full loop completed after a fix and continuation
+当时 Client 为 `0.1.0`，它未识别宿主自动附加的插件来源包装，本地诊断仍显示 `submitted_unconfirmed`。`0.1.1` 改为严格匹配已实测的完整包装与第一行 marker；自动化测试覆盖正反例，随后 N3 实际投递也确认了同一包装和真实主线程 turn ID。为节约原长会话的模型消耗，没有在最终版本再跑一次独立 N2。`idle_wake_verified` 只在实际唤醒后开启；Claude 忙时结果标记仍为 false。
 
-At 17:27:56 one MQ task was submitted, automatically claimed by the listening plugin and injected into the same idle Code session. Six synthetic status records required native reads, independent classification, JSON/Markdown artifacts, readback and native report-tool return. No Bash reporting, model API substitute or external CLI resume.
+### N3：完整回路经修复后续接完成
 
-Hub saved the first accepted Report, but the handler incorrectly returned an object directly in native `result`, which the host rejected. Model retry of the identical accepted event deduplicated without a new task. The model still read input, created/read both files, but did not complete running/succeeded Reports. Completed files were not Hub task success.
+17:27:56 只提交一条 MQ 任务，由已监听的插件自动领取并送入同一个空闲 Code 会话。合成输入包含六条状态记录，要求用原生工具读取、独立判定、生成 JSON 与 Markdown 两份成果并回读，然后经原生 `report` 工具返回。没有 Bash 回报、模型 API 调用替代或外部 CLI 恢复。
 
-`0.1.3` made success/error/unbound branches return JSON text and added a real host `$.tool.call` regression. Upgrade preserved private delivery/task records, with hot reload only waiting for the old lease to expire: no uninstall, cleared records or prompt resubmission. After independently verifying six judgments/counts, the entry sent exactly one user-authorized report-only continuation for the same task. It called only native running/succeeded, without file I/O, new task or redispatch.
+首条 accepted 已被 Hub 保存，但工具处理器错误地将对象直接放进原生 `result` 字段，宿主拒绝该输出。模型重投同一 accepted 事件时 Hub 幂等处理，没有新增任务；随后仍读取输入、生成两份成果并实际回读，但没有完成 running/succeeded 回报。此时业务文件完成不等于 Hub 任务成功。
 
-Native running succeeded at 17:44:14 and succeeded at 17:45:06. Three unique complete Report fingerprints matched Core events and retained the `claude-turn:*` for the first actual main-thread turn. This does not mean all three Reports occurred in one physical turn. Both current file hashes matched Core and bytes were unchanged by continuation. Each of six states had one record; three needed human attention.
+`0.1.3` 将成功、失败及未绑定分支统一返回 JSON 文本，并新增通过宿主真实 `$.tool.call` 的回归检查。升级保留插件私有投递和任务记录，热重载只等待旧租约自然过期，没有卸载清空记录或重新 submit prompt。入口独立核验六条判定和计数后，按用户明确授权只发送一次同任务的回报续接。该续接仅调用 running 和 succeeded 两个原生工具，不再读写文件、不创建新任务、不重派消息。
 
-Core generated one result with correct `reply_to`, task/correlation inheritance. At 17:45:06 independent Node MQ Client automatically used official Desktop MCP send-now into the busy original Codex chat. It actually entered the current turn without entry-side manual sending, native queue or clicks. Envelope `mode=queue` was Hub business mode, not use of native Codex queue. Task/result were delivered, Claude idle and resources empty. Execution Reports replace delivery detail with receipt-confirmation text, so final detail need not preserve initial transport wording.
+17:44:14 原生 running 回报成功，17:45:06 succeeded 回报成功；三条唯一 Report 的完整内容指纹均与 Core 保存事件匹配，始终使用首次真实主线程 turn ID 对应的 `claude-turn:*`。这不表示三条报告都发生在同一个物理回合。两份文件的当前 SHA-256 与 Core 核验值一致，续接前后字节未变；六种状态各一条，三条需要人工关注。
 
-The loop therefore completed, recorded as “N3 completed after a fix and one report continuation.” First-round unattended acceptance did not pass, and no fresh final-version task was repeated to claim otherwise, avoiding extra long-context token use.
+Core 随后生成唯一 `kind=result`，`reply_to` 指向原交接，`task_id` 与 `correlation_id` 正确继承。17:45:06 独立 Node MQ Client 经官方 Desktop MCP 以 send-now 自动返回忙碌的 Codex 原聊天，消息实际进入当前轮次，无入口手工代发、无 native queue 或人工点击引导。Envelope 的 `mode=queue` 是 Hub 业务模式，不代表这次原生返回使用了 Codex queue。任务和结果均为 delivered，Claude endpoint 回到 idle，资源锁清空。Core 接受执行报告后会将投递 detail 更新为执行回执确认文本，不能要求最终仍保留最初的传输 detail。
 
-### Automation and support boundaries
+因此本次闭环已实际完成，N3 记录为“修复后一次回报续接完成”。首轮无人值守没有通过，也没有在最终版本重复一条全新任务来声明这一点；保留此限制以避免额外消耗长会话 token。
 
-Repository `go test -race ./...` and `go vet ./...` passed. Final Client had 30 Node state-machine tests, five host `plugin test` cases and `plugin validate`. The new native tool check verifies JSON-text ABI, not registration alone. Existing Python Client 54 and Codex Node nine tests passed. These request no Claude model. Private evidence stores original UUID, times, Report fingerprints, artifact hashes, transcript prefix and test output outside repository/packages.
+### 自动化与支持边界
 
-Additional fixes replaced racy file-lock write/read with an atomic Hub lease, isolated binding changes, fenced late requests, waited through reload lease expiry, partitioned token fingerprints, reconciled lost claim responses and stopped treating `prompt.submit` resolution alone as delivery proof. Automated recovery/safety cases do not constitute native N1/N4–N9 verification. Zero-model unbound CLI commands also do not prove complete terminal integration.
+Go 全仓 `go test -race ./...` 与 `go vet ./...` 通过。最终 Client 的 Node 状态机测试 30 项、宿主 `plugin test` 5 项及 `plugin validate` 通过；新增原生工具调用检查验证 JSON 文本 ABI，不仅检查工具注册。既有 Python Client 54 项与 Codex Node 9 项回归通过。这些测试不请求 Claude 模型。私有验收记录另保存原 UUID、执行时间、报告指纹、文件哈希、原历史前缀及测试输出；它们不进入开源仓库或便携包。
 
-Claude busy queuing, real needs_user prompts, recovery after desktop exit, reverse work with Claude as origin and Windows/Linux native integration still required separate acceptance. Claude idle execution/Codex busy return are covered here; complete business return with Codex itself idle remained unverified. Provider-debited credits were not measured, and the screenshot's cumulative spending was not attributed to this test.
+本期额外修正了文件锁写后回读的竞争问题，使用 Hub 原子租约；增加绑定变更隔离、迟到请求保护、热重载租约等待、token 指纹隔离、丢失领取响应后的未决对账，以及仅靠 `prompt.submit` resolve 不能确认投递的判断。上述恢复与安全分支有自动化覆盖；不把模拟测试写成 N1、N4 至 N9 的全部原生实测。未绑定 CLI 的零模型命令冒烟也不作为终端 CLI 完整接入证据。
 
-## 2026-10-19: Pure-mailbox Codex ↔ original WorkBuddy session
+Claude 忙时排队、真实权限提示 needs_user、退出桌面后的恢复、Claude 作入口的反向任务及 Windows/Linux 原生接入仍待单独验收。Claude 空闲执行与 Codex 忙时返回已在本节记录；Codex 自身空闲时的完整 MQ 业务回路仍未验收。没有计量服务商实际扣除积分，也不将用户截图的累计消耗归于本次测试。
 
-The Hub remained a message pipe. Codex/WorkBuddy opted into mailbox protocol 1, reusing original Codex Desktop chat and WorkBuddy/CodeBuddy CLI session without a new coordinator chat. Claude model calls were zero; no WeCom data query or external messaging occurred.
+## 2026-10-19：纯邮箱 Codex ↔ WorkBuddy 原会话
 
-The first request starting 16:38 resumed original WorkBuddy through a resident Client. Cached old instructions produced a help request without required stable `id`, rejected locally before Hub. Generic errors caused repeated edits to incorrect fields, so it was not unattended success. The helper's field errors were clarified and a short complete JSON example added to native notifications. After confirming old CLI exit/no unresolved delivery, Clients were updated and the original entry explicitly sent one formatting clarification in the same conversation, without redispatching the original message.
+本轮保持 Hub 仅作消息管道。Codex 与 WorkBuddy 各自启用 mailbox 协议 1；沿用原 Codex Desktop 聊天和原 WorkBuddy / CodeBuddy CLI 会话，没有创建新的协调聊天。Claude 模型调用为零；未查询企微资料或发送外部消息。
 
-WorkBuddy then explicitly requested Codex. Independent Node/Desktop MCP send-now automatically guided the busy original chat without queue clicks or manual forwarding. Codex read synthetic input, summed `[3,5,8]` to 16 and explicitly replied with the nonce. WorkBuddy Client waited for first CLI exit and a real delivery receipt before resuming the same session for that reply. WorkBuddy independently reread/checked nonce/sum, wrote result.json and sent a new result to original Codex. It actually entered the current chat and was not generated by Hub.
+16:38 开始的第一封 request 已由常驻 Client 恢复 WorkBuddy 原会话。模型沿用缓存的旧说明，写出的协助请求缺少必填稳定 `id`，本地收发程序拒绝，未进入 Hub。泛化报错导致模型多次修改错误字段，不能记为无人干预成功。随后修正程序的字段错误提示，并在原生通知中加入简短完整 JSON 示例；确认旧 CLI 已退出且无未决投递后更新客户端，由原入口在同一关联中显式发送一封格式说明，没有重新派发原消息。
 
-The entry read back and checked nonce, total, checked_by and correlation_id and calculated SHA-256. WorkBuddy honestly stated its narrow permissions prevented shasum rather than claiming hash verification; Codex hashed without expanding permissions. Five messages, including one format clarification, shared correlation/original-entry context. No Task/Report, parent waiting or forced return tree was created. Real UUIDs/times/hashes remain private diagnostics.
+修正后，WorkBuddy 主动发 request 给 Codex；独立 Node Client 经官方 Desktop MCP 以 send-now 自动引导当前忙碌的原聊天，无需点击 queue 或手工转发。Codex 实际读取合成输入，计算 `[3,5,8]` 总和为 16，连同 nonce 显式回信。WorkBuddy Client 等首轮 CLI 退出并保存真实投递回执后，才再次恢复同一会话接收 reply；WorkBuddy 独立重读、核对 nonce/总和，写出 result.json，并主动发送新的 result 给 Codex 原入口。结果真实进入当前聊天，未由 Hub 自动生成。
 
-Conclusion: **native two-way collaboration and artifact return passed after one format correction**. This does not claim zero-intervention first pass, three real assistants in parallel, Claude new-mail integration or native support on other platforms. Actual-Hub simulated native adapters separately cover three-direction free routing, shared limits, duplicate publication, silent status and retained uncertainty with zero models.
+入口实际回读成果：nonce、total、checked_by 与 correlation_id 均一致，并计算文件 SHA-256。WorkBuddy 明确报告自身窄权限下无法执行 shasum，未冒称已核验哈希；文件哈希由 Codex 侧完成，不为验收扩大命令权限。本轮五封消息（含一次格式说明）共用同一关联与原入口上下文；邮箱不创建 Task/Report、不采用父子等待或强制返回链。真实 UUID、时间点和文件哈希保存在本机私有诊断中，不进入仓库。
 
-## 2026-10-20: Pure-mailbox original Claude Code session and Codex return
+结论：**经一次格式修正后的原生双向协作与成果回传已通过**。不宣称首轮零干预、三名真实助手并行、Claude 新邮箱接入或其他平台原生能力已验收。三方向自由路由、共享限额、重复投递、静默状态与不确定投递保留另由实际 Hub 加模拟原生适配器的零模型集成测试覆盖。
 
-### Original session and configuration fix
+## 2026-10-20：纯邮箱 Claude 原 Code 会话与 Codex 回传
 
-The real host was macOS arm64, Claude-3p Desktop's already-open local Code session with bundled Claude Code **2.1.299** and in-session plugin **0.2.2**. The existing session UUID stayed unchanged; its previous transcript byte prefix had the same hash afterward. No independent CLI/SDK session replaced it. The host's bypass mode already existed and was unchanged: this test neither granted additional native permissions nor copied authentication data.
+### 原会话与配置修复
 
-The Desktop host loaded the new plugin but passed empty activation `client_config` despite a saved plugin setting. The fix keeps nonempty activation options first; otherwise it reads only its own path from merged settings using the SDK's `$.plugin.name` string property and `$.settings.read()`. An unqualified manifest name checks bare and own marketplace-qualified settings together; conflicting paths stop instead of selecting one. Other plugins' configurations and credentials are not selected. This fix was offline-checked before the real mailbox request.
+实际宿主为 macOS arm64 上已打开的 Claude-3p Desktop 本地 Code 会话，内置 Claude Code **2.1.299**，会话内插件为 **0.2.2**。原会话 UUID 未变，执行后旧 transcript 字节前缀的哈希保持一致；没有用独立 CLI/SDK 会话替换。宿主原有 bypass 模式保持不变，本次未新增原生权限，也未复制认证数据。
 
-### Actual mailbox loop
+Desktop 宿主已加载新版插件，但已保存插件设置时仍传入空的启动 `client_config`。修复后优先使用非空启动选项；否则通过 SDK 的 `$.plugin.name` 字符串属性与 `$.settings.read()`，只从合并设置中读取本插件的路径。未限定 marketplace 的清单名会同时检查裸名称及本插件的 marketplace 限定设置，冲突路径直接停止，不自行选择；不选取其他插件的配置或凭据。此修复先通过离线检查，再提交真实邮箱请求。
 
-All times below are Beijing time (UTC+8). At **11:48:16.902**, the leased Client automatically submitted one MQ request through `$.prompt.submit` into the idle original Code session. Its exact marker was observed in the real main-session `turn.start`, confirming delivered input rather than relying on the submit promise alone.
+### 真实邮箱闭环
 
-The native tool calls were exactly one **`Read`**, for a **54-byte synthetic input file**, and one **`mcp__agi-hub-endpoint__mail_send`**, explicitly sending a result to the original Codex entry. The file's nonce and sum **51** matched the result. Claude used no Bash, legacy report or further assistant delegation, ended with “已回传”, and was idle at **11:48:40.870**. The result was an explicit assistant send, not a Hub-generated business reply.
+下列时间均为北京时间（UTC+8）。**11:48:16.902**，持有租约的 Client 通过 `$.prompt.submit` 自动将一封 MQ request 送入空闲的原 Code 会话；真实主会话 `turn.start` 观察到精确 marker，从而确认输入 delivered，不只依据 submit promise。
 
-The independent Codex Node Client automatically used official Desktop MCP **send-now** to deliver that result into the busy original Codex chat. Actual receipt was confirmed there, without human forwarding, native queue selection or a click to guide. The conversation used **two delivered mailbox messages within a four-message cap**: one request and one result. Existing Task count stayed **7 → 7**, while message count changed **18 → 20**. No new Task/Report workflow or forced return tree was created.
+原生工具调用恰好为一次 **`Read`**（读取 **54 字节合成输入文件**）和一次 **`mcp__agi-hub-endpoint__mail_send`**（显式发 result 给最初 Codex 入口）。文件中的 nonce 与总和 **51** 均和结果一致。Claude 未使用 Bash、旧 report 或继续委托其他助手，最终回复“已回传”，并于 **11:48:40.870** 回到 idle。结果来自助手明确发送，不是 Hub 自动生成的业务回复。
 
-Conclusion: **original-Claude idle mailbox execution and explicit result return to busy original Codex passed**. This was one native business turn after configuration fixes, not a claim that installation/preflight required no intervention.
+独立 Codex Node Client 随后经官方 Desktop MCP **send-now** 自动将结果送入忙碌的 Codex 原聊天，并核实该聊天实际收到。无需人工转发、选择 native queue 或点击引导。此关联在 **四条消息上限内使用两封 delivered 邮件**：一封 request、一封 result；既有 Task 数保持 **7 → 7**，消息数为 **18 → 20**。没有新增 Task/Report 流程或强制回传树。
 
-### Model usage and preflight incident
+结论：**Claude 原会话空闲邮箱执行与显式回传忙碌 Codex 原聊天已通过**。这是配置修复后的一个原生业务回合，不表示安装和预检全过程无需介入。
 
-That one native business turn produced **three actual model API responses with separate usage IDs**. The first wrote **272,896 input tokens** to cache; later responses reported cache hits of **272,896** and **273,092** tokens. The three responses produced **363 output tokens in total**. One native turn is not one model request, and this was not zero-cost execution. The small input file did not remove the existing session's long context. A mailbox message cap limits messages, not the host's model requests or provider credits; actual credits charged were not measured here.
+### 模型用量与预检事件
 
-Before this business trial, a separate CLI configuration probe intended to execute only a slash command unexpectedly invoked the model. The initial private audit contains **at least two usage records**, with **63,840 cache-creation input tokens** and **2,218 output tokens** visible in those records. Nested attempts mean the total request count and total consumption remain unknown; these figures are not a complete bill. The probe was stopped and private audit evidence preserved. No further CLI `-p` probe was used. **A slash command passed to `claude -p` is not guaranteed to avoid model calls.** Offline checks use Node tests and official `plugin validate` / `plugin test`; native model trials are explicit and counted separately.
+这个原生业务回合产生了 **三次真实模型 API 响应，各有独立 usage ID**。首次写入 **272,896 个输入 token** 的缓存，后两次分别记录 **272,896** 和 **273,092** 个 token 缓存命中；三次响应的**输出合计 363 token**。一个原生回合不等于一次模型请求，本次也不是零消耗。输入文件很短，没有消除原会话已有的长上下文；邮箱消息限额约束消息数，不约束宿主模型请求或服务商积分，本节未计量实际扣除积分。
 
-The Desktop UI also displayed a provider-health `ERR_CONNECTION_CLOSED` banner. The actual Code business turn, native tools and return nevertheless succeeded, so that banner is not recorded as a blocked native integration.
+真实业务验收之前，另一个原本只执行斜杠命令的 CLI 配置探测意外调用了模型。初始私有审计中**至少两条 usage 记录**可见 **63,840 个缓存创建输入 token**及 **2,218 个输出 token**。因存在嵌套尝试，总请求数及总消耗仍未知，不能把这些数字当作完整账单。探测已停止，私有审计证据保留，之后未再使用 CLI `-p` 探测。**向 `claude -p` 传入斜杠命令不保证跳过模型。** 离线检查使用 Node 测试及官方 `plugin validate` / `plugin test`，真实模型验收单独明确执行和计数。
 
-### Verified scope
+Desktop 界面还出现过服务商健康检查的 `ERR_CONNECTION_CLOSED` 横幅；实际 Code 业务回合、原生工具和回传仍成功，因此不将该横幅记录为原生接入被阻断。
 
-This pass covers only this macOS arm64 Claude-3p Code version, the existing idle Claude session and return to the busy original Codex chat. Claude busy queuing, steer, reverse work initiated by a human in Claude, Windows native integration and other hosts remain unverified. No extra paid N2 or repeat business task is needed to establish the observed idle wake. The October 16 legacy N2/N3 and October 19 WorkBuddy records above retain their original conclusions; neither is rewritten as evidence of this new mailbox pass.
+### 已验证范围
 
-Real session IDs, paths, nonces, usage IDs and transcript hashes remain private and are excluded from the repository and packages.
+本次仅覆盖该 macOS arm64 Claude-3p Code 版本、既有 Claude 空闲会话，以及返回忙碌 Codex 原聊天。Claude 忙时排队、steer、由人在 Claude 发起的反向业务、Windows 原生接入及其他宿主仍未验收。已有真实空闲唤醒证据，无需额外付费跑一次 N2 或重复业务任务。上文 10 月 16 日旧版 N2/N3 与 10 月 19 日 WorkBuddy 记录保留当时结论，不改写为本次新邮箱通过的证据。
 
-## Further acceptance work
+真实会话 ID、路径、nonce、usage ID 和 transcript 哈希留在私有记录中，不进入仓库或安装包。
 
-- Keep separate evidence for the earlier two independent CLI busy returns, original-session single-contact work after an entry-checked continuation and one idle-start diagnosis. Test a complete original-Codex-idle MQ loop separately, retaining no-resend behavior after disconnect/timeout/uncertainty.
-- Test other WeCom/desktop capabilities only under user authorization. A matching single candidate proves neither every function nor whole-address-book uniqueness. Retain local denials, remote 850003 and reauthorized success history without blind retries.
-- Verify App Server proxy connectivity/idle turn/start independently; Desktop MCP idle success is not a substitute. Native prompts, associated receipts and artifacts follow each transport's evidence.
-- Verify official launch chains separately on Windows/Linux and other host versions; do not generalize this machine's results to every platform.
+## 后续验收
 
-WorkBuddy OpenAPI `localassistant/message` remains a separate candidate requiring an app and personal OAuth; that real grant is not configured here. CLI login does not grant it, and it is not an arbitrary ordinary desktop-chat targeting interface. See [official OpenAPI](https://open.workbuddy.cn/docs/openapi).
+- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。Codex 原入口空闲时的完整 MQ 回路须另行验收；继续核对断线、超时和投递不确定时不重发。
+- 其他企微业务与桌面工具分别按用户授权验收，不从单联系人候选匹配推导全部能力或全通讯录唯一。保留本地拒绝、远端 850003 和重新授权后成功的历史，不盲目重试。
+- App Server proxy 的连接与空闲 turn/start 单独验收，不能用 Desktop MCP 已通过的空闲启动替代；权限提示、关联回执和成果核对仍遵循各自通道的记录。
+- 在 Windows、Linux 和其他宿主版本上单独验收官方启动链，不把本机成功推广为全平台支持。
 
-Back to [Clients](CLIENTS.md) · [Integration scope](ADAPTERS.md)
+WorkBuddy OpenAPI 的 `localassistant/message` 仍是独立候选，需第三方应用与本人 OAuth，当前未配置这条真实授权路径。CLI 正式登录不自动授予 OpenAPI 权限；它也不是普通桌面任意聊天的定位接口。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
+
+返回 [Client 说明](CLIENTS.md) · [接入范围](ADAPTERS.md)

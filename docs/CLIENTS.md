@@ -1,38 +1,38 @@
-[English](CLIENTS.md) | [简体中文](CLIENTS.zh-CN.md)
+[简体中文](CLIENTS.md) | [English](CLIENTS.en.md)
 
-# Independent assistant Clients
+# 独立助手 Client
 
-Each AI assistant has its own Client claiming explicitly addressed local Hub messages and reporting delivery. Codex Desktop MCP and WorkBuddy CLI implement addressed mailboxes; Claude Code mod 0.2.2 also implements mailbox 1 through native tools, with original macOS Code idle execution and return to busy original Codex verified on 2026-10-20. Grok retains legacy single-task compatibility with mailbox capability `0`. The Go Hub neither plans tasks nor generates replies. Clients translate actual supported native entries; replacing one requires neither recompiling the Hub nor closing other assistants.
+每个 AI 助手有自己的 Client，通过本机 Hub 领取明确发给自己的消息并报告投递。当前定址邮箱由 Codex Desktop MCP 与 WorkBuddy CLI 实现；Claude Code mod 0.2.2 也通过原生工具实现邮箱 1，2026-10-20 已验证 macOS 原 Code 会话空闲执行并回到忙碌 Codex 原聊天；Grok 保留旧版单次任务兼容，邮箱能力为 `0`。Go Hub 不规划任务、不生成回复；Client 翻译该助手真实支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
 
-Clients are maintained separately from the Hub and may be independent processes or loaded by the native assistant. There are no Go dynamic libraries or embedded Python. Implementations may use different languages under one protocol. Python implementations exist; independent Node Codex Desktop MCP sending has been tested, and a resident MQ Client is available with local simulations.
+协议把 Client 与 Hub 分开维护，Client 可以是独立进程，也可以由原生助手加载。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Client 可以使用不同语言，只要遵循同一协议；当前已有 Python 实现，Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。
 
-## Layout and technology
+## 目录和技术栈
 
 ```text
 clients/
-  shared/             # Standard-library HTTP, SSE, receipts and notification formatting
-  codex/              # Addressed Desktop MCP mail / legacy queue and app-server
-  workbuddy/          # Official CLI resume / localassistant OpenAPI
-  grok-routine/       # User-configured official Routine webhook
-  claude-code/        # Original-session mod, native report tool and local marketplace
-  tests/              # Simulated transport tests, no real assistants
+  shared/             # 标准库 HTTP、SSE、回执与通知格式
+  codex/              # 定址邮箱 Desktop MCP / 旧 queue 与 app-server 兼容
+  workbuddy/          # 官方 CLI 会话恢复 / localassistant OpenAPI
+  grok-routine/       # 用户配置的官方 Routine webhook
+  claude-code/        # 原会话内 mod、原生 report 工具与本地 marketplace
+  tests/              # 本地模拟传输测试，不调用真实助手
 ```
 
-Python Clients maintain `manifest.json`, `main.py`, `adapter.py` and `client.example.json` in product directories; other languages have their own entry points. A manifest declares protocol, entry, session kinds and sending modes, not verified native capabilities. Set a Hub endpoint's `idle_wake_verified=true` only after testing the user's actual machine, assistant version and target session. Busy result receipt requires separate verification.
+现有 Python Client 在各助手目录维护 `manifest.json`、`main.py`、`adapter.py` 和 `client.example.json`；其他语言实现维护自己的入口。`manifest` 声明协议版本、启动入口、会话类型和允许的发送模式，不是原生能力的验证报告。Client 必须在用户的具体电脑、助手版本和目标会话中完成空闲唤醒验收，才能把对应 Hub endpoint 的 `idle_wake_verified` 设为 `true`；忙时结果收件单独验证。
 
-### One repository first; separate repositories later
+### 单仓库先行，以后拆分
 
-The first version maintains Go Hub, product Clients and shared runtime together. WorkBuddy/Codex Clients are `0.3.0`, Grok Routine `0.1.0`, and Claude Code `0.2.2`. All use interface protocol `1`, with mailbox capability declared separately. Python entries use shared `0.2.0`; Codex declares it under `alternate_entrypoints.python`. `clients/shared/manifest.json` records the library version and is not an assistant entry point. Codex Node Desktop MCP uses Node 22+ standard libraries without npm or Python shared. Existing Python queue/app-server/Desktop MCP transports keep separate boundaries.
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.3.0`，Grok Routine 为 `0.1.0`、Claude Code 为 `0.2.2`，接口协议都为 `1`，邮箱能力单独声明。Python 入口使用 shared `0.2.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
-Clients have independent maintenance boundaries. A separately copied/released Python Client must include its specified `clients/shared` version under the same parent layout. Node Desktop MCP has no Python dependency; Claude Code mod depends only on host mods APIs and distributes its complete plugin/marketplace. Pin a repository commit for matching sources/manifests. These version constraints are maintenance conventions, not automatic downloads or dependency resolution. Shared can later become a versioned library and Clients separate repositories without changing the protocol.
+Client 具有独立维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖；Claude Code mod 只依赖宿主 mods API，直接分发完整插件目录与 marketplace。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
-Go Hub needs neither Python nor Node.js. Python Clients require Python 3.11+ without third-party Python packages. Codex Desktop MCP uses Node 22+; local macOS verification also requires the verified official signed Node and natural host launch chain. Claude Code plugin development/validation uses 2.1.299 without another Node/Python runtime. Automatic runtime installation, background-service supervision and OAuth renewal remain future installation work; they do not change the Hub protocol.
+Go Hub 本身不需要 Python 或 Node.js。Python Client 需要 Python 3.11+，没有第三方 Python 包依赖；Codex Desktop MCP Client 使用 Node 22+，本机 macOS 验证还要求已核实的官方已签名 Node 与自然宿主启动链。Claude Code 插件当前以 2.1.299 开发与校验，无额外 Node/Python 运行时。当前没有自动安装运行时、后台服务托管或自动 OAuth 续期；这些是安装体验的后续工作，不改变 Hub 协议。
 
-## Current addressed mailboxes
+## 当前定址邮箱
 
-A Hub binding must explicitly set `mailbox_protocol_version:1` to claim `/v1/mail/inbox`; otherwise it retains the legacy inbox. Configure sender `allowed_peers` separately; `visible_peers` controls directory visibility only. Defaults are off, not automatically enabled by skill installation or MCP discovery.
+Hub binding 显式设置 `mailbox_protocol_version:1`，原生 Client 才领取 `/v1/mail/inbox`；否则沿用旧版 inbox。用户还需为发送者配置 `allowed_peers`；`visible_peers` 只控制技能目录可见性。默认关闭、不因安装技能或发现 MCP 工具而自动接入。
 
-After verifying both original sessions and wake channels, fill these fields within their complete bindings:
+核实双方原会话与唤醒通道后，在各自完整 binding 中填写：
 
 ```json
 {
@@ -42,81 +42,82 @@ After verifying both original sessions and wake channels, fill these fields with
 }
 ```
 
-This is a Codex field fragment, not a complete configuration; WorkBuddy's corresponding lists use `codex`. Repository `config.example.json` keeps mailboxes off, connectivity lists empty and unbound assistants disabled for explicit user selection at install. Set `mailbox_while_busy_verified:true` only after verifying busy guidance for that entry.
+这是 Codex binding 的字段片段，不是完整配置；WorkBuddy 对应列表填 `codex`。仓库 `config.example.json` 始终关闭邮箱、清空互通名单并禁用未绑定助手，安装时由用户明确选择。只有核实该入口支持忙时引导，才另设 `mailbox_while_busy_verified:true`。
 
-| Client / transport | Mailbox capability | Native behavior and boundaries |
+
+| Client / 传输 | 邮箱能力 | 原生行为与边界 |
 | --- | --- | --- |
-| Codex Desktop MCP | `1` | `send_message_to_thread` directly guides the fixed existing chat for `request/reply/result`; no native-queue fallback; `status` is saved locally without a model wake |
-| WorkBuddy CLI | `1` | Official CodeBuddy CLI `--resume` targets an existing session; full Envelope through stdin; ACK only after actual exit and matching result session |
-| Codex queue / app-server | `0` | Legacy transports; queued input, separate SDK or another session cannot impersonate mailbox wake of the original chat |
-| WorkBuddy OpenAPI | `0` | Official local-assistant candidate; requires personal OAuth and cannot target an ordinary Chat's original `session_id` |
-| Claude Code mod 0.2.2 | `1` | In-session queue mode with fixed-identity native `peers/mail_send/mail_state`, leased event long polling, no Bash or automatic reply; original macOS Code idle execution/busy Codex return passed on 2026-10-20; no busy steer |
-| Grok Routine | `0` | Retains official webhook single-task transport; new bidirectional mailbox Client is not verified |
+| Codex Desktop MCP | `1` | `send_message_to_thread` 向固定既有聊天直接引导，支持 `request/reply/result`；不回退 native queue；`status` 本地保存、不唤醒模型 |
+| WorkBuddy CLI | `1` | 官方 CodeBuddy CLI `--resume` 指定既有会话；完整 Envelope 经 stdin，真实进程结束并核对结果会话后才 ACK |
+| Codex queue / app-server | `0` | 保留旧兼容通道，不以排队、独立 SDK 或另一会话冒充原聊天的邮箱唤醒 |
+| WorkBuddy OpenAPI | `0` | 保留官方本地助理候选入口；需本人 OAuth，不能定位普通 Chat 的原 `session_id` |
+| Claude Code mod 0.2.2 | `1` | 会话内 queue、固定身份原生 `peers/mail_send/mail_state`、租约保护事件长轮询，不经 Bash 或自动回复；2026-10-20 已通过 macOS 原 Code 空闲执行与忙碌 Codex 回传，不支持忙时 steer |
+| Grok Routine | `0` | 保留官方 webhook 单次任务通道；尚未验证新的双向邮箱 Client |
 
-`mode:"queue"` is the current mailbox Envelope format, not the native sending mechanism. `mailbox_while_busy_verified` is enabled only after actual busy-guidance verification and is separate from legacy `result_queue_while_busy_verified`. Mailboxes require no parent task, waiting state, execution Report or settled operation. Native session state and in-flight delivery determine capacity. New messages do not create tasks/replies automatically or return along a fixed task tree.
+`mode:"queue"` 是当前邮箱 Envelope 的格式，不决定原生发送方式。`mailbox_while_busy_verified` 仅在实际核实该传输能忙时引导后开启，与旧 `result_queue_while_busy_verified` 分开。邮箱不要求父任务、等待状态、执行 Report 或 settled；原生会话状态与在途传输记录决定容量。新消息不会自动生成任务或回复，也不会沿固定父子树返回。
 
-Assistants send mail with the same `correlation_id` and explicit recipients. `root_origin` preserves the original input session so skills can choose the final destination; `reply_to` only associates messages. Clients neither divide work nor reply for models. Read [dated verification](NATIVE-VALIDATION.md): old-protocol native tests do not automatically cover the new mailbox loop.
+助手自己发送带相同 `correlation_id` 的邮件，明确指定接收者；`root_origin` 保留最初输入的会话供技能选择最终回传位置，`reply_to` 只是关联。Client 不做分工或替模型回信。当前平台验证结论须结合[按日期记录](NATIVE-VALIDATION.md)，旧协议原生测试不自动覆盖新邮箱的完整闭环。
 
-## Legacy native integration and acceptance records
+## 旧版原生接入与验收记录
 
-The following preserves actual Task/Report compatibility history. Its run IDs, resources and automatic result return do not apply to new mailboxes.
+以下保留 Task/Report 兼容模式的实际过程。它的运行标识、资源和自动 result 返回不适用于新邮箱。
 
-WorkBuddy explicitly chooses `native.transport="cli"` or `"openapi"` without fallback. Original-configuration login errors on 2026-10-14, successful authentication continuations on October 15, local query denials and remote `850003 / authorization expired` remain historical records. After user reauthorization, the original endpoint/session/working directory/`.workbuddy` returned contact candidates matching artifacts, actively reported and automatically returned through busy MQ. The first delivery was not accepted under old diagnostic instructions. After zero tools/files/Reports were verified, one explicit continuation followed entry checks, preserving task/locks/delivery without requeue or fake receipts. A fixed positional instruction clarified the current handoff; full Envelope still entered stdin without tool/permission/MCP/model overrides. This verifies the selected candidate, not address-book uniqueness or full desktop-tool inheritance. See [dated records](NATIVE-VALIDATION.md).
+WorkBuddy Client 明确选择 `native.transport="cli"` 或 `"openapi"`，不自动降级。2026-10-14 原配置的登录错误、10 月 15 日认证续聊成功、查询的本地权限拒绝及远端 `850003 / authorization expired` 均保留为历史。用户随后重新授权，本次直接绑定原 endpoint、会话、工作目录和 `.workbuddy`，原生单次联系人 search 已返回候选，候选字段与成果一致，并完成主动回报和 MQ 自动忙时返回。首轮已投递但模型受旧诊断限制未接手，核对零工具、文件与 Report 后，由入口核对并显式续接一次后才执行；保留同任务、锁与已投递状态，没有 requeue 或伪造回执。Client 加入固定的当前交接 positional 指令，完整 Envelope 仍经 stdin，未覆盖工具、权限、MCP 或模型。这项验收限定指定联系人候选，不代表全通讯录唯一或完整桌面工具继承。[按日期记录](NATIVE-VALIDATION.md)
 
-Real macOS arm64 MQ execution has native and file evidence. The first task was explicitly denied and confirmed unexecuted before narrow skill reads, actual acceptance-workspace read/write and scoped-report-helper permissions plus absolute cwd were corrected. The native session actively sent `accepted/running/succeeded`; file SHA-256 matched. SSE claimed a second task, resumed the same logged-in independent CLI without tool/permission overrides, and completed all three reports and new-version artifacts on first execution, again with matching SHA-256.
+本轮 macOS arm64 的真实 MQ 验收已有原生执行与文件证据。首个任务在原生明确拒绝且确认未执行后，修正了技能读取、真实验收工作区读写与专属报告 helper 的窄范围配置，并按绝对工作目录恢复；原生会话主动发出 `accepted/running/succeeded`，文件 SHA-256 核对一致。第二个任务由 SSE 自动领取，默认 `resume` 同一已登录的独立 CLI 会话，不传工具或权限覆盖参数，首次执行即产生三种原生回执和新版本成果文件，SHA-256 同样一致。
 
-The tasks used different execution IDs. Results had new `message_id`, correct `reply_to` and `correlation_id`. Identical Submission/saved Report retries added neither messages nor executions; terminal resources were released. `delivered` remained distinct from success, which was supported by native receipts and actual files.
+两个任务使用不同的任务执行 ID；结果分别有新的 `message_id`、正确的 `reply_to` 和 `correlation_id`。重复提交同一 Submission 与已保存的原生 Report 均去重，没有新消息或重复执行，终态资源已释放。`delivered` 仍不等于业务成功；此次业务成功依据是原生回执和真实文件核验。
 
-On 2026-10-14 the running Codex entry used official desktop tools with `send-now` to guide both results back. On October 15 an independent Node client in the natural host environment initialized official Desktop MCP, discovered 57 tools and actually called `send_message_to_thread`. It received `isError=false` and a matching thread ACK; `codex_delegation` immediately entered the busy original chat without native queue or manual clicks.
+2026-10-14 的两个结果由运行中的 Codex 入口调用官方桌面工具，以 `send-now` 引导回原聊天。2026-10-15，独立 Node 客户端在自然宿主环境中通过官方 Desktop MCP 初始化并发现 57 个工具，真实调用 `send_message_to_thread`，得到 `isError=false` 和匹配 thread ID 的 ACK；消息也已作为 `codex_delegation` 立即进入忙碌原聊天，不需人工点击，未使用 native queue。
 
-The same machine's Python parent chain failed macOS signature checks while official Node succeeded; conclusions apply only to those launch chains. App Server proxy lacked a daemon control socket, a separate issue that does not disprove Desktop MCP. Resident Node MQ Client 0.2.0 then subscribed before a new task and automatically handed it to the fixed independent WorkBuddy CLI. Native reports/artifacts were verified before a new associated result was automatically claimed and sent through official Desktop MCP into the busy original chat. No entry/operator manually forwarded, queued or clicked; terminal resources were released. Two busy MQ returns passed. The second corrected the causal sequence in its delivered artifact. Both current files matched Core SHA-256, used distinct hubrun IDs, had four delivered task/result envelopes and released locks. A later single idle diagnosis through the same Desktop MCP delayed once, checked original-chat idle/old-turn completion once, sent once, started a different turn and retained official desktop read_thread. It added no MQ task and does not prove a complete idle MQ loop. The later original-session contact flow separately required one explicit continuation after entry checks and also returned while the original entry was busy. See [segmented evidence](NATIVE-VALIDATION.md).
+同机 Python 父进程链曾遇 macOS 签名校验失败，官方 Node 启动链则通过；该结果只限定这些实际启动链。App Server proxy 是另一条通道，其所需 daemon 控制 socket 未开放，不代表 Desktop MCP 不可用。随后常驻 Node MQ Client 0.2.0 在已订阅后完成新的真实任务链路：MQ 自动交接到固定独立 WorkBuddy CLI 会话，原生 accepted/running/succeeded 与成果文件核验后，新的关联 result 被 Node Client 自动领取并经官方 Desktop MCP 立即送入忙碌原聊天。没有当前入口或其他操作者手工转发、native queue 或人工点击，终态资源释放已核对。两轮真实 MQ 忙时返回均通过；第二轮已交付修正因果顺序的成果。两份当前文件与 Core SHA-256 匹配，使用不同 hubrun 执行标识，对应四条 task/result 消息均 delivered，资源已释放。随后相同 Desktop MCP 通道的单次空闲诊断也已通过：独立官方 Node 程序仅延时一次、检查一次原聊天 idle 与旧轮次 completed，再发送一次；原聊天实际启动了不同的新轮次，官方桌面 read_thread 仍可调用。该诊断本身没有新增 MQ 业务任务，不能据此宣称 idle 下完整 MQ 回路通过。原 WorkBuddy 会话随后完成的单联系人业务另有入口核对后显式续接一次记录，自动回传也发生在原入口忙碌时。[分段验收证据](NATIVE-VALIDATION.md)
 
-CLI sources: [official headless mode](https://www.workbuddy.cn/docs/cli/headless). OpenAPI sources: [official OpenAPI](https://open.workbuddy.cn/docs/openapi) and [local-assistant description](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Assistant). Neither transport reads desktop Cookies, cached tokens or IPC tickets or treats private application authentication as public API authorization.
+CLI 依据为 [官方无头模式](https://www.workbuddy.cn/docs/cli/headless)。OpenAPI 依据为 [官方 OpenAPI](https://open.workbuddy.cn/docs/openapi) 和 [本地助理功能说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Assistant)。两种传输都不读取桌面 Cookie、缓存 token 或 IPC ticket，也不把应用内部鉴权当作公开接口授权。
 
-## Configuration and startup
+## 配置和启动
 
-Register the endpoint in Hub with `"driver": {"type": "external"}` and an independent Client. Do not run two consumers for one endpoint. Native identity parameters belong in private Client configuration, never the Hub admin secret.
+先让 Hub 注册该 endpoint，在对应 binding 中设置 `"driver": {"type": "external"}`，由独立 Client 消费。不要同时启动两个 Client 领取同一 endpoint。原生身份参数放在 Client 的私有配置，Hub 的管理密钥不应放进去。
 
-On every connection, `GET /v1/endpoint?endpoint=ID` verifies interface protocol `1`, endpoint ID/enabled state, native destination and mailbox support for that transport. After selecting mailbox capability, Codex/WorkBuddy subscribe SSE before atomically claiming mail; Claude uses event long polling in both mailbox and legacy modes. Types/bindings must match:
+每次连接先通过 `GET /v1/endpoint?endpoint=ID` 核对接口协议 `1`、endpoint ID、启用状态、原生目的地及该传输是否支持邮箱。选定邮箱能力后，Codex/WorkBuddy 先订阅 SSE 再原子领取邮箱；Claude 的邮箱和旧版模式均使用事件长轮询。类型和绑定必须符合下表：
 
-| Client | Hub `endpoint.driver` | Hub `endpoint.session_id` |
+| Client | Hub 的 `endpoint.driver` | Hub 的 `endpoint.session_id` |
 | --- | --- | --- |
-| Codex | `codex` | Exactly matches private `native.thread_id` |
-| WorkBuddy CLI | `workbuddy` | Exactly matches private `native.session_id` |
-| WorkBuddy OpenAPI | `workbuddy` | Must be `localassistant`, the dedicated persistent local assistant |
-| Grok Routine | `grok-routine` | Exactly matches private `native.routine_id`, the user's label for the Routine |
-| Claude Code mod | `claude-code` | Exactly matches private `native.session_id` and current `$.session.id()` |
+| Codex | `codex` | 必须与私有配置 `native.thread_id` 完全一致 |
+| WorkBuddy CLI | `workbuddy` | 必须与私有配置 `native.session_id` 完全一致 |
+| WorkBuddy OpenAPI | `workbuddy` | 必须为 `localassistant`，表示持续专用本地助理 |
+| Grok Routine | `grok-routine` | 必须与私有配置 `native.routine_id` 完全一致；这是用户为该 Routine 设置的标签 |
+| Claude Code mod | `claude-code` | 必须与私有配置 `native.session_id` 及当前 `$.session.id()` 完全一致 |
 
-`endpoint.driver` identifies the assistant, unlike the binding transport `driver.type="external"`. Incompatible protocols, disabled endpoints or mismatched sessions/types stop consumption. Message bodies cannot override destinations. `unknown` stays unknown rather than being changed to idle by the Client; Hub decides eligibility. Reconnects revalidate bindings.
+这里的 `endpoint.driver` 是助手类型，和 binding 的外部传输类型 `driver.type="external"` 不同。协议不兼容、禁用 endpoint、会话或类型不匹配时停止消费，消息正文不能指定或覆盖目的地。会话状态 `unknown` 仍保留为未知，不会被 Client 改写为 idle；是否允许投递由 Hub 决定。每次断线重连都会重新验证绑定。
 
-In legacy Task/Report, `endpoint.session_id` is the reused destination and `Report.run_id` identifies one task execution. Do not confuse them. New mail uses neither execution Reports nor run IDs. Legacy receivers prefer actual native run/turn IDs; if unavailable, use the notification's task-specific `hubrun-...` and label it a Hub identifier. Keep one identifier per task rather than reusing the fixed session ID across tasks.
+兼容 Task/Report 时，`endpoint.session_id` 是长期复用的目的会话；`Report.run_id` 是本次任务的执行标识，两者不能混用。新邮箱不使用执行 Report 或 run ID。接收会话优先回报实际原生 run/turn ID；宿主没有公开时，可以使用通知提供的任务专属 `hubrun-...`，并明确它属于 Hub。同一任务始终保留该标识，不跨任务复用固定会话 ID。
 
-Legacy `result_queue_while_busy_verified` defaults false. Only verified busy result input permits enabling it. The Hub can then deliver `kind=result` in `busy`/`needs_user` while still waiting for unresolved transport. This does not start ordinary busy `kind=task`, release resources, prove steer/interrupt or approve native prompts. `unknown` remains ineligible.
+旧版兼容配置默认 `result_queue_while_busy_verified=false`。只有实际核实某个原生入口能在忙时接收结果通知后，用户才能对该 endpoint 开启它；此时 Hub 可在 `busy` 或 `needs_user` 状态投递 `kind=result`，仍会等待未决的传输尝试。它不允许忙时启动普通 `kind=task`，不释放当前任务资源，也不证明已实现 `steer`、打断或自动批准原生权限。`unknown` 状态不会因此变成可投递。
 
-Evidence belongs to the actual transport: in-host Codex guidance success does not prove a separate Python proxy. Reverify after changing transports.
+验证结论属于实际使用的传输入口。本轮 Codex 宿主内官方工具的结果引导成功，不证明独立 Python proxy 具备同样能力；换用外部传输后须重新核实。
 
-Export private endpoint configuration through the Hub admin CLI:
+先通过 Hub 管理 CLI 导出对应 endpoint 的私有配置：
 
 ```sh
 agi-hub client-config --endpoint workbuddy --file /absolute/path/to/private/workbuddy/client.json
 ```
 
-`--file` must be an absolute local path. The command creates with `0600`, `O_EXCL`, never overwrites or prints credentials. It exports only endpoint scope and `native: {}`, not Hub admin secrets or assistant login data. Windows permissions still depend on user ACLs. Fill `native` from that Client's example. Default port is `7331`; private Hub configuration determines actual `base_url`.
+`--file` 必须是本机绝对路径；命令以 `0600`、`O_EXCL` 创建文件，不覆盖已有配置，不在终端打印凭据。它只导出该 endpoint 的 scope 配置和 `native: {}`，不导出 Hub 管理密钥或任何助手登录信息。Windows 的个人文件权限仍须按该平台的用户 ACL 管理。然后按该助手的 `client.example.json` 填写 `native` 字段。默认端口为 `7331`，实际 `base_url` 由本机 Hub 配置决定。
 
-Or manually create repository-external private `client.json` from its example. Only four top-level fields are accepted:
+也可以根据对应目录的 `client.example.json` 手工建立仓库外的私有 `client.json`。顶层只接受四个字段：
 
 ```json
 {
   "base_url": "http://127.0.0.1:7331",
   "endpoint": "workbuddy",
-  "endpoint_token": "<this endpoint's credential issued by the local Hub admin>",
+  "endpoint_token": "<由本机 Hub 管理入口签发的该 endpoint 凭据>",
   "native": {}
 }
 ```
 
-`base_url` must be numeric local loopback without LAN addresses, DNS names, embedded credentials or extra paths. `endpoint_token` accesses its own mailbox/events/receipts and sends only to `allowed_peers`; it cannot change leaders/configuration or create admin tasks. Requests set required Host, Origin and Authorization. Independent Python/Node ignores environment proxies and redirects. Claude's host HTTP API follows redirects, stripping Authorization and other nonpreserved headers cross-origin, so a fixed local numeric loopback URL is still required.
+`base_url` 必须使用数字形式的本机 loopback 地址，不接受局域网地址、DNS 域名、嵌入凭据或额外路径。`endpoint_token` 访问自身邮箱、事件和回执，并仅向 `allowed_peers` 允许的接收者发送消息；不能切换 leader、改配置或创建管理任务。请求明确设置 Hub 要求的 Host、Origin 和 Authorization。独立 Python/Node Client 不使用环境代理，也不跟随 HTTP 重定向；Claude Code mod 使用宿主的 HTTP API，该 API 会跟随重定向，异源跳转会移除 Authorization 等非保留请求头，因此仍必须使用本机数字 loopback 的固定 Hub 地址。
 
-Start required Python Clients at repository root. For Node Desktop MCP see [Codex Client](../clients/codex/README.md). macOS needs the host-verified official signed Node absolute path, not an arbitrary PATH Node presented as the same launch chain:
+在仓库根目录启动所需的 Python Client；Codex Node Desktop MCP 的启动方式见 [Codex Client](../clients/codex/README.md)，macOS 应使用该宿主已验证的官方签名 Node 绝对路径，不把 PATH 中任意 Node 当作相同启动链：
 
 ```sh
 python3 clients/codex/main.py --config /path/to/private/codex/client.json
@@ -124,51 +125,51 @@ python3 clients/workbuddy/main.py --config /path/to/private/workbuddy/client.jso
 python3 clients/grok-routine/main.py --config /path/to/private/grok/client.json
 ```
 
-Windows may substitute `py -3` and its actual absolute configuration path. Match the real Hub port; an example port is not discovery. Restrict private configuration to the local user and do not commit real tokens, thread IDs, chat or artifacts.
+Windows 可以使用 `py -3` 替换 `python3`，并提供该电脑上的绝对配置路径。Hub 的实际端口应与私有配置一致；示例端口不是自动发现结果。把个人配置文件限制为本机用户可读，避免提交真实 token、thread ID、聊天内容和成果文件。
 
-### Claude Code mod configuration
+### Claude Code mod 配置
 
-Claude Code has no external consumer process. Export with `agi-hub client-config --endpoint claude --file <absolute-private-path>` and fill [Claude Code settings](../clients/claude-code/client.example.json): `native.transport="mod"`, target `session_id`, `long_poll_ms`, `max_prompt_bytes`. Plugin options store only the private configuration's absolute path, not a token. Nonempty activation options take priority. When the host supplies an empty option despite saved settings, the Client reads only its own plugin path via `$.plugin.name` and `$.settings.read()`; conflicting own paths stop the Client rather than selecting one.
+Claude Code 不启动外部消费者进程。先用 `agi-hub client-config --endpoint claude --file <absolute-private-path>` 导出该 endpoint 的私有配置，再按 [Claude Code 示例](../clients/claude-code/client.example.json) 填写 `native.transport="mod"`、目标 `session_id`、`long_poll_ms` 和 `max_prompt_bytes`。插件选项只保存私有配置文件的绝对路径，不包含 token。非空启动选项优先；宿主已保存设置却传入空选项时，Client 通过 `$.plugin.name` 与 `$.settings.read()` 只读取本插件的路径，发现冲突路径则停止，不自行选择。
 
-Install `agi-hub-endpoint@agi-hub-local` from the local marketplace with official `claude plugin install`. Configure with `claude plugin configure agi-hub-endpoint@agi-hub-local --values-stdin`, supplying `{"client_config":"/absolute/private/path/client.json"}` on stdin, or use the host plugin UI. In the already-open target Code session run `/reload-plugins`, `/agi-hub-id` and `/agi-hub-status` to verify original UUID/listening state. If CLI is not on PATH, use the actual Claude Code binary supplied by this desktop host, not another computer's version directory. See [full instructions](../clients/claude-code/README.md).
+通过官方 `claude plugin install` 从本地 marketplace 安装 `agi-hub-endpoint@agi-hub-local`，再运行 `claude plugin configure agi-hub-endpoint@agi-hub-local --values-stdin`，从 stdin 提交 `{"client_config":"/absolute/private/path/client.json"}`，或使用宿主插件界面配置；已打开的目标 Code 会话运行 `/reload-plugins`，然后 `/agi-hub-id`、`/agi-hub-status` 核对原 UUID 和监听状态。可用 CLI 不在 PATH 时，使用用户当前桌面宿主提供的实际 Claude Code 二进制路径，不硬编码其他电脑的版本目录。[完整步骤](../clients/claude-code/README.md)
 
-The plugin acquires/renews the Hub's 60-second atomic lease and confirms ownership before prompt submission. `/clear`, `/resume` and `/branch` recheck the session; mismatches sleep rather than consuming the old endpoint. Persistence is isolated by Hub/endpoint/session. `outstanding` shows only its unresolved deliveries for reconciliation, not a redelivery queue.
+插件先取得 Hub 的 60 秒原子租约，续租并在提交 prompt 前确认归属。`/clear`、`/resume`、`/branch` 后重新检查当前会话；不匹配时休眠，不继续消费原 endpoint。持久投递记录按 Hub、endpoint、session 隔离；`outstanding` 仅显示本 endpoint 的未决消息供对账，不能当作重新投递队列。
 
-Mailbox mode requires `/v1/endpoint` capabilities `mailbox_long_poll_max_ms:25000` and `mailbox_client_lease:true` before claiming, so older protocol-1 Hubs cannot silently ignore waits/leases. It waits on `/v1/mail/inbox?endpoint=claude&wait_ms=25000`; mutating mailbox routes are lease-fenced. Native `peers`, `mail_send` and `mail_state` tools fix identity/lease and return JSON text. Explicit model sends create business replies, not turn completion or Reports. Only queue is supported; keep `mailbox_while_busy_verified=false`. Original macOS Code idle mailbox execution and explicit return to busy original Codex passed on 2026-10-20; other native scopes remain unverified.
+邮箱模式领取前要求 `/v1/endpoint` 明确声明 `mailbox_long_poll_max_ms:25000` 和 `mailbox_client_lease:true`，避免旧协议 1 Hub 静默忽略等待和租约。使用 `/v1/mail/inbox?endpoint=claude&wait_ms=25000` 等待事件；修改邮箱的接口受租约保护。原生 `peers`、`mail_send`、`mail_state` 固定身份与租约，返回 JSON 文本。只有模型明确发送才产生业务回复，不由回合结束或 Report 自动生成。仅支持 queue，保持 `mailbox_while_busy_verified=false`。2026-10-20 已通过 macOS 原 Code 空闲邮箱执行与显式回传忙碌 Codex 原聊天；其他原生范围仍待验收。
 
-For legacy compatibility, the `report` tool accepts only bound received `kind=task`, fixes endpoint and the actual first-report `claude-turn:<turn-id>`, retains that run_id and requires identical complete Reports for one event_id. `kind=result` is display-only without reporting/execution. Native permissions and user authorization remain; plugin handoff cannot approve prompts.
+旧版兼容中，`report` 工具只接受当前绑定接收过的 `kind=task`，自动固定 endpoint 和第一次报告时的真实 `claude-turn:<turn-id>`。同一任务后续回报保持该 run_id，相同 event_id 要求相同完整 Report；`kind=result` 只展示，不回报或执行。原生工具权限和用户授权保持有效，插件交接不能批准权限提示。
 
-Enable `idle_wake_verified` only after actual idle wake is verified through a native inbox test or diagnosis; an extra paid N2 is not mandatory. Busy result capability needs separate acceptance. Historical N2/N3 and the 2026-10-20 original macOS Claude-3p 2.1.299 mailbox loop are recorded separately. The latter used one native business turn but three billed model-response usage records, not one model request or zero cost. These results do not enable flags for other hosts. See [actual records](NATIVE-VALIDATION.md#2026-10-20-pure-mailbox-original-claude-code-session-and-codex-return).
+实际收件测试或原生诊断核实空闲唤醒后才能开启 `idle_wake_verified`；不要求额外付费运行一次 N2。忙时结果能力需另行验收。历史 N2/N3 与 2026-10-20 的 macOS Claude-3p 2.1.299 原会话邮箱闭环分别记录；后者为一个原生业务回合，但有三条计费模型响应 usage 记录，不是一次模型请求或零消耗。这些结果不替其他宿主开启验证标记，见[本机记录](NATIVE-VALIDATION.md#2026-10-20纯邮箱-claude-原-code-会话与-codex-回传)。
 
-### WorkBuddy CLI configuration
+### WorkBuddy CLI 配置
 
-The [WorkBuddy example](../clients/workbuddy/client.example.json) uses `native.transport="cli"`. Verify the selected profile and existing session first. If login is required, use the official personal flow before configuration. The Client resumes existing IDs only, never creates sessions. `command` is an absolute executable, not a command string or argv array. `cwd`/`config_dir` must be existing local absolute directories and `session_id` must exactly match Hub. `timeout_seconds` defaults to `120`, range `1..600`.
+[WorkBuddy 示例](../clients/workbuddy/client.example.json) 使用 `native.transport="cli"`。先核实用户选择的 CLI 配置目录和既有会话是否可用；需要登录时走官方本人登录流程，再填写配置。Client 只恢复已有 ID，不自动创建会话。`command` 是一个绝对可执行文件路径，不是命令字符串或 argv 数组。`cwd`、`config_dir` 均须为本机已存在目录的绝对路径；`session_id` 与 Hub 绑定完全一致。`timeout_seconds` 默认 `120`，接受 `1` 至 `600` 秒。
 
-Complete Envelope and mailbox/compatibility instructions are written to a temporary regular stdin file; stdout also uses a regular temporary, fully parsed then removed. Task text never enters argv or a shell. Arguments are fixed:
+Client 将完整 Envelope 与对应邮箱或兼容协议说明写入本机临时普通文件，作为 stdin 传给 CLI；stdout 也使用临时普通文件接收，完整解析后删除。不把任务正文放进命令行或 shell。调用参数固定为：
 
 ```text
 <command> [<entry_script>] --resume <session_id> --print --output-format json --input-format text
 ```
 
-There are no tool, permission, MCP, model or profile overrides or `--no-session-persistence`. The session/profile defaults apply and chats persist. `CODEBUDDY_CONFIG_DIR` selects configuration, not isolated credential storage; official CLI may share product authentication. A profile is not an account security boundary.
+实现不传工具开关、权限设置、MCP、模型或 profile 覆盖参数，也不传 `--no-session-persistence`；使用配置目录与会话的默认工作环境，续聊默认持久化。Client 设置 `CODEBUDDY_CONFIG_DIR`，但配置目录隔离不等于凭据存储隔离，官方 CLI 可能使用产品自己的共享认证存储。不能把一个 `config_dir` 当成账户安全边界。
 
-Failure does not imply unchanged history. A failed default-persistence original-session resume on 2026-10-14 still appended history; its original prefix was verified intact. The same configuration/session passed default authentication continuation on October 15, so the earlier error is not the current conclusion. Preserve uncertainty and reconcile history/native results rather than blindly resending after failure or empty output.
+失败不代表历史没有变化。2026-10-14 原桌面会话的一次默认持久化恢复尝试虽然返回需要登录，仍追加了原历史；当时核对确认原有前缀完整保留。2026-10-15 同一原配置与会话的默认认证续聊已通过，不能继续把旧登录错误写作当前结论。遇到这类情况保留不确定投递记录、核对历史与原生结果，不能据失败或空回复盲目重发。
 
-Optional `environment` accepts only these string values, not arbitrary variables:
+可选 `environment` 只接受以下字符串值，不接受任意环境变量：
 
-| Key | Allowed values |
+| 键 | 允许值 |
 | --- | --- |
-| `CODEBUDDY_FORCE_LITE_WB_BUNDLE` | `"0"`, `"1"` |
-| `DISABLE_AUTOUPDATER` | `"0"`, `"1"` |
-| `CODEBUDDY_INTERNET_ENVIRONMENT` | `"internal"`, `"external"`, `"ioa"`, `"cloudhosted"`, `"selfhosted"` |
+| `CODEBUDDY_FORCE_LITE_WB_BUNDLE` | `"0"`、`"1"` |
+| `DISABLE_AUTOUPDATER` | `"0"`、`"1"` |
+| `CODEBUDDY_INTERNET_ENVIRONMENT` | `"internal"`、`"external"`、`"ioa"`、`"cloudhosted"`、`"selfhosted"` |
 
-The example uses `internal`; choose the site where the user officially logged in. It selects CLI service environment, not extra/inherited desktop tools. Match the bundle flag to the actual entry. Do not put tokens, desktop IPC arguments or permission overrides in `environment`.
+示例使用 `internal` 站点，应改为本人实际完成官方登录的站点；这个值选择 CLI 服务环境，不代表新增或继承桌面工具。Bundle 标志须匹配实际安装入口。不要将 token、桌面 IPC 参数或权限覆盖放入 `environment`。
 
-On Windows `command` must be an actual `.exe`; `.cmd`/`.bat` are rejected. An official JavaScript entry may use actual `node.exe` and optional `entry_script`, e.g. `command="C:/Program Files/nodejs/node.exe"`, `entry_script="C:/absolute/path/to/official/codebuddy.js"`. The script must be an existing regular `.js`, `.mjs`, `.cjs` or file named `codebuddy`. Invocation remains separate argv without a shell. Existing Node.js and official CLI are required; runtime installation is not automatic.
+Windows 必须把 `command` 配成实际 `.exe`，拒绝 `.cmd` / `.bat`。若官方安装入口是 JavaScript，可以使用实际 `node.exe` 加可选 `entry_script`，例如 `command="C:/Program Files/nodejs/node.exe"`、`entry_script="C:/absolute/path/to/official/codebuddy.js"`。脚本须为本机现存普通文件，扩展名为 `.js`、`.mjs`、`.cjs`，或文件名为 `codebuddy`；仍以独立 argv 调用，不经过 shell。该方式需要用户已有 Node.js 和官方 CLI 安装，不会自动安装运行时。
 
-### WorkBuddy OpenAPI configuration (mailbox off)
+### WorkBuddy OpenAPI 配置（邮箱关闭）
 
-`native.transport="openapi"` remains an explicit alternative. Old configurations omitting `transport` retain OpenAPI behavior, never silently try CLI. Replace the entire CLI `native` object with this, without mixing fields:
+保留 `native.transport="openapi"` 作为独立选择；旧配置没有 `transport` 字段时仍按 OpenAPI 解释，不会自动尝试 CLI。用以下 `native` 对象替换 CLI 配置中的整个 `native`，不要混用两种传输的字段：
 
 ```json
 {
@@ -179,65 +180,65 @@ On Windows `command` must be an actual `.exe`; `.cmd`/`.bat` are rejected. An of
 }
 ```
 
-OpenAPI uses `Authorization: Bearer access_token`, `{"content":"complete notification","msg_type":"text"}` and `user.localassistant.invokable`. Configured `oauth_scopes` records the user's grant; the platform still authenticates it. Missing token/scope yields `unconfigured` before claims. There are no app secrets, refresh tokens or automatic refresh. Stable long-term operation still needs official app authorization/renewal design. An attempted request with an expired token stays uncertain and is not resent. Personal CLI login does not authorize third-party OpenAPI.
+OpenAPI 使用 `Authorization: Bearer access_token`，发送 `{"content":"完整通知","msg_type":"text"}`，需要 `user.localassistant.invokable`。`oauth_scopes` 是用户配置的授权范围记录，平台仍负责实际鉴权。缺少 token 或 invokable 范围时，Client 在领取消息前返回 `unconfigured`。这里没有应用密钥、refresh token 或自动刷新流程；稳定长期接入仍需完成官方应用授权及续期设计。Token 失效后的已尝试投递保留为不确定，不自动发送第二次。CLI 本人登录不配置第三方 OpenAPI 授权。
 
-### Grok Routine configuration (legacy, mailbox off)
+### Grok Routine 配置（旧版兼容，邮箱关闭）
 
-`native.routine_id` is the user's stable label for the official webhook and must match `endpoint.session_id`. `native.body` must carry the full message. `"{{envelope}}"` becomes a JSON object, `{{envelope_json}}` complete JSON text, `{{notification}}` the full notification/report instructions. `{{content}}`, `{{task_id}}`, `{{message_id}}` are also supported but cannot replace the full envelope. Replacement runs once; placeholders inside task content are not interpreted again. Object placeholders must occupy an entire JSON string value.
+Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 一致。`native.body` 必须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为带报告指引的完整通知。还支持 `{{content}}`、`{{task_id}}`、`{{message_id}}`，但它们不能代替完整消息。替换仅进行一轮，任务内容中的占位符不会被再次解释。对象占位符必须独占整个 JSON 字符串值。
 
-### Codex executable configuration
+### Codex 程序配置
 
-Desktop MCP, queue and App Server proxy are separate transports with separate acceptance. Independent official Node Desktop MCP actually guided the busy original chat on 2026-10-15. That acceptance used resident MQ Client 0.2.0; current 0.3.0 adds addressed mail with Node 22+. See the Codex directory for startup. Internal model-tool calls cannot substitute for independent Client evidence. Only the fixed chat/permitted sender tool is used; discovery is not authorization to call every tool.
+Desktop MCP、queue 与 App Server proxy 是不同通道，配置与验收分别进行。2026-10-15 独立 Node 启动链已真实调用官方 Desktop MCP 并向忙碌原聊天即时引导消息；旧版常驻 MQ Client 0.2.0 曾用于该验收；当前 0.3.0 增加定址邮箱，使用 Node 22+，启动说明见 Codex 目录，不以内部模型工具调用充当独立 Client 的成功证据。仅使用固定目标会话与允许的发送工具，发现全部工具不等于获得调用它们的授权。
 
-Local macOS signature validation rejected the Python parent chain while official Node passed. Missing App Server daemon sockets do not disprove Desktop MCP. Do not start another daemon, copy logins or access private IPC as a replacement original chat.
+Python 父进程链在本机 macOS 签名校验失败，官方 Node 链通过；不要因 App Server proxy 缺少 daemon socket 推断 Desktop MCP 也不可用。不新建另一套 daemon，不复制登录信息或访问未公开 IPC 来替代目标聊天。
 
-Original queue/app-server Python configuration boundaries:
+以下为原有 queue/app-server Python 实现的程序配置边界：
 
-Codex executable resolution is fixed to an absolute path on Client startup, never rediscovered from PATH during delivery. Windows requires actual `codex.exe`; `.cmd`/`.bat` wrappers are rejected to prevent shell interpretation. Hub `endpoint.session_id` and `native.thread_id` must refer to the same verified native thread.
+Codex 的执行入口在启动 Client 时解析并保存为绝对路径，投递时不会重新从 PATH 查找。Windows 必须配置实际的 `codex.exe`；Client 明确拒绝 `.cmd` / `.bat` 包装器，以避免消息参数经过 shell 解释。Hub 的 `endpoint.session_id` 与 `native.thread_id` 必须指向同一个已核实原生 thread。
 
-## Mail consumption, transport receipts and assistant replies
+## 邮箱消费、投递回执与助手回复
 
-1. Verify binding/mailbox capability, then read the durable mailbox: Codex/WorkBuddy subscribe SSE first; Claude uses event long polling. The Hub atomically changes `pending` to `dispatching`; another message is not claimed while that endpoint has `dispatching/uncertain`.
-2. `status` is saved locally and acknowledged without a model. Attempt native `request/reply/result` once. WorkBuddy resumes the existing session; Codex Desktop MCP directly guides the fixed existing chat without native queue; Claude submits into the bound original Code session.
-3. Send `/v1/mail/delivery` only after WorkBuddy CLI exits with a complete, non-error, matching-session result, Codex MCP confirms input, or Claude observes the exact message marker in its native main-session `turn.start`. ACK is transport evidence, not business success. Models express progress, required personal action or artifacts through another mail message, never the original delivery receipt.
-4. A receiving assistant replies explicitly with its scoped `mail-send` helper or Claude's native `mail_send` tool, a new ID, original `correlation_id`, relevant `reply_to` and a permitted recipient. It may send directly to the original entry instead of the previous sender. Ending a model turn never automatically replies.
+1. Client 核对绑定与邮箱能力，再读持久化邮箱；Codex/WorkBuddy 先订阅 SSE，Claude 使用事件长轮询。Hub 原子将 `pending` 改为 `dispatching`；同 endpoint 已有 `dispatching/uncertain` 时不再领取另一条消息。
+2. `status` 仅保存本地记录并 ACK，不进入模型。`request/reply/result` 经原生传输尝试一次。WorkBuddy CLI 使用既有会话；Codex Desktop MCP 使用固定既有聊天，直接引导、不改用 native queue；Claude 提交到绑定的原 Code 会话。
+3. WorkBuddy CLI 实际退出且完整结果的 `session_id` 匹配、非错误，Codex MCP 确认输入，或 Claude 在原生主会话 `turn.start` 观察到精确消息 marker 后，Client 才发送 `/v1/mail/delivery`。ACK 仅是传输证据，不证明业务成功。模型通过另一条邮箱消息表达进度、需本人处理或成果，不能提交原消息的 delivery。
+4. 收件助手如需回复，自己调用固定身份的 `mail-send` helper 或 Claude 原生 `mail_send` 工具，使用新 ID、原 `correlation_id`、必要 `reply_to`，明确选择用户允许的接收者。可以直接给最初入口，不要求回上一个发送者；结束模型回合不会自动回复。
 
-The first publication defaults to 16 messages/30 minutes; status counts too. `mail-state` lists only the caller's sent/received delivery records. Visible `status` bodies may be read; `request/reply/result` remain metadata-only without copying task context.
+首次发布默认最多 16 条、30 分钟；状态也计数。`mail-state` 只列调用方发出/收到的投递记录；可读其自身可见 `status` 的正文，其他 `request/reply/result` 仍仅显示投递元数据，不复制任务上下文。
 
-SSE keepalives do not query business state. Backoff/reconnect claims only new `pending`. Missing confirmation after a network attempt, a started CLI timeout, incomplete output or mismatched session remain `uncertain` without resending. Restarting only the Client leaves claims unchanged; Hub restart converts `dispatching` to `uncertain`. Unconfirmed receipts stop consumption for reconciliation. Never erase records, change IDs or fake native idle to bypass reservations.
+SSE 保活不查询业务任务；重连退避后只取新的 `pending`。网络尝试后缺少确认、CLI 已启动但超时、结果残缺或会话不匹配等，保留 `uncertain`，不重新发送。只有 Client 重启时，已有 claim 保持原状态；Hub 重启将 `dispatching` 转为 `uncertain`。回执未确认则停止并核对，不能清记录、换 ID 或伪造原生空闲绕过在途占用。
 
-Files identify device/workspace/relative path. Mailboxes do not copy files or verify business artifacts automatically; the final entry checks as required. Native permissions remain with the user; skills/messages cannot approve tools. New mode needs no Report helper. A scoped messaging helper calls only local mailbox/directory APIs, not hidden tools.
+文件引用必须标明设备、工作区和相对路径；邮箱不自动复制文件或验证业务成果，最终入口按需求核验。原生权限提示仍交给用户，安装技能或消息不能批准工具调用。新模式不需要 Report helper；若使用固定 endpoint 的消息 helper，它只调用本机邮箱与目录接口，不触发其他隐藏工具。
 
-### Legacy Task/Report compatibility
+### 旧版 Task/Report 兼容
 
-Only old `kind=task/control` without `mailbox:true` continues native `accepted/running/needs_user/succeeded/failed`. Legacy terminal Reports generate `kind=result` to the original entry; old results are display-only. Claude's native `report` and `clients/shared/report.py --config ... --file ...` apply only to compatibility, not execution receipts for new mail. See above and [full history](NATIVE-VALIDATION.md).
+只有旧 `kind=task/control`、没有 `mailbox:true` 的信封继续由原生助手报告 `accepted/running/needs_user/succeeded/failed`；旧协议终态生成返回原入口的 `kind=result`。旧结果只展示。Claude 原生 `report` 工具和 `clients/shared/report.py --config ... --file ...` 仅用于此兼容路径，不能向新邮箱邮件提交执行回执。历史验收见上文和[完整记录](NATIVE-VALIDATION.md)。
 
-## Independent updates and replacement
+## 单独更新和拔插
 
-Clients can be started, stopped and replaced separately without changing Hub protocol. There is no supervisor for every Client or automatic download, verification/execution of unknown plugins.
+当前实现支持独立进程的单独启动、停止和替换，Hub 协议不变；还没有一个替用户管理全部 Client 进程的 supervisor，也没有自动下载、验证或执行陌生插件。
 
-Update/reinstall Claude Code through official plugin tools, then `/reload-plugins` in the target session. It stops old listeners, reacquires the lease and reconciles saved records rather than resending on reload. Resolve claimed delivery state first; reload cannot clear uncertainty.
+Claude Code 插件通过官方插件更新或重新安装后，在目标会话 `/reload-plugins`；它会停止旧监听、重取租约、核对持久记录，不把热重载当作重新发送任务。已领取消息必须先明确投递状态，不能靠重载清除不确定记录。
 
-For safe updates, pause sends to the endpoint and obtain explicit receipts for claimed messages. Stopping a Client after native handoff does not stop the native assistant. New-mail assistants must still explicitly send their results; old tasks use Reports. Replace the product directory after stopping the old Client, then restart it; other Clients and Hub may stay running.
+安全更新时先暂停向该 endpoint 提交任务，让已领取消息拿到明确投递回执。任务已经交给原生助手后，停止 Client 不会停止原生助手本身；新邮箱中的原生助手仍需自行发消息回传，旧任务沿用 Report。停止旧 Client 后替换该助手目录，再启动新进程，其他 Client 和 Hub 可以继续运行。
 
-If `dispatching`, `uncertain` or unsaved receipts exist, reconcile actual native execution before resuming. Do not erase records, set idle or use a new ID to bypass uncertainty. Forced mid-delivery shutdown requires conservative recovery, not a claim of lossless hot update.
+如果更新时存在 `dispatching`、`uncertain` 或未保存回执，应先核对原生执行记录，再恢复消费。不要通过清空记录、改成 idle 或提交新消息 ID 绕过不确定状态。中途强制停止 Client 只能进入保守恢复流程，不能被称为无损热更新。
 
-New Clients implement `validate_binding(endpoint)` and `deliver(envelope) -> (outcome, detail)`, declare actual `session_kinds`, mailbox capability and modes, then reuse shared runtime or implement the protocol independently. Mailbox `1` requires verified native binding/wake; adding a flag cannot make an old transport safely consume new mail. Validate native type/destination without allowing task text to rewrite configuration. Hub/Client interface protocol is `1`; reject incompatible changes. Replacing Python files does not alter native logins. Separate CLI/SDK sessions must be labeled in manifests/support notes.
+新 Client 需要实现 `validate_binding(endpoint)` 和 `deliver(envelope) -> (outcome, detail)`，声明真实 `session_kinds`、邮箱能力及发送模式，再复用 shared runtime 或独立实现协议。邮箱能力 `1` 必须先完成原生绑定与唤醒验证；旧传输不能仅增加标记就消费新邮件。绑定验证必须核对原生类型和会话目的地，不能让任务正文改写配置。Hub 和 Client 的协议版本是 `1`，不兼容升级明确拒绝。Python 文件替换不改变原生工具登录态；独立 CLI/SDK 会话也必须在 manifest 及支持说明中明确标注。
 
-## Multiple platforms and computers
+## 多平台与多电脑
 
-Python uses standard-library HTTP, subprocess and files; Codex Desktop MCP uses Node, Claude Code host mods APIs. Go builds native programs; users install required Client runtimes. Verify Windows/macOS/Linux native CLIs, official MCP launch/signature chains and environment separately. One language/host startup does not prove another environment.
+Python Client 使用标准库 HTTP、子进程和文件 API；Codex Desktop MCP 的新路径使用 Node runtime，Claude Code 使用宿主内的 mods API。Go 核心可构建为原生程序，各 Client 的运行时由需要它们的用户选择安装。Windows、macOS、Linux 的原生 CLI、官方 MCP 启动链、签名与环境检查分别验收；某一语言或某一宿主启动成功不能直接推广到其他环境。
 
-The current Hub is local loopback only. Another computer needs its own Client and a later authorized cross-device transport; local SSE is not automatically a remote service. File references carry `device_id`, `workspace_id` and workspace-relative paths. They are neither copied automatically nor directly usable by remote assistants.
+当前 Hub 接口仅在本机 loopback 使用。另一台电脑的助手需要在那台电脑上运行自己的 Client，并采用后续经过授权的跨设备传输；本机 SSE 不自动成为远程消息服务。文件引用带有 `device_id`、`workspace_id` 和工作区内的相对路径，不会自动复制文件，也不能把本机路径直接交给远程助手使用。
 
-## Verification
+## 验证
 
-Use Node state-machine tests and official `plugin validate` / `plugin test` for offline Claude checks. A `claude -p` slash command is not guaranteed to avoid model calls; an intended configuration-only probe actually invoked the model. Do not use it as a zero-cost preflight. See the [incident and measured usage](NATIVE-VALIDATION.md#2026-10-20-pure-mailbox-original-claude-code-session-and-codex-return).
+Claude 离线检查使用 Node 状态机测试及官方 `plugin validate` / `plugin test`。`claude -p` 的斜杠命令不保证跳过模型；本次原本只查配置的探测实际触发了模型，不再将它作为零成本预检。见[事件与实测用量](NATIVE-VALIDATION.md#2026-10-20纯邮箱-claude-原-code-会话与-codex-回传)。
 
 ```sh
 python3 -m unittest discover -s clients/tests -v
 ```
 
-Local fake HTTP and subprocesses test subscription/claim ordering, Host/Origin, redirect rejection, uncertain delivery, one native attempt, stopping after failed receipts, result semantics, WorkBuddy CLI bindings/I/O, OAuth boundaries and one-pass templates. Tests neither send actual assistant messages nor read contacts or prove native integration.
+测试使用本地假 HTTP 和模拟子进程，检查订阅/领取顺序、Host/Origin、拒绝重定向、传输不确定状态、一次原生尝试、失败回执后停止、结果通知语义、WorkBuddy CLI 绑定与输入输出、OAuth 配置边界及模板的一次替换。它不会发送真实助手消息、读取联系人或证明任何原生平台已接入。
 
-For new-mail native acceptance, begin with a low-cost local-file task. Verify original-session wake, explicit assistant-chosen recipients, associated replies, artifacts, final return and uncertainty recovery. Retain old acceptance/execution Report evidence without presenting it as new-mail business completion. Business-system access/contact messaging still needs concrete human instructions and any native personal confirmation.
+新邮箱真实验收先用低成本、本地文件任务，核实原会话唤醒、助手明确选择接收者、关联回复、成果核对、最终回到最初入口及不确定投递恢复。旧版接手/执行 Report 的证据保留，不冒充新邮箱业务完成。访问业务系统或向联系人发送通知仍需具体人类指令和原生应用要求的本人确认。

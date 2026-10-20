@@ -1,10 +1,11 @@
-# Repository work
+# 仓库工作要求
 
-[English](AGENTS.md) | [简体中文](AGENTS.zh-CN.md)
+[简体中文](AGENTS.md) | [English](AGENTS.en.md)
 
-- Keep `main` releasable. Develop on a separate feature/fix/docs branch, run the relevant offline checks, and merge through a pull request. Do not commit or push directly to `main` or bypass its protections.
-- Keep the Hub an addressed message pipe. Assistants and their skills choose recipients and coordinate work; do not introduce a task tree, central planner, forced return chain or automatic business replies for mailbox messages.
-- Keep assistant Clients in their own directories and preserve native session/tool boundaries. Capabilities are verified per transport, product and platform.
-- Never commit personal configuration, credentials, actual chat history or private artifacts. Package only the explicit public allowlist.
-- Prefer offline tests. Real assistant calls must be necessary and authorized; minimize tokens, especially Claude. Record native acceptance limits truthfully.
-- Release with a version tag, CHANGELOG and matching portable packages/checksums. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- 公开文档默认中文（`*.md`），完整英文作为可选项（`*.en.md`）；导航与 Release 均中文在前。受管模型技能只安装一份英文正文。
+- 保持 `main` 可发布。在单独的 feature/fix/docs 分支开发，运行相关离线检查，通过拉取请求合并。不要直接提交或推送到 `main`，也不要绕过分支保护。
+- 保持 Hub 为定址消息管道。助手及其技能选择收件人并协调工作；不要为邮箱消息引入任务树、中央规划器、强制回传链或自动业务回复。
+- 每个助手 Client 保持独立目录，保留原生会话与工具边界。能力按传输方式、产品和平台分别验证。
+- 不得提交个人配置、凭据、真实聊天记录或私密成果。安装包仅包含明确公开允许清单中的文件。
+- 优先离线测试。真实助手调用必须必要且经授权，尽量减少 token，尤其是 Claude。如实记录原生验收边界。
+- 发布须有版本标签、CHANGELOG 及匹配的便携包和校验值。参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
