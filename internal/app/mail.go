@@ -47,9 +47,19 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 				in.Deadline = time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
 			}
 		}
-		return s.Broker.Publish(endpoint, in)
+		var message manager.Envelope
+		err := s.withClientLease(r, endpoint, func() error {
+			var err error
+			message, err = s.Broker.Publish(endpoint, in)
+			return err
+		})
+		return message, err
 	case r.URL.Path == "/v1/mail/inbox" && r.Method == http.MethodPost:
-		return s.Broker.NextMail(endpoint)
+		wait, err := inboxWait(r)
+		if err != nil {
+			return nil, err
+		}
+		return s.inbox(r, endpoint, wait, true)
 	case r.URL.Path == "/v1/mail/delivery" && r.Method == http.MethodPost:
 		var in struct {
 			MessageID string `json:"message_id"`
@@ -63,7 +73,9 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 		if !exists || !message.Mailbox || message.Recipient != endpoint {
 			return nil, errors.New("mail does not belong to this mailbox")
 		}
-		return map[string]bool{"ok": true}, s.Broker.Delivery(in.MessageID, in.Outcome, in.Detail)
+		return map[string]bool{"ok": true}, s.withClientLease(r, endpoint, func() error {
+			return s.Broker.Delivery(in.MessageID, in.Outcome, in.Detail)
+		})
 	case r.URL.Path == "/v1/mail/state" && r.Method == http.MethodGet:
 		state := s.Broker.Snapshot()
 		id := r.URL.Query().Get("correlation_id")
@@ -94,7 +106,9 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 		if err := decode(w, r, &in); err != nil {
 			return nil, err
 		}
-		return map[string]bool{"ok": true}, s.Broker.CancelMail(endpoint, in.CorrelationID)
+		return map[string]bool{"ok": true}, s.withClientLease(r, endpoint, func() error {
+			return s.Broker.CancelMail(endpoint, in.CorrelationID)
+		})
 	}
 	return nil, errors.New("unsupported mailbox operation")
 }

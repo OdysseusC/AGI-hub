@@ -1,64 +1,68 @@
-# 架构
+[English](ARCHITECTURE.md) | [简体中文](ARCHITECTURE.zh-CN.md)
 
-AGI Hub 是本机的寻址消息边车。用户从任意已接入原生助手发起工作，助手各自处理邮箱、选择协作者及回复对象；Hub 不执行智能规划或团队调度。
+# Architecture
 
-## 三部分
+AGI Hub is a local sidecar for addressed messages. Users start work in any connected native assistant; each assistant handles its own mailbox and chooses collaborators and reply recipients. The Hub does not perform intelligent planning or team scheduling.
 
-| 部分 | 职责 |
+## Three parts
+
+| Part | Responsibility |
 | --- | --- |
-| 协作技能 | 判断何时求助、组织必要上下文、选择收件人、整合回复、核验和交付成果 |
-| Hub | 用户配置的目录与发送范围、持久化、定向领取、去重、传输回执和关联限额 |
-| 各助手 Client | 监听自己的邮箱，通过真实原生接口投递、唤醒，并保存实际传输证据 |
+| Collaboration skill | Decide when to ask for help, provide necessary context, choose recipients, combine replies, verify and deliver results |
+| Hub | User-configured directory and allowed recipients, persistence, addressed claims, deduplication, transport receipts and conversation limits |
+| Per-assistant Client | Listen to its own mailbox, deliver and wake through actual native interfaces, and retain real transport evidence |
 
-Client 可以是独立进程或产品内插件。安装同一模型的 API、MCP 工具或一份技能说明，均不证明已经接入对应原生会话。
+A Client can be a separate process or an in-product plugin. Installing an API for the same model, MCP tools or a skill does not prove that the corresponding native session is connected.
 
-## 消息
+## Messages
 
 ```text
-A → B / C / D 的邮箱
-B → D 的邮箱
-D → B 或 A 的邮箱（由 D 显式选择）
-A 整合所需消息 → 用户
+A → B / C / D mailboxes
+B → D mailbox
+D → B or A mailbox (D explicitly chooses)
+A combines the necessary messages → user
 ```
 
-每封信都有稳定 ID、发件人、收件人、用途、必要正文和关联 ID。`root_origin` 固定最初的人类入口，作为上下文；`reply_to` 关联被回应的消息，均不强制回传路径。助手可以指定获准的其他收件人。
+Each message has a stable ID, sender, recipient, purpose, necessary body and correlation ID. `root_origin` preserves the initial human entry as context; `reply_to` links the message being answered. Neither forces a return path. Assistants may explicitly select other permitted recipients.
 
-Hub 不建立父子任务、依赖图、等待条件或整体完成状态。新邮箱消息不创建 Task，不需要 Report，不会因收到业务状态自动生成回复。业务完成与成果质量由助手核验、明确发送，并最终向用户解释。
+The Hub has no parent/child tasks, dependency graph, waiting conditions or overall completion state. New mailbox messages do not create Tasks, require Reports or generate replies automatically from business status. Assistants verify business completion and result quality, send them explicitly and ultimately explain them to the user.
 
-`request / reply / result` 可以通过 Client 进入原生会话；`status` 保留记录并由 Client 确认，不单独调用模型。消息只带必要摘要与文件引用，技能按需查询目录和版本，不重复灌入历史。
+`request / reply / result` can enter native sessions through a Client; `status` is recorded and acknowledged by the Client without a separate model call. Messages contain only necessary summaries and file references. Skills fetch the directory and versions when needed rather than repeatedly injecting history.
 
-## 原生执行与占用
+## Native execution and capacity
 
-Hub 将 pending 消息持久化为 dispatching 后才返回给 Client；同一邮箱存在 dispatching 或 uncertain 时不继续分配其他执行消息。
+The Hub persists a pending message as dispatching before returning it to the Client. While a mailbox has a dispatching or uncertain message, it does not allocate another execution message.
 
-WorkBuddy Client 串行调用配置的官方 CLI，使用原 `--resume` 会话、工作目录和配置目录，待进程结束并核对匹配结果才确认传输。业务助手发送的 status 不会提前释放这次投递占用，因此不需要父任务等待状态或额外 settled 协议。
+The WorkBuddy Client serially invokes the configured official CLI with the original `--resume` session, working directory and configuration directory. It confirms transport only after the process exits and its result matches the session. A business assistant's status message cannot release this transport reservation early, so no parent-task waiting state or additional settled protocol is needed.
 
-Codex Client 通过官方 Desktop MCP 向绑定原聊天即时投递。消息输入 ACK 只表示接受，不表示原回合结束或业务完成；忙时是否允许输入单独配置和验证，不能回退到 native queue 冒充引导。
+Claude Code Client 0.2.2 runs inside the bound original Code session. It negotiates mailbox long polling and lease fencing, then uses native `peers`, `mail_send` and `mail_state` tools with fixed identity; no Bash or automatic business Report/reply is needed. It supports queue only, not busy steer. On 2026-10-20, the existing macOS Claude-3p Code session passed idle mailbox execution and an explicit result return to the busy original Codex chat. Other hosts and Claude busy queuing still require acceptance. See the [native record](NATIVE-VALIDATION.md#2026-10-20-pure-mailbox-original-claude-code-session-and-codex-return).
 
-这只约束 Client 投递与原生会话占用。共享工程和桌面的写操作仍需助手明确协调范围，不能把收到消息当成并发写同一目标的授权。
+The Codex Client delivers directly to the bound original chat through official Desktop MCP. An input ACK means acceptance of input, not that the existing turn ended or the business work completed. Busy input must be configured and verified separately; falling back to native queue cannot be presented as guidance.
 
-## 权限与恢复
+This constrains Client delivery and native-session capacity only. Assistants must still coordinate writes to a shared project or desktop explicitly. Receiving a message does not authorize concurrent writes to the same target.
 
-Hub 默认只监听数字 loopback，校验 Host/Origin；管理凭据与 endpoint 凭据分开。目录的 `visible_peers` 与允许发送的 `allowed_peers` 分别配置，默认空。Client 和固定身份程序只持自身凭据，消息不能切换其身份或原生目的地。
+## Permissions and recovery
 
-同一 ID 同内容幂等，同 ID 不同内容拒绝。可能已经投递的失败保留 uncertain，不盲目重发、换 ID 或另开会话。Hub 重启将遗留 dispatching 保留为不确定，Client 对账；没有聊天历史轮询来猜业务是否完成。
+The Hub listens only on a numeric loopback address by default and checks Host/Origin. Admin and endpoint credentials are separate. Directory `visible_peers` and send permission `allowed_peers` are configured independently and default to empty. Clients and scoped executables hold only their own credentials; messages cannot change their identity or native destination.
 
-每个关联记录仅保存固定原入口、参与者、总消息额度、期限和关闭标记，用于来源、权限与可靠性检查，不管理业务计划。多个分支共用一个消息计数，转发不能复制余额。到期或额度不足时停止新增消息；这不代表能限制宿主内部全部模型调用或积分。
+An identical ID and body is idempotent; a changed body under the same ID is rejected. A failure that may already have delivered remains uncertain: no blind resend, new ID or new session. After a restart, the Hub retains leftover dispatching messages as uncertain for Client reconciliation. It does not poll chat history to guess business completion.
 
-原入口可以关闭关联，撤回尚未投递的消息；运行中或不确定的原生动作保留真实状态，不能假报已停止。人类输入引用用于追踪，不是密码学意义的人类授权证明；助手仍须遵守原用户范围和宿主权限。
+Each conversation record contains only the fixed original entry, participants, total message allowance, deadline and closed flag for provenance, permissions and reliability checks. It does not manage business plans. Branches share one message counter; forwarding cannot duplicate the allowance. Expiration or an exhausted allowance stops new messages, without claiming to limit every model call or credit used inside a host.
 
-## 存储与跨平台
+The original entry can close a conversation and withdraw unsent messages. Running or uncertain native actions retain their actual state; the Hub cannot falsely mark them stopped. A human-input reference is traceability data, not cryptographic proof of human authorization. Assistants remain bound by the original user scope and host permissions.
 
-Go 标准库实现本机 HTTP、SSE 与追加快照日志。日志带 SHA256 校验，提交后同步；操作系统文件锁保护同一私有数据目录，锁文件不删除，进程退出由系统释放。新增邮箱字段使用可识别的日志版本，避免旧程序忽略字段后覆盖记录。校验发现损坏，不隔离拥有同一用户文件权限的进程。旧版升级需先停止原 Hub 与 Client，参见[安装说明](../INSTALL.md)。
+## Storage and platforms
 
-目前单条快照上限 4 MiB，日志上限 128 MiB；没有长期归档和跨电脑消息/文件传输。文件引用必须明确设备和工作区，不能把本机路径直接交给另一台电脑使用。
+The Go standard library provides local HTTP, SSE and an append-only snapshot journal. Records have SHA256 checksums and are synchronized after commit. An operating-system file lock protects the same private data directory; its file is never removed and the OS releases ownership when the process exits. New mailbox fields use a recognizable journal version so old programs cannot silently discard them and overwrite records. Checksums detect corruption, not processes with the same user's file permissions. Stop the old Hub and Clients before an upgrade; see [installation](../INSTALL.md).
 
-Hub、安装器和固定身份程序发布 Windows 与 macOS 的 amd64/arm64 四种安装包；Mac 下载名用 `macos`，内部 Go 平台标识保留 `darwin`。Linux 仍可用于内部构建与离线检查，不提供安装包。原生产品支持、工具保留和空闲/忙时唤醒分别实测；构建成功不等于所有系统原生接入通过。
+A snapshot is currently limited to 4 MiB and the journal to 128 MiB. Long-term archiving and cross-computer message/file transport are not implemented. File references must identify their device and workspace; another computer cannot use a local path directly.
 
-## 技能与安装
+The Hub, installer and scoped executable are published in four Windows/macOS packages: amd64 and arm64 for each OS. Mac download names use `macos`; Go's internal platform identity remains `darwin`. Linux can still be used for internal builds and offline checks, but has no release package. Native product support, retained tools and idle/busy wake behavior are tested separately; a successful build does not verify native integration on every system.
 
-安装器只维护用户登记的目录；同内容不写、用户修改不覆盖、手动卸载不恢复。技能修订与清单格式分别记录，拒绝降级；磁盘版本和旧会话加载状态分开。
+## Skills and installation
 
-`START-HERE.md` 可直接交给 Codex，由它检查本机、安装稳定路径、提供 WorkBuddy 接入消息，并引导核对会话与最小权限。安装器不自动启用未经验证的绑定，不启动付费模型。
+The installer maintains only user-registered locations. It leaves identical files untouched, preserves user edits and does not reinstall a manually removed skill. Skill revisions and manifest format versions are recorded separately; downgrades are rejected. Disk version and the version loaded by an existing session are separate facts.
 
-旧单次 Task/Report 路径保留兼容，与新邮箱独立。旧 leader 只作为该接口的默认入口，不控制邮箱消息。详见[协议](PROTOCOL.md)、[协作约定](TEAM-ORCHESTRATION.md)、[技能维护](SKILLS.md)。
+Give `START-HERE.md` directly to Codex so it can inspect the machine, install stable paths, prepare a WorkBuddy connection message and guide session/minimum-permission checks. The installer does not enable unverified bindings or start paid models.
+
+The old single-handoff Task/Report path remains independent compatibility functionality. Its legacy leader is only that interface's default entry and does not control mailbox messages. See the [protocol](PROTOCOL.md), [collaboration conventions](TEAM-ORCHESTRATION.md) and [skill maintenance](SKILLS.md).

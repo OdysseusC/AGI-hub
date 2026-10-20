@@ -1,110 +1,115 @@
 # AGI Hub
 
-从你正在使用的原生 AI 助手出发，按需找其他助手协助。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-AGI Hub 是常驻本机的消息边车。每个助手安装协作技能和自己的 Client，只关注自己的邮箱。助手决定分工、收件人和如何整合结果；Hub 负责持久消息、定向投递、权限、去重和基础限额。
+Start in the native AI assistant you already use, and bring in other assistants when needed.
 
-可以从 Codex、WorkBuddy 或后续接入的任意助手开始，不需要切到一个新的聊天壳，也没有永久的逻辑主持人。相同模型的 API 调用不等于接入对应的原生助手。
+AGI Hub is a local message sidecar. Each assistant has a collaboration skill and its own Client, which consumes only its own mailbox. Assistants decide how to divide work, choose recipients and combine results; the Hub handles durable messages, addressed delivery, permissions, deduplication and basic limits.
 
-- [把安装包交给 Codex：从这里开始](START-HERE.md)
-- [安装与 WorkBuddy 接入引导](INSTALL.md)
-- [架构](docs/ARCHITECTURE.md) · [消息协议](docs/PROTOCOL.md)
-- [技能更新](docs/SKILLS.md) · [各助手 Client](docs/CLIENTS.md)
-- [本机验收与支持范围](docs/NATIVE-VALIDATION.md)
+Start from Codex, WorkBuddy or any assistant added later. There is no new chat shell to switch to and no permanent leader. Calling the same model through an API does not connect its native assistant.
 
-## 工作方式
+- [Hand the package to Codex: start here](START-HERE.md)
+- [Installation and WorkBuddy onboarding](INSTALL.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Message protocol](docs/PROTOCOL.md)
+- [Skill updates](docs/SKILLS.md) · [Assistant Clients](docs/CLIENTS.md)
+- [Native acceptance tests and support limits](docs/NATIVE-VALIDATION.md)
+
+## How it works
 
 ```text
-用户 → A 的原生会话
-       A 发消息给 B、C、D，各自进入对应邮箱
-       B 需要 D 协助时，再发消息给 D
-       各助手按上下文选择回复对象
-       A 收到所需结果后，向用户交付
+User → A's native session
+       A sends messages to B, C and D, each into its own mailbox
+       B sends a message to D when it needs D's help
+       Each assistant chooses whom to reply to from the context
+       A delivers the outcome to the user after receiving the needed results
 ```
 
-消息携带必要上下文、关联 ID、原入口引用和可选回复引用。`recipient` 始终由发送方明确选择，`root_origin` 用于记住最初的人类入口，`reply_to` 用于追踪关联；二者都不强制回信沿某条链返回。
+Messages carry necessary context, a correlation ID, the original entry reference and an optional reply reference. The sender always chooses `recipient` explicitly. `root_origin` records the initial human entry, and `reply_to` traces related messages; neither forces replies along a return chain.
 
-Hub 不建立任务树、DAG、团队计划或统一智能路由，不判断谁该等谁，也不根据一条回复自动完成另一份工作。技能负责这些判断，并尽量少传上下文、少唤醒模型。
+The Hub does not create task trees, DAGs, team plans or central intelligent routing. It does not decide who should wait for whom or complete other work automatically when a reply arrives. Skills make those decisions while keeping context and model wakeups small.
 
-## 已实现
+## Implemented
 
-| 能力 | 行为 |
+| Capability | Behavior |
 | --- | --- |
-| 原生会话绑定 | 每个 endpoint 绑定具体产品、设备和会话，用户选择启用 |
-| 寻址邮箱 | `request / reply / status / result`，助手显式收发与回复 |
-| 权限与目录 | 可见成员和允许发送方向分别配置，默认不互通 |
-| 可靠投递 | 稳定消息 ID、持久化后领取、投递回执；不确定时保留，不盲目重发 |
-| 原入口上下文 | 同一协作保留最初会话，助手据此选择最终交付对象 |
-| 基础限额 | 同一关联共享消息数和期限，转发不能复制剩余额度 |
-| 节省模型消耗 | 状态记录不触发模型；目录按需读取，不复制整段历史或重复确认 |
-| 技能维护 | 只同步登记的受管位置，保护用户修改、卸载和版本降级 |
-| 本地状态页 | 查看邮箱投递与历史记录，不充当新的工作入口 |
+| Native session binding | Each endpoint binds a specific product, device and session; the user chooses whether to enable it |
+| Addressed mailboxes | Assistants explicitly send and receive `request / reply / status / result` messages |
+| Permissions and directory | Visible members and permitted sending directions are configured separately; communication is disabled by default |
+| Reliable delivery | Stable message IDs, claims after persistence and delivery receipts; uncertain delivery is retained without blind retries |
+| Original entry context | A collaboration retains the initial session so assistants can choose where to deliver the final result |
+| Basic limits | Messages in one correlation share a count limit and deadline; forwarding cannot duplicate the remaining allowance |
+| Lower model usage | Status records do not wake a model; the directory is read on demand, without copying full histories or repeated acknowledgements |
+| Skill maintenance | Sync only registered managed locations, respecting user edits and uninstall choices and preventing version downgrades |
+| Local status page | Inspect mailbox delivery and history without making it a new work entry point |
 
-传统的单次 Task/Report 接口保留兼容；新邮箱消息不依赖它，不自动生成业务回复。
+The legacy one-shot Task/Report interface remains compatible. New mailbox messages do not depend on it or generate business replies automatically.
 
-本机 Codex ↔ WorkBuddy 原会话已完成一次纯邮箱协作：请求、核验回复和成果自动回到原入口；首轮曾缺少消息 ID，修正提示后经一次格式说明继续完成。[实测过程与限制](docs/NATIVE-VALIDATION.md#2026-10-19纯邮箱-codex--workbuddy-原会话)
+The original Codex ↔ WorkBuddy sessions on the development machine completed a pure mailbox collaboration: requests, verification replies and an artifact returned automatically to the original entry. The first attempt omitted a message ID; after improving the prompt, one explicit format explanation allowed it to complete. [Actual test and limitations](docs/NATIVE-VALIDATION.md)
 
-## 技术与平台
+On 2026-10-20 at 11:48 Beijing time, Claude Code mod `0.2.2` also passed a mailbox round trip in the existing macOS Claude-3p `2.1.299` Code session. MQ woke it from idle; native Read checked one 54-byte synthetic file, and native `mail_send` returned the matching nonce and sum **51** through the Hub. The independent Codex Node Client delivered it by official Desktop MCP send-now into the busy original Codex chat. Both messages were delivered, the original history prefix stayed intact, and no human forwarding, Task/Report or Bash was used. This one business turn made three model API requests with 363 output tokens. [Evidence, usage and diagnostic limits](docs/NATIVE-VALIDATION.md)
 
-| 部分 | 选择 |
+## Technology and platforms
+
+| Component | Choice |
 | --- | --- |
-| Hub | Go 标准库，单个可执行文件，零外部 Go 依赖 |
-| 固定身份收发程序 | Go 可执行文件，只持对应 endpoint 凭据，供技能发送和查询 |
-| 消息存储 | 本机带校验的追加快照日志，持久化后投递 |
-| 事件 | 本机 HTTP loopback、SSE；不定时扫描聊天历史 |
-| Codex Client | Node 标准库，通过官方 Desktop MCP 发到指定原聊天 |
-| WorkBuddy Client | Python 标准库，通过官方 CodeBuddy CLI `--resume` 指定原会话 |
-| 安装器 | Go 便携引导程序、包内校验清单和分系统启动入口 |
-| 目标平台 | Windows、macOS，各提供 amd64/arm64 两种安装包；原生能力逐平台验收 |
+| Hub | Go standard library, one executable, no external Go dependencies |
+| Fixed-identity messaging helper | Go executable holding only the corresponding endpoint's credentials, used by skills to send and query |
+| Message storage | Local checksummed append-only snapshot journal; messages are persisted before delivery |
+| Events | Local HTTP loopback and SSE; no scheduled scanning of chat histories |
+| Codex Client | Node standard library; official Desktop MCP targets a specific original chat |
+| WorkBuddy Client | Python standard library; official CodeBuddy CLI `--resume` targets a specific original session |
+| Claude Code Client | Mod 0.2.2 with native mailbox tools; queue-only Code sessions, verified on the local Claude-3p Mac |
+| Installer | Portable Go bootstrap, package checksums and platform-specific launchers |
+| Target platforms | Windows and macOS, each with amd64/arm64 packages; native capabilities are accepted separately per platform |
 
-不需要 Redis、RabbitMQ、数据库、Docker 或 Agent 调度框架。运行已编译 Hub 和安装器不需要 Go；按所选 Client 准备对应原生应用及其运行时。一个助手一个目录，可以独立维护和更新。
+No Redis, RabbitMQ, database, Docker or agent scheduling framework is required. Running the compiled Hub and installer does not require Go. Prepare the native application and runtime required by your selected Client. Each assistant has its own directory and can be maintained and updated independently.
 
-## 安装包
+## Packages
 
-正式安装包由 GitHub Actions 编译和校验，发布在 [GitHub Releases](https://github.com/OdysseusC/AGI-hub/releases/latest)。PR 可下载对应 CI 构建产物；版本标签触发自动发布，无需在开发电脑手工打包上传。
+Official packages are compiled and checked by GitHub Actions and published in [GitHub Releases](https://github.com/OdysseusC/AGI-hub/releases/latest). Pull requests offer CI build artifacts; version tags trigger publication without a manual build and upload from the development machine.
 
-Mac 按芯片选择：Apple 芯片（M 系列）用 `macos-arm64`，Intel 用 `macos-amd64`。Windows 的 Intel / AMD 电脑用 `windows-amd64`，ARM 电脑用 `windows-arm64`。每次 Release 直接列出本版更新内容和下载说明，详见[安装说明](INSTALL.md)。
+For a Mac, choose `macos-arm64` for Apple silicon (M series) or `macos-amd64` for Intel. For Windows, choose `windows-amd64` for Intel/AMD or `windows-arm64` for ARM. Each release lists its changes and download instructions directly. See the [installation guide](INSTALL.md).
 
-选对应系统的便携 ZIP，解压后将整个目录和 `START-HERE.md` 交给 Codex。可以这样说：
+Download the portable ZIP for your platform, extract it fully, and hand the entire directory and `START-HERE.md` to Codex. For example:
 
-> 按这个目录的 START-HERE.md，帮我接通当前 Codex 和本机 WorkBuddy。保留已有配置，先检查实际环境，再引导我完成必要的会话和权限确认。
+> Follow START-HERE.md in this directory to connect the current Codex chat and local WorkBuddy. Preserve existing configuration, inspect the actual environment first, and guide me through the necessary session and permission confirmations.
 
-包内带 Hub、安装器、固定身份程序、Client 和公开说明。安装器将运行文件放入稳定的私有位置，不把凭据写回解压目录，不自动启动模型或启用未经验证的绑定。它会给出一段可复制到 WorkBuddy 的安装核对消息，接着帮助取得实际会话信息、配置对应 Client 和最小权限。
+The package includes the Hub, installer, fixed-identity helper, Clients and public documentation. The installer copies runtime files to a stable private location. It does not write credentials back into the extracted directory, start a model or enable unverified bindings. It prints a message you can copy to WorkBuddy, then helps obtain actual session information, configure the corresponding Client and grant minimal permissions.
 
-安装完成、技能被发现、空闲唤醒、业务执行与结果返回分别核对。当前还不是所有助手通用的一键连接器。[完整步骤](INSTALL.md)
+Check installation, skill discovery, idle wakeup, business execution and result return separately. This is not yet a universal one-click connector for all assistants. [Full steps](INSTALL.md)
 
-## 最少的消息示例
+## Minimal message example
 
-先完成安装、会话绑定和双方 Client 核验。在原生助手的获准工作区保存消息文件：
+First complete installation, session binding and verification of both Clients. Save the message in an authorized workspace of the native assistant:
 
 ```json
 {
   "id": "saved-message-001",
   "recipient": "workbuddy",
   "kind": "request",
-  "content": "只读核验明确给出的资料，简短返回结论和成果位置。原用户允许的范围和文件设备/工作区在这里说明。",
+  "content": "Read-only verification of the explicitly provided material. Return a brief conclusion and artifact location. State the user's authorized scope and the files' device/workspace here.",
   "origin_ref": "actual-human-request-reference",
   "max_messages": 16
 }
 ```
 
-使用已安装的 endpoint 固定程序：
+Use the installed fixed-identity endpoint helper:
 
 ```text
 <fixed-client> mail-send --file <absolute-workspace-message.json>
 ```
 
-完整 Hub CLI 还要明确 `--data` 和 `--endpoint`；固定程序的身份已经写在私有绑定中，收件人只放在 JSON。后续协作沿用返回的 `correlation_id`，回复使用新消息 ID、明确的 `recipient` 和可选 `reply_to`。超时保留原文件与 ID，先核对状态。
+The full Hub CLI also requires explicit `--data` and `--endpoint`. The fixed helper's identity is already stored in its private binding; the recipient belongs only in the JSON. Follow-up messages reuse the returned `correlation_id`, with a new message ID, explicit `recipient` and optional `reply_to`. On timeout, keep the original file and ID and check the status first.
 
-## 支持范围
+## Support limits
 
-新邮箱路径先接 Codex 与 WorkBuddy CLI；Claude、Grok Bot 的已有单次接入各自保留，未启用新邮箱能力。普通 Claude Chat/Cowork、Code 页及独立 CLI 的能力分别判断，不把 MCP、webhook 接受通知或退出码成功当作业务完成。
+The new mailbox path has native acceptance evidence for Codex, WorkBuddy CLI and Claude Code mod `0.2.2`. Claude evidence covers queue delivery to the existing Code session on the tested macOS Claude-3p `2.1.299` host, not all platforms or hosts. Ordinary Claude Chat/Cowork and busy-session steer are unsupported; standalone CLI sessions require separate verification. Grok Bot retains its existing one-shot integration without the new mailbox capability enabled. MCP or webhook acceptance, or a successful exit code, does not prove business completion.
 
-文件目前只支持同机的明确工作区引用；不自动把本机路径变成另一台电脑可用的文件。账号、原生工具权限、外部发送确认仍由用户及宿主控制，助手间消息不能扩大授权。
+Files currently use explicit workspace references on the same machine. A local path is not automatically made usable on another computer. Accounts, native tool permissions and confirmation of external sends remain under the user and host's control. Messages between assistants cannot expand authorization.
 
-多跳中的每个收件人由助手决定。Hub 能限制消息数量，不能承诺限制宿主内部全部模型调用或积分。投递不确定的消息需要对账；没有“换个 ID 再试”的自动降级。
+Assistants choose every recipient in multi-hop collaboration. The Hub can limit message counts, but cannot promise to cap all model calls or credits consumed inside a host. Reconcile uncertain deliveries; there is no automatic fallback that retries with a new ID.
 
-## 从源码开发
+## Develop from source
 
 ```sh
 go test -race ./...
@@ -114,6 +119,6 @@ node --test clients/codex/test_desktop_mcp_client.mjs
 go run ./tools/package
 ```
 
-`dist/` 生成四个 Windows / macOS ZIP 和 `SHA256SUMS`。构建需要 Go 1.22+；包内包含实际目标平台程序，用户安装不需要编译。测试使用模拟接入点；原生验收证据另记在 [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.md)。
+`dist/` contains four Windows/macOS ZIPs and `SHA256SUMS`. Building requires Go 1.22+. Packages contain actual target-platform executables, so users do not need to compile them. Tests use synthetic adapters; native acceptance evidence is recorded separately in [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.md).
 
-代码与个人配置从一开始分开，凭据、真实聊天和私密成果均放在仓库外，不进入安装包。
+Code and personal configuration are separate from the start. Credentials, real chats and private artifacts stay outside the repository and packages.

@@ -120,7 +120,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			Endpoint        manager.Endpoint   `json:"endpoint"`
 			Session         manager.Session    `json:"session"`
 			Outstanding     []manager.Envelope `json:"outstanding"`
-		}{1, binding, snapshot.Sessions[endpoint], outstandingMessages(snapshot, endpoint)}
+			Capabilities    map[string]any     `json:"capabilities"`
+		}{1, binding, snapshot.Sessions[endpoint], outstandingMessages(snapshot, endpoint), map[string]any{
+			"mailbox_long_poll_max_ms": 25000, "mailbox_client_lease": true,
+		}}
 	case r.URL.Path == "/v1/client-lease" && r.Method == http.MethodPost:
 		result, err = s.changeClientLease(w, r, endpoint)
 	case r.URL.Path == "/v1/state" && r.Method == http.MethodGet:
@@ -133,7 +136,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/inbox" && r.Method == http.MethodPost:
 		var wait time.Duration
 		if wait, err = inboxWait(r); err == nil {
-			result, err = s.inbox(r, endpoint, wait)
+			result, err = s.inbox(r, endpoint, wait, false)
 		}
 	case r.URL.Path == "/v1/delivery" && r.Method == http.MethodPost:
 		var in struct {

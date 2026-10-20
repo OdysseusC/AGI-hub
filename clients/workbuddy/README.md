@@ -1,77 +1,79 @@
 # WorkBuddy Client
 
-版本 `0.3.0`，Hub 协议 `1`，可选寻址消息协议 `1`，依赖同级 `shared` runtime `0.2.0` 和 Python 3.11+。使用 Python 标准库；单独复制本目录时必须一起复制匹配的 shared，保持相邻目录结构。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-寻址消息仅支持已验证的 CLI 传输，须在用户选定的 endpoint 显式设置 `mailbox_protocol_version=1` 及允许互发的成员。OpenAPI 尚未支持；Client 在领取前拒绝不匹配的能力配置。启用后只消费 `/v1/mail/inbox`，不混入旧任务队列。CLI 收到 `request/reply/result` 时恢复固定原会话，技能自行决定是否行动及向谁发消息；不强制父子返回链、不产生自动业务回复。`status` 只存储并确认投递，不启动 CLI 或模型。
+Version `0.3.0`, Hub protocol `1`, optional addressed mailbox protocol `1`, requiring adjacent `shared` runtime `0.2.0` and Python 3.11+. It uses the Python standard library. When copying this directory alone, also copy matching shared files and preserve their adjacent directory layout.
 
-只有 CLI 进程退出且完整末尾 JSON 与固定 `session_id` 匹配、`is_error=false`，Client 才保存 `/v1/mail/delivery` 回执。消息在投递中时保留占用，防止同一会话并发恢复。Mailbox 没有任务 Report、等待状态、续接回执或 settled 接口。模型发送进度不能替代原始消息的投递证据。超时、认证错误、输出不匹配或回执丢失均保留状态待核对，不盲重发；不打开忙时恢复能力。
+Addressed messages support only the verified CLI transport. Explicitly set `mailbox_protocol_version=1` and permitted peers on the user-selected endpoint. OpenAPI does not support it yet; the Client rejects mismatched capability configuration before claiming messages. Once enabled, it consumes only `/v1/mail/inbox`, without mixing in legacy tasks. The CLI resumes the fixed original session for `request/reply/result`. The skill decides whether to act and whom to message, without a forced parent/child return chain or automatic business replies. `status` is stored and acknowledged without starting the CLI or model.
 
-固定的 endpoint helper 保留旧任务 `report`，新增 `peers`、`mail-send --file <工作区内JSON>`、`mail-state --correlation-id <已知关联ID>`。它只使用自己的 endpoint token，不能管理 leader、修改会话或直接调用原生助手。回复和最终结果均由技能使用 `mail-send` 显式选择收件人，沿用 `correlation_id`，最终结果发回 `root_origin` 对应原会话。非交互运行所需权限应只覆盖这个固定程序的对应命令及选定工作区；不添加 Shell 或工具覆盖。
+The Client persists a `/v1/mail/delivery` receipt only after the CLI exits and the complete final JSON matches the fixed `session_id` with `is_error=false`. Delivery retains its occupancy lock to prevent concurrent resumes of the same session. Mailboxes have no task Report, waiting state, continuation receipt or settled interface. Model-generated progress cannot replace delivery evidence for the original message. Timeout, authentication errors, mismatched output and lost receipts retain their state for reconciliation, without blind retries. Busy-session resume remains disabled.
 
-Client 明确选择官方 CLI 会话恢复或官方持续本地助理 OpenAPI，只支持 `queue`。本机独立 CLI 的真实 MQ 已通过；2026-10-15 用户重新授权后，原 WorkBuddy 会话、工作目录及原 `.workbuddy` 的一次单联系人新查询也完成原生回报、成果核验和自动忙时返回。首轮未接手，需要由入口核对后显式续接一次；候选字段与成果一致，不代表全通讯录唯一或全部桌面工具继承。manifest 按传输、宿主和平台分别要求验证，`cli_validation` 记录本机原会话经显式续接后的联系人与主动回报证据，`desktop_inheritance_verified=false` 保留；OpenAPI 仍未验收。[本机验证记录](../../docs/NATIVE-VALIDATION.md)
+The fixed endpoint helper retains legacy-task `report` and adds `peers`, `mail-send --file <JSON-in-workspace>` and `mail-state --correlation-id <known-correlation-ID>`. It uses only its own endpoint token and cannot manage a leader, change sessions or call native assistants directly. The skill explicitly chooses recipients for replies and final results with `mail-send`, preserving `correlation_id`. Final results go to the original session identified by `root_origin`. Noninteractive permissions should cover only the relevant commands of this fixed program and the selected workspace; do not add shell or tool overrides.
 
-首个验收任务确认原生明确拒绝且未执行后，完成技能 `Read`、真实工作区 `Read/Write`、专属报告 helper `Bash` 的窄范围配置及绝对工作目录修正，再恢复原任务；原生主动报告 `accepted/running/succeeded` 并生成 SHA-256 核验一致的文件。第二个任务由 SSE 自动领取，默认 `resume` 同一既有 CLI，会话首次执行即发出三种原生回执并写入新版本成果，SHA-256 一致；未传工具或权限覆盖参数。
+The Client explicitly selects official CLI session resume or the official persistent local-assistant OpenAPI, supporting only `queue`. Real MQ acceptance passed with a standalone CLI on this machine. After the user renewed authorization on 2026-10-15, a fresh single-contact query in the original WorkBuddy session, working directory and original `.workbuddy` also completed native reporting, artifact verification and automatic return to the busy entry. The first turn did not accept the work; the entry reconciled it and explicitly continued once. Candidate fields matched the artifact, which does not establish uniqueness across the full directory or inheritance of every desktop tool. The manifest requires separate verification per transport, host and platform. `cli_validation` records contact lookup and active reports from the original local session after explicit continuation, while `desktop_inheritance_verified=false` remains. OpenAPI has not passed acceptance. [Local validation record](../../docs/NATIVE-VALIDATION.md)
 
-两个任务的执行标识不同，结果关联正确；重复 Submission 和已保存 Report 去重，终态资源已释放。10 月 14 日的两个成果经 Codex 宿主内工具返回原聊天。10 月 15 日又验证独立 Node 通过官方 Desktop MCP 发送：匹配 thread ID 的成功 ACK 与忙碌原聊天的即时 `codex_delegation` 入站均已观测，无人工点击、未用 native queue。随后常驻 Node MQ Client 0.2.0 在已订阅后自动完成新的真实任务：恢复固定独立 CLI 协调会话，接收原生 accepted/running/succeeded，核对文件与 SHA-256，再将关联 result 经独立 Desktop MCP 即时送回忙碌原聊天。两轮完整 MQ 忙时返回均通过，第二轮交付修正了“Report → Hub 核验及 result → Client 消费 → Desktop MCP 回传”的说明顺序。两份当前文件与 Core SHA-256 匹配，任务使用不同 hubrun，四条对应消息均 delivered，资源已释放。随后同一 Codex 官方 Desktop MCP 通道的一次独立诊断已启动空闲原聊天，旧轮次 completed、新轮次不同且 read_thread 仍可用；该诊断未新增 MQ 任务；此前两轮独立 CLI 的完整 MQ 回路验证忙时返回，idle 下完整 MQ 回路未验收。App Server proxy 缺少控制 socket 不代表 Desktop MCP 不可用。
+After confirming that the first acceptance task was explicitly rejected by the native application without execution, narrow permissions were configured for skill `Read`, actual workspace `Read/Write` and the dedicated reporting helper's `Bash` execution, and the absolute working directory was corrected. The original task then resumed. The native assistant actively reported `accepted/running/succeeded` and generated a file with a matching SHA-256. SSE automatically claimed a second task, using default `resume` on the same existing CLI session. Its first execution emitted all three native receipts and wrote a new artifact version with a matching SHA-256, without tool or permission override arguments.
 
-原 WorkBuddy 配置路径在 10 月 14 日曾报需要登录；10 月 15 日认证续聊两次成功。新查询先受本地非交互 Bash/Read 限制，修正精确规则后实际执行，但当时远端返回 `850003 / authorization expired`。用户随后重新授权，本次业务直接绑定原 `workbuddy` endpoint、原会话、原工作目录和原 `.workbuddy`，并未借用独立 CLI 测试会话。首轮已送达但模型受旧诊断限制未接手，已核对零工具、文件和 Report；stdin 本就是新的 user message，未接手不等于 CLI 重放历史。
+The two tasks had distinct execution identifiers and correct result correlations. Duplicate Submissions and persisted Reports were deduplicated, and terminal resources were released. The two October 14 artifacts returned to the original chat through tools inside the Codex host. On October 15, an independent Node process also sent through official Desktop MCP: both a successful ACK matching the thread ID and immediate `codex_delegation` input in the busy original chat were observed, without manual clicks or a native queue. After subscribing, resident Node MQ Client 0.2.0 automatically completed another real task: resume the fixed standalone CLI coordination session, receive native accepted/running/succeeded reports, verify the file and SHA-256, then send the correlated result immediately to the busy original chat through independent Desktop MCP. Two complete MQ busy-return runs passed. The second delivery corrected the documented sequence to “Report → Hub verification and result → Client consumption → Desktop MCP return.” Both current files matched Core SHA-256 values, tasks used different hubrun identifiers, all four corresponding messages were delivered, and resources were released. A later independent diagnostic on the same official Codex Desktop MCP channel started the idle original chat: the old turn was completed, the new turn differed, and read_thread remained available. That diagnostic created no new MQ task. The two earlier standalone CLI full MQ round trips verified busy returns; a complete idle MQ round trip remains unverified. The missing App Server proxy control socket does not make Desktop MCP unavailable.
 
-由入口核对并显式续接一次，随后保留同一任务与锁，仅在已有 `delivered` detail 登记 operator continuation，没有 requeue、新建 ID 或伪造回执。Client 加入固定的当前交接 positional 指令，完整 Envelope 仍走 stdin。原生随后真实回报 `accepted/running/succeeded`，只执行一次新版官方随包联系人 search，原始工具结果成功返回 `users`，候选的姓名、部门、职务与成果一致。Core 核对 device、workspace、相对路径和 SHA-256 后生成关联 result，由独立 Node Desktop MCP 自动引导回忙碌原入口；锁已释放，原历史前缀完整。该次由当前入口在已有用户授权下核对后显式续接，不是用户再次点确认或 Broker 自动重试，不能写成原会话首轮即自动执行成功，也不覆盖全通讯录唯一、全部企微业务或完整桌面工具注入。
+The original WorkBuddy configuration path reported a login requirement on October 14; two authenticated continuations succeeded on October 15. A new query first encountered local noninteractive Bash/Read restrictions. After exact rules were corrected, it executed but the remote service returned `850003 / authorization expired`. The user then renewed authorization. This business run bound directly to the original `workbuddy` endpoint, session, working directory and `.workbuddy`, without borrowing the standalone CLI test session. The first delivery arrived, but the model did not accept the work because of old diagnostic constraints. Reconciliation confirmed zero tools, files and Reports. Stdin was already a new user message; failure to accept does not mean the CLI replayed history.
 
-本次选择官方随包 wecom-cli `1.3.4-workbuddy-local.281` 的绝对路径；默认 PATH 中另一个 `1.1.0` 版本不作为本条执行入口。随包 1.3 不支持 `auth` 子命令，不能用 1.1 的 `auth status` 充当它的登录证据。较早远端授权错误诊断的临时五条精确 allow 规则已恢复 settings 原字节；公开解析器的离线反例确认追加命令、改关键词和重定向仍被拒绝。本次受管技能使用固定 endpoint-scoped `/v1/report` helper 和独立成果工作区，四条报告安装许可只覆盖技能、成果目录及指定 helper。临时四条单查询许可已移除，仅保留四条报告安装许可。未读取或复制桌面私有 env/auth/ticket，没有禁用 sandbox，也没有盲重试远端搜索。
+The entry reconciled and explicitly continued once, preserving the same task and lock. It recorded an operator continuation only in the existing `delivered` detail, without requeueing, a new ID or fabricated receipts. The Client gained a fixed current-handoff positional instruction; the full Envelope still goes through stdin. The native assistant then genuinely reported `accepted/running/succeeded`, executed the newer officially bundled contact search once, and received a successful raw tool result containing `users`. Candidate name, department and role matched the artifact. Core checked the device, workspace, relative path and SHA-256, generated a correlated result, and an independent Node Desktop MCP process automatically guided it back to the busy original entry. The lock was released and the original history prefix remained intact. The current entry performed reconciliation and explicit continuation under existing user authorization; this was neither another user confirmation nor an automatic Broker retry. Do not describe it as automatic success on the original session's first turn, or as verification of full-directory uniqueness, all WeCom operations or complete desktop-tool injection.
 
-## 配置与运行
+This run selected the absolute path to officially bundled wecom-cli `1.3.4-workbuddy-local.281`. Another `1.1.0` on the default PATH was not the execution entry. Bundled 1.3 has no `auth` subcommand; 1.1's `auth status` cannot establish its login state. The temporary five exact allow rules from the earlier remote-authorization diagnosis were removed by restoring settings to their original bytes. Offline counterexamples against the public parser confirmed rejection of appended commands, changed keywords and redirects. The managed skill used a fixed endpoint-scoped `/v1/report` helper and a separate artifact workspace. Four reporting-install permissions covered only the skill, artifact directory and specified helper. Four temporary single-query permissions were removed; only the four reporting-install permissions remained. No private desktop env/auth/ticket was read or copied, the sandbox was not disabled, and remote search was not retried blindly.
 
-先注册用户选定的 endpoint，将对应 binding 设置为 `"driver": {"type": "external"}`，其中 `endpoint.driver` 为 `workbuddy`。CLI 的 `endpoint.session_id` 必须与 `native.session_id` 一致；OpenAPI 则必须为 `localassistant`，表示官方持续专用助理。Client 每次连接先核对绑定，再订阅和领取。导出私有配置：
+## Configure and run
+
+Register the user-selected endpoint and set its binding to `"driver": {"type": "external"}`, with `endpoint.driver` equal to `workbuddy`. For CLI, `endpoint.session_id` must equal `native.session_id`. For OpenAPI it must be `localassistant`, identifying the official persistent dedicated assistant. The Client checks the binding before subscribing and claiming on every connection. Export private configuration:
 
 ```sh
 agi-hub client-config --endpoint workbuddy --file /absolute/path/to/private/workbuddy/client.json
 ```
 
-命令只导出 endpoint 凭据和空 `native`，不覆盖已有文件。按 [client.example.json](client.example.json) 填写所选传输；默认 Hub 为本机 `http://127.0.0.1:7331`，以导出配置为准。在仓库根目录运行：
+The command exports only endpoint credentials and empty `native`, without overwriting an existing file. Configure the selected transport using [client.example.json](client.example.json). The default local Hub is `http://127.0.0.1:7331`; use the exported configuration. Run from the repository root:
 
 ```sh
 python3 clients/workbuddy/main.py --config /absolute/path/to/private/workbuddy/client.json
 ```
 
-Windows 使用 `py -3` 和该电脑的绝对路径。个人配置放在仓库外；不要并行启动同一 endpoint 的两个 Client。未完成目标会话的唤醒与回报验收前，不把 `idle_wake_verified` 设为 `true`。
+On Windows, use `py -3` and that computer's absolute paths. Keep personal configuration outside the repository. Do not run two Clients for the same endpoint concurrently. Do not set `idle_wake_verified` to `true` before accepting wakeup and reporting in the target session.
 
-固定的 `session_id` 标识长期会话，不是每个任务的 `run_id`。报告使用真实原生执行 ID；没有公开 ID 时使用通知中的任务专属 `hubrun-...` 并说明其 Hub 归属。同一任务保留同一执行标识，不能跨任务复用会话 ID。
+The fixed `session_id` identifies a long-lived session, not a task's `run_id`. Reports use the actual native execution ID. If none is public, use the notification's task-specific `hubrun-...` and explain that it belongs to the Hub. Keep one execution identifier for the same task, without reusing a session ID across tasks.
 
-### CLI 会话恢复
+### CLI session resume
 
-示例使用 `native.transport="cli"`。先核实用户选择的配置目录与既有会话；需要登录时走官方本人登录流程。Client 只恢复已有 ID，不代替用户登录或创建会话。必填字段：
+The example uses `native.transport="cli"`. First verify the user-selected configuration directory and existing session. If login is required, use the official user login flow. The Client only resumes existing IDs; it neither logs in nor creates a session on the user's behalf. Required fields:
 
-| 字段 | 要求 |
+| Field | Requirement |
 | --- | --- |
-| `command` | 实际可执行文件的绝对路径；是一个字符串，不是整段命令或 argv 数组 |
-| `cwd` | 本机已存在工作目录的绝对路径 |
-| `config_dir` | 本机已存在 CLI 配置目录的绝对路径；Client 设置为 `CODEBUDDY_CONFIG_DIR` |
-| `session_id` | 该 CLI 环境已有会话 ID，与 Hub 绑定完全一致 |
+| `command` | Absolute path to the actual executable; one string, not a full command or argv array |
+| `cwd` | Absolute path to an existing local working directory |
+| `config_dir` | Absolute path to an existing local CLI configuration directory, assigned to `CODEBUDDY_CONFIG_DIR` by the Client |
+| `session_id` | An existing session ID in that CLI environment, exactly matching the Hub binding |
 
-可选 `timeout_seconds` 默认 `120`，范围 `1` 至 `600` 秒。可选 `entry_script` 是本机现存普通 JavaScript 文件的绝对路径，扩展名为 `.js`、`.mjs`、`.cjs`，或文件名为 `codebuddy`。Windows 要求实际 `.exe`，拒绝 `.cmd` / `.bat`；可配置实际 `node.exe` 与官方 `entry_script`，例如 `command="C:/Program Files/nodejs/node.exe"` 和 `entry_script="C:/absolute/path/to/official/codebuddy.js"`。这种方式需要已安装 Node.js 与官方 CLI。
+Optional `timeout_seconds` defaults to `120`, with a range of `1`–`600` seconds. Optional `entry_script` is the absolute path to an existing regular local JavaScript file with extension `.js`, `.mjs`, `.cjs`, or filename `codebuddy`. Windows requires an actual `.exe` and rejects `.cmd` / `.bat`. Configure an actual `node.exe` with an official `entry_script`, for example `command="C:/Program Files/nodejs/node.exe"` and `entry_script="C:/absolute/path/to/official/codebuddy.js"`. This requires installed Node.js and the official CLI.
 
-可选 `environment` 仅接受字符串值：`CODEBUDDY_FORCE_LITE_WB_BUNDLE`、`DISABLE_AUTOUPDATER` 各为 `"0"` 或 `"1"`；`CODEBUDDY_INTERNET_ENVIRONMENT` 为 `"internal"`、`"external"`、`"ioa"`、`"cloudhosted"` 或 `"selfhosted"`。示例的 `internal` 应匹配本人实际登录站点，bundle 标志匹配实际安装入口；它们不代表新增桌面工具。不能传入凭据、IPC 参数或任意环境变量。配置目录隔离不等于凭据存储隔离，官方 CLI 可能使用产品自己的共享认证存储。
+Optional `environment` accepts only string values: `CODEBUDDY_FORCE_LITE_WB_BUNDLE` and `DISABLE_AUTOUPDATER` are each `"0"` or `"1"`; `CODEBUDDY_INTERNET_ENVIRONMENT` is `"internal"`, `"external"`, `"ioa"`, `"cloudhosted"` or `"selfhosted"`. The example's `internal` must match the user's actual login site, and the bundle flag must match the installed entry. These do not add desktop tools. Credentials, IPC arguments and arbitrary environment variables are forbidden. Separate configuration directories do not imply isolated credential storage; the official CLI may use the product's shared authentication store.
 
-调用参数固定为：
+The invocation arguments are fixed:
 
 ```text
 <command> [<entry_script>] --resume <session_id> --print --output-format json --input-format text <fixed-current-handoff-instruction>
 ```
 
-末尾 positional 是 Client 内置的固定简短指令，要求按已有授权处理本轮交接；它不包含任务正文、不扩大权限。完整 Envelope 与报告指引通过 stdin 临时普通文件传入，stdout 也通过临时普通文件完整读取；不把任务正文拼入命令行或 shell。不传工具、权限、MCP、模型或 profile 覆盖参数，也不关闭会话持久化；使用目标 CLI 会话的默认工作环境，续聊默认持久化。官方依据见 [无头模式](https://www.workbuddy.cn/docs/cli/headless)。
+The final positional argument is the Client's built-in short instruction to process the current handoff within existing authorization. It contains no task body and expands no permission. The full Envelope and reporting instructions enter stdin through a temporary regular file; stdout is also read completely through a temporary regular file. Task content is not concatenated into the command line or a shell. No tool, permission, MCP, model or profile override arguments are passed. Session persistence is not disabled: the target CLI session's default working environment is used, and continuations persist by default. See the official [headless mode documentation](https://www.workbuddy.cn/docs/cli/headless).
 
-默认持久化的失败尝试仍可能追加历史。2026-10-14 原桌面 ID 的一次默认恢复返回需要登录，却追加了原历史，原有前缀经核对完整保留；10 月 15 日同一原路径的默认认证续聊已通过。不能把失败视为没有会话变化，也不能因后续成功就忽略此前不确定尝试。保留不确定状态并核对原生记录，不盲目再次执行。
+A failed attempt with default persistence may still append history. On 2026-10-14, a default resume of the original desktop ID requested login yet appended to the original history; its existing prefix was verified intact. On October 15, default authenticated continuation on the same original path passed. Do not assume failure means no session changes or ignore earlier uncertainty because a later run succeeded. Preserve uncertain state, reconcile native records and avoid blind re-execution.
 
-Client 核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错误结果后，仅记录 `delivered`。登录错误、超时、残缺或不匹配输出保留 `uncertain`，不重发。退出码 `0`、结果 `success`、模型拒绝或 `UNKNOWN` 都不能代替原生接手与完成 Report；成果仍须核对。临时输出可能含旧历史，Client 不把历史正文公开为诊断。
+After checking the complete final JSON for `type=result`, a matching `session_id` and a non-error result, the Client records only `delivered`. Login errors, timeout, truncated or mismatched output remain `uncertain`, without retries. Exit code `0`, result `success`, model refusal or `UNKNOWN` cannot replace native acceptance and completion Reports; artifacts still require verification. Temporary output may contain old history, and the Client does not expose history bodies as diagnostics.
 
-安装技能不自动授予非交互执行权限。须在官方 CLI 自身配置中核实技能元数据读取、指定报告程序执行和本次成果工作区的文件权限；Client 不追加权限覆盖参数或替用户批准。独立 CLI 已通过窄范围配置与真实文件生成验收，该配置不代表其他工作区或命令已获授权。原 WorkBuddy 会话也在重新授权并由入口核对并显式续接一次后，完成单联系人查询与回报，临时查询许可已移除；此前本地拒绝与远端授权过期保留为历史，不再作为当前阻点。报告通道可用时以 `needs_user` 说明原生权限问题；通道也被拦时保留原生提示与已有投递证据，不能伪造回执。
+Installing a skill does not automatically grant noninteractive execution permissions. Verify skill metadata reads, execution of the specified reporting program and file permissions for the current artifact workspace in the official CLI's own configuration. The Client neither appends permission overrides nor approves for the user. The standalone CLI passed narrow configuration and actual file-generation acceptance; that configuration does not authorize other workspaces or commands. After renewed authorization, entry reconciliation and one explicit continuation, the original WorkBuddy session also completed a single-contact query and report. Temporary query permissions were removed. Earlier local denial and remote authorization expiry remain in history, not current blockers. When reporting is available, describe native permission problems with `needs_user`; when it is blocked too, retain native prompts and existing delivery evidence without fabricating receipts.
 
-原生终态 Report 核对通过后，Hub 分配独立的结果 `message_id`，令 `reply_to` 指向原交接消息，并保留 `task_id`、`correlation_id` 返回保存的原入口。`kind=result` 只展示结果，不再次执行任务。可选的 `result_queue_while_busy_verified` 仅声明原生忙时接收结果的已验证能力，默认关闭；它不意味着 WorkBuddy CLI 已能引导或打断忙碌运行，当前没有将其标记为验证通过。
+After verifying a terminal native Report, the Hub allocates a separate result `message_id`, points `reply_to` to the original handoff message, and returns to the saved original entry while retaining `task_id` and `correlation_id`. `kind=result` displays results without executing the task again. Optional `result_queue_while_busy_verified` describes only a verified native capability to receive results while busy, and defaults off. It does not mean WorkBuddy CLI can guide or interrupt an active run; it is not currently marked verified.
 
-### 官方本地助理 OpenAPI
+### Official local-assistant OpenAPI
 
-显式设置 `native.transport="openapi"`；旧配置省略 `transport` 时仍按 OpenAPI 解释，不会自动尝试 CLI。将整个 `native` 替换为：
+Explicitly set `native.transport="openapi"`. Legacy configurations without `transport` still mean OpenAPI and never automatically try CLI. Replace the entire `native` with:
 
 ```json
 {
@@ -82,16 +84,16 @@ Client 核对完整 JSON 的末尾 `type=result`、匹配 `session_id` 和非错
 }
 ```
 
-该方式使用官方 `/openapi/v2/localassistant/message`，目标为持续本地助理，不能填写普通聊天 ID。接口没有普通桌面会话的定位参数，需要用户本人通过正式第三方 OAuth 流程授予短期 access token；CLI 登录不授予这项权限。缺少 token 或 invokable 范围时，在领取消息前停止。
+This transport uses official `/openapi/v2/localassistant/message` and targets the persistent local assistant, not an ordinary chat ID. The API has no ordinary desktop-session targeting parameter. The user must grant a short-lived access token through the formal third-party OAuth flow; CLI login grants no such permission. Missing token or invokable scope stops the Client before it claims a message.
 
-只有 HTTP 2xx 且业务响应 `code` 为整数 `0`、`data.message_id` 为合法非空字符串，才记录已投递；其他响应保留不确定状态，不重发。原生助手仍须主动报告接手和成果。不读取桌面 Cookie、缓存 token 或 IPC ticket，不支持自动 token 续期；官方授权及真实闭环仍待验收。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
+Delivery is recorded only for HTTP 2xx, integer business `code` equal to `0`, and a valid nonempty string `data.message_id`. Other responses remain uncertain without retries. The native assistant must still actively report acceptance and artifacts. No desktop Cookie, cached token or IPC ticket is read, and automatic token renewal is unsupported. Official authorization and a real round trip remain pending acceptance. [Official OpenAPI](https://open.workbuddy.cn/docs/openapi)
 
-## 维护与测试
+## Maintenance and tests
 
-WorkBuddy 的实现、配置、manifest 和专项测试都放在本目录。单独验证适配器：
+WorkBuddy implementation, configuration, manifest and dedicated tests live in this directory. Test the adapter separately:
 
 ```sh
 python3 clients/workbuddy/test_adapter.py -v
 ```
 
-公共协议及跨 Client 兼容测试在 `clients/tests`，公共夹具在 `clients/tests/support.py`。仓库根目录运行 `python3 -m unittest discover -s clients/tests -v` 会汇总所有助手专项测试；只使用本地模拟，不调用官方真实接口。协议和恢复说明见 [Client 文档](../../docs/CLIENTS.md)。
+Common protocol and cross-Client compatibility tests live in `clients/tests`, with common fixtures in `clients/tests/support.py`. At the repository root, `python3 -m unittest discover -s clients/tests -v` includes all assistant-specific tests. They use local simulations only, without actual official API calls. See the [Client documentation](../../docs/CLIENTS.md) for protocol and recovery.

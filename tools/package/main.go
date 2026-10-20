@@ -181,7 +181,11 @@ func packageBinary(path, binary, name, setup, setupName, helper, helperName, pla
 	for _, smoke := range []string{"tools/smoke_skill_sync.py", "tools/smoke_mailbox.py", "tools/MAILBOX-SMOKE.md"} {
 		files[smoke] = smoke
 	}
-	for _, document := range []string{"CONTRIBUTING.md", "CHANGELOG.md"} {
+	for _, document := range []string{
+		"README.zh-CN.md", "INSTALL.zh-CN.md", "START-HERE.zh-CN.md", "CONTRIBUTING.md", "CONTRIBUTING.zh-CN.md",
+		"CHANGELOG.md", "CHANGELOG.zh-CN.md", "CONTEXT.md", "CONTEXT.zh-CN.md", "AGENTS.md", "AGENTS.zh-CN.md",
+		"tools/MAILBOX-SMOKE.zh-CN.md", "internal/install/skills/agi-hub-client/SKILL.md", "internal/install/skills/agi-hub-client/SKILL.zh-CN.md",
+	} {
 		if _, err := os.Lstat(document); err == nil {
 			files[document] = document
 		} else if !os.IsNotExist(err) {

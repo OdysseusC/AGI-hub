@@ -31,6 +31,8 @@ func packageFixture(t *testing.T) string {
 		"clients/workbuddy/client.json": "SECRET TOKEN", "clients/workbuddy/private/secret.md": "PRIVATE CLIENT", "clients/workbuddy/__pycache__/x.pyc": "CACHE",
 		"clients/claude-code/.claude-plugin/marketplace.json": "public marketplace", "clients/claude-code/agi-hub-endpoint/hooks/hooks.json": "public hooks",
 		"tools/smoke_skill_sync.py": "public skill smoke", "tools/smoke_mailbox.py": "public mailbox smoke", "tools/MAILBOX-SMOKE.md": "public smoke instructions",
+		"START-HERE.zh-CN.md": "Chinese start guide", "INSTALL.zh-CN.md": "Chinese install guide", "tools/MAILBOX-SMOKE.zh-CN.md": "Chinese smoke guide",
+		"internal/install/skills/agi-hub-client/SKILL.md": "English runtime skill", "internal/install/skills/agi-hub-client/SKILL.zh-CN.md": "Chinese skill reference",
 	}
 	for name, body := range files {
 		if err := os.MkdirAll(filepath.Dir(name), 0700); err != nil {
@@ -73,6 +75,11 @@ func TestPackageContainsOfflineInstallerAndOnlyPublicPayload(t *testing.T) {
 	for _, name := range []string{"agi-hub", "agi-hub-setup", "agi-hub-endpoint", "START-HERE.md", "INSTALL.md", "install.command", "clients/shared/report.py", "clients/workbuddy/client.example.json", "clients/claude-code/.claude-plugin/marketplace.json", "clients/claude-code/agi-hub-endpoint/hooks/hooks.json", "package-manifest.json"} {
 		if _, ok := payload[name]; !ok {
 			t.Errorf("missing %s", name)
+		}
+	}
+	for _, name := range []string{"START-HERE.zh-CN.md", "INSTALL.zh-CN.md", "tools/MAILBOX-SMOKE.zh-CN.md", "internal/install/skills/agi-hub-client/SKILL.md", "internal/install/skills/agi-hub-client/SKILL.zh-CN.md"} {
+		if _, ok := payload[name]; !ok {
+			t.Errorf("missing bilingual document %s", name)
 		}
 	}
 	for _, name := range []string{"docs/private/secret.md", "docs/unlisted.json", "clients/workbuddy/client.json", "clients/workbuddy/private/secret.md", "clients/workbuddy/__pycache__/x.pyc"} {
