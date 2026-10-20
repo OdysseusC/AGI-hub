@@ -44,7 +44,7 @@ func (s *Server) catalog(endpoint string) (Catalog, error) {
 	for _, id := range bindings[endpoint].VisiblePeers {
 		e, exists := state.Endpoints[id]
 		binding, configured := bindings[id]
-		if !exists || !configured || !e.Enabled || !binding.Endpoint.Enabled {
+		if !exists || !configured || !e.Enabled {
 			continue
 		}
 		modes := append([]string{}, e.Modes...)
@@ -57,6 +57,7 @@ func (s *Server) catalog(endpoint string) (Catalog, error) {
 			IdleWakeVerified: e.IdleWakeVerified, BusyResultVerified: e.ResultQueueWhileBusyVerified,
 			CanSend: allowed && self.MailboxProtocolVersion == 1 && e.MailboxProtocolVersion == 1, MailboxProtocolVersion: e.MailboxProtocolVersion})
 	}
+	peers = append(peers, s.remoteCatalog(endpoint)...)
 	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
 	catalog := Catalog{ProtocolVersion: 1, Endpoint: endpoint, Peers: peers}
 	content, _ := json.Marshal(catalog)

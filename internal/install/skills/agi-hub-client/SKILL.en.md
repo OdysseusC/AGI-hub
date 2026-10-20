@@ -31,6 +31,8 @@ Read the directory first. New mailbox collaboration requires the target's `can_s
 
 ## Initiate and collaborate
 
+The examples below describe same-Hub conversations. For qualified remote recipients, apply **LAN mailbox scope** below before sending.
+
 When starting a new collaboration from the user's actual current input, first save a stable message ID and the full JSON. For example:
 
 ```json
@@ -60,6 +62,16 @@ To request help or reply after receiving a message, save a new message ID, expli
 ```
 
 B may ask D for help. D may reply to B or directly to A according to context, if the user configuration permits that direction. `reply_to` associates messages without forcing the original sender as recipient. Final artifacts normally go to `root_origin.endpoint` for delivery to the human through the initial entry. The integrating assistant judges the actual work; do not treat whichever chat most recently received human input as the root origin.
+
+## LAN mailbox scope
+
+LAN recipients are directory-provided `<64-hex-Hub-ID>/<endpoint>` addresses. Never shorten them to the endpoint name: two computers may both have `codex`. Discovery, pairing and sharing are user-controlled; do not enable them to bypass an unavailable recipient.
+
+Federation protocol 1 keeps each conversation between a fixed pair of endpoints. For that pair, preserve its returned `correlation_id`, deadline and budget. The origin owns `ceil(max_messages/2)` permits and the peer owns `floor(max_messages/2)`; unused permits cannot be borrowed. This does not require alternating messages or automatic replies. A separately authorized request to a third endpoint needs a separate conversation with its own stable `origin_ref` and minimal original-user context; it does not inherit the first pair's native binding. Do not create a new conversation to bypass exhausted permits or a deadline. Same-Hub conversations retain their existing shared budget and multiple recipients.
+
+Save the submitted JSON and its original `id` unchanged for identical retries. LAN send returns canonical `message_id` and `correlation_id` values starting with `lan-`; retain those returned IDs for state queries and `reply_to`. A timeout before the response requires reconciliation by an identical retry, never inventing a new ID. `remote_received` means only that the destination Hub persisted the message. It does not prove Client consumption, native acceptance, execution, or artifact verification.
+
+An incoming envelope's `recipient` is the local endpoint; its `sender` and a remote `root_origin.endpoint` are qualified addresses. Use the directory to select the correct reply destination. Original native session IDs remain on their owning Hub. File paths from another host are references, not accessible local files. Cancellation closes local pending work only; already network-queued or dispatched messages may still arrive.
 
 ## Your mailbox
 

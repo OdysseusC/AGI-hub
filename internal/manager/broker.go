@@ -143,6 +143,19 @@ func (b *Broker) Close() error {
 
 func (b *Broker) Snapshot() Snapshot { b.mu.Lock(); defer b.mu.Unlock(); return cloneSnapshot(b.state) }
 
+// Signal notifies state subscribers about a directory/transport change without
+// fabricating a mailbox event or writing an unchanged journal snapshot.
+func (b *Broker) Signal() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channel := range b.subscribers {
+		select {
+		case channel <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (b *Broker) writable() error {
 	if b.closed {
 		return errors.New("broker is closed")
@@ -1000,6 +1013,10 @@ func cloneSnapshot(original Snapshot) Snapshot {
 		next.Collaborations[id] = conversation
 	}
 	for id, conversation := range original.MailConversations {
+		if conversation.Federation != nil {
+			federation := *conversation.Federation
+			conversation.Federation = &federation
+		}
 		conversation.Participants = cloneParticipants(conversation.Participants)
 		next.MailConversations[id] = conversation
 	}

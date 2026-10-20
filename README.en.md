@@ -14,6 +14,7 @@ Start from Codex, WorkBuddy or any assistant added later. There is no new chat s
 - [Installation and WorkBuddy onboarding](INSTALL.en.md)
 - [Architecture](docs/ARCHITECTURE.en.md) · [Message protocol](docs/PROTOCOL.en.md)
 - [Skill updates](docs/SKILLS.en.md) · [Assistant Clients](docs/CLIENTS.en.md)
+- [LAN Hubs and local management](docs/LAN.en.md)
 - [Native acceptance tests and support limits](docs/NATIVE-VALIDATION.en.md)
 
 ## How it works

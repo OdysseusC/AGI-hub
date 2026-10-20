@@ -14,6 +14,7 @@ AGI Hub 是常驻本机的消息边车。每个助手安装协作技能和自己
 - [安装与 WorkBuddy 接入引导](INSTALL.md)
 - [架构](docs/ARCHITECTURE.md) · [消息协议](docs/PROTOCOL.md)
 - [技能更新](docs/SKILLS.md) · [各助手 Client](docs/CLIENTS.md)
+- [局域网 Hub 与本机管理](docs/LAN.md)
 - [本机验收与支持范围](docs/NATIVE-VALIDATION.md)
 
 ## 工作方式

@@ -44,6 +44,9 @@ func (b *Broker) Publish(sender string, request MailSubmission) (Envelope, error
 	}
 	conversation, exists := b.state.MailConversations[request.CorrelationID]
 	if exists {
+		if conversation.Federation != nil {
+			return Envelope{}, errors.New("federated conversations require a qualified remote recipient")
+		}
 		if !conversation.Participants[sender] {
 			return Envelope{}, errors.New("sender is not a participant in this mail conversation")
 		}
@@ -97,7 +100,9 @@ func (b *Broker) Publish(sender string, request MailSubmission) (Envelope, error
 	origin := conversation.RootOrigin
 	envelope := Envelope{Mailbox: true, MailFingerprint: fingerprint, ID: request.ID, CorrelationID: request.CorrelationID, RootOrigin: &origin, ReplyTo: request.ReplyTo, Kind: request.Kind, Sender: sender, Recipient: request.Recipient, Mode: "queue", Content: request.Content, Delivery: "pending"}
 	next := cloneSnapshot(b.state)
-	next.Version = 3 // older binaries must reject rather than drop mailbox fields
+	if next.Version < 3 {
+		next.Version = 3 // older binaries must reject rather than drop mailbox fields
+	}
 	conversation.Participants = cloneParticipants(conversation.Participants)
 	conversation.Participants[sender], conversation.Participants[request.Recipient] = true, true
 	conversation.UsedMessages++
@@ -210,6 +215,10 @@ func matchesRootSession(endpoint Endpoint, origin OriginContext) bool {
 	return endpoint.DeviceID == origin.DeviceID && endpoint.SessionID == origin.SessionID
 }
 func cloneEnvelope(original Envelope) Envelope {
+	if original.Network != nil {
+		network := *original.Network
+		original.Network = &network
+	}
 	if original.RootOrigin != nil {
 		origin := *original.RootOrigin
 		original.RootOrigin = &origin

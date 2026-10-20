@@ -70,6 +70,7 @@ type Collaboration struct {
 }
 
 type Envelope struct {
+	Network         *NetworkMail   `json:"network,omitempty"`
 	Mailbox         bool           `json:"mailbox,omitempty"`
 	MailFingerprint string         `json:"mail_fingerprint,omitempty"`
 	ID              string         `json:"message_id"`
@@ -106,13 +107,14 @@ type MailSubmission struct {
 }
 
 type MailConversation struct {
-	ID           string          `json:"id"`
-	RootOrigin   OriginContext   `json:"root_origin"`
-	Participants map[string]bool `json:"participants"`
-	MaxMessages  int             `json:"max_messages"`
-	UsedMessages int             `json:"used_messages"`
-	Deadline     string          `json:"deadline"`
-	Closed       bool            `json:"closed,omitempty"`
+	Federation   *FederatedContext `json:"federation,omitempty"`
+	ID           string            `json:"id"`
+	RootOrigin   OriginContext     `json:"root_origin"`
+	Participants map[string]bool   `json:"participants"`
+	MaxMessages  int               `json:"max_messages"`
+	UsedMessages int               `json:"used_messages"`
+	Deadline     string            `json:"deadline"`
+	Closed       bool              `json:"closed,omitempty"`
 }
 
 type Task struct {

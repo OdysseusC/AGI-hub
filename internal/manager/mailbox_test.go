@@ -261,7 +261,7 @@ func TestMailboxJournalRejectsUnknownVersionWithoutRewriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	future := emptySnapshot()
-	future.Version = 4
+	future.Version = 5
 	if err = appendSnapshot(file, future); err != nil {
 		file.Close()
 		t.Fatal(err)
