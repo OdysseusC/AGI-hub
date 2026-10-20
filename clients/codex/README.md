@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-版本 `0.3.0`，Hub 协议 `1`，可选寻址消息协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天投递消息，保留原会话的工具、模型和权限。
+版本 `0.3.1`，Hub 协议 `1`，可选寻址消息协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天投递消息，保留原会话的工具、模型和权限。
 
 每个 Hub endpoint 只启动一个消费者。在显式配置 `mailbox_protocol_version=1` 后，只消费 `/v1/mail/inbox`；`request/reply/result` 交给原会话，`status` 留在消息记录并保存投递回执，不唤醒模型。会话内技能根据上下文决定行动、协助对象和回复收件人；每条回复都显式发送，Hub 不根据业务状态生成回复，不强制父子任务链。`reply_to` 只作引用，`root_origin` 保留用户最初输入的原生会话，最终成果应发回那里。
 
@@ -101,3 +101,13 @@ python3 clients/codex/test_adapter.py -v
 ```
 
 公共 Python 协议测试位于 `clients/tests`，仓库根目录运行 `python3 -m unittest discover -s clients/tests -v`。更新和不确定投递的处理见 [Client 文档](../../docs/CLIENTS.md)，分段原生证据见 [验收记录](../../docs/NATIVE-VALIDATION.md)。
+
+## Node 可选旧 Task/Report 接收
+
+Node 默认接收旧协议 `kind=result / mode=queue`，严格布尔值 `native.receive_tasks=true` 额外允许 `kind=task / mode=queue`，仍拒绝 control、steer 和 interrupt。它不改变邮箱协商或启用原生能力。收件人须匹配固定 endpoint，官方工具参数始终只有 `threadId` 与 `prompt`。
+
+启用前安装原聊天的固定接手与报告指引、实际 endpoint 专属报告程序路径及授权工作区，Envelope 不能覆盖这些配置。通知携带完整 Envelope 和既有授权边界；真实 accepted/running/终态由原聊天保存稳定 Report 并主动提交，Client 只记录传输回执。旧协议 `hubrun-` 标识取 endpoint、换行、task_id 的 UTF-8 SHA-256 前 32 位小写十六进制，只是 Hub 执行标识，不能冒充原生 run ID 或复用 session_id。
+
+任务仍受会话状态、资源与已核实空闲唤醒约束，Client 不把 unknown 伪造为 idle。结果只消费/展示，不重做任务或补发 accepted/running。所有 Python 入口均拒绝 `native.receive_tasks`；Python Desktop MCP/App Server 保持结果专用，Python queue 保持原有行为。同 endpoint 只运行一个消费者。
+
+Windows 使用实际 node.exe，官方 helper 以 `windowsHide=true` 启动。2026-10-16 的 Windows Node `0.3.0` 单入口自检及另一次 Codex/Grok 双向旧协议验收已通过；没有新增忙时能力声明，不代表所有桌面工具或 Grok 新邮箱通过。[自检](../../docs/NATIVE-VALIDATION.md#windows-codex-selfcheck-20261016) · [双向证据](../../docs/NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)

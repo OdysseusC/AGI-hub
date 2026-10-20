@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Version `0.3.0`, Hub protocol `1`, optional addressed mailbox protocol `1`. The default entry is `desktop_mcp_client.mjs`, implemented with the Node.js 22+ standard library, without npm installation or third-party libraries. It uses the official `codex-app-tools` MCP server to deliver messages to the bound original desktop chat, preserving its tools, model and permissions.
+Version `0.3.1`, Hub protocol `1`, optional addressed mailbox protocol `1`. The default entry is `desktop_mcp_client.mjs`, implemented with the Node.js 22+ standard library, without npm installation or third-party libraries. It uses the official `codex-app-tools` MCP server to deliver messages to the bound original desktop chat, preserving its tools, model and permissions.
 
 Run only one consumer per Hub endpoint. When `mailbox_protocol_version=1` is explicitly configured, it consumes only `/v1/mail/inbox`: `request/reply/result` go to the original session, while `status` stays in the message record with a delivery receipt and does not wake a model. The session's skill chooses actions, collaborators and reply recipients from context. Every reply is sent explicitly; the Hub neither generates replies from business state nor forces a parent/child task chain. `reply_to` is only a reference. `root_origin` retains the native session where the user first asked, and final results should return there.
 
@@ -101,3 +101,13 @@ python3 clients/codex/test_adapter.py -v
 ```
 
 Common Python protocol tests live in `clients/tests`; run `python3 -m unittest discover -s clients/tests -v` at the repository root. See the [Client documentation](../../docs/CLIENTS.en.md) for updates and uncertain delivery, and the [acceptance record](../../docs/NATIVE-VALIDATION.en.md) for separate native evidence.
+
+## Optional legacy Task/Report reception on Node
+
+The Node entry defaults to legacy `kind=result / mode=queue`. A strictly boolean `native.receive_tasks=true` additionally permits legacy `kind=task / mode=queue`; `control`, `steer` and `interrupt` remain unsupported. It does not change mailbox negotiation or enable native capabilities. The Envelope recipient must match the fixed endpoint, and the only official tool arguments remain `threadId` and `prompt`.
+
+Install the original chat's fixed task/report instructions, actual endpoint-scoped report helper path and authorized report workspace before enabling this option. The Envelope cannot replace that configuration. Notifications carry the complete Envelope and existing authorization boundary. The original chat saves stable Reports and actively reports acceptance, execution and completion; the Client records transport receipts only. The shared legacy `hubrun-` identifier is the first 32 lowercase hex characters of SHA-256 over the UTF-8 endpoint, newline and task ID. It is a Hub execution identifier, not a fabricated native run ID or reused session ID.
+
+Legacy task reception still obeys native session state, resources and verified idle-wake gates. The Client does not mark an unknown session idle or deliver an ordinary task while busy merely because reception is enabled. Results only display/consume the completed outcome; they do not restart work or send accepted/running Reports. All Python entries reject `native.receive_tasks`; Python Desktop MCP/App Server stay results-only and Python queue keeps its existing behavior. Do not run two consumers for one endpoint.
+
+On Windows use the actual `node.exe`; the official helper is spawned with `windowsHide=true`. The 2026-10-16 Windows Node `0.3.0` self-check verified actual file reading, one official desktop `list_artifacts` call, three stable Reports, artifact SHA-256, associated deliveries, released resources and actual original-chat result consumption. A separate Codex/Grok bidirectional legacy run then passed. Neither test enabled new busy-capability flags, validated every desktop tool or proved Grok mailbox support. [Self-check](../../docs/NATIVE-VALIDATION.en.md#windows-codex-selfcheck-20261016) · [Bidirectional evidence](../../docs/NATIVE-VALIDATION.en.md#windows-grok-roundtrip-20261016)

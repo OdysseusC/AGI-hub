@@ -146,3 +146,11 @@ Hub 不托管全部 Client。按各 Client 文档分别启动，避免同一 end
 验收记录真实原生接收、每一跳的独立消息 ID 与相同关联、明确的最终收件人、成果文件 SHA-256，以及手动切换和追问次数。成果引用带设备、工作区和相对路径；另一台电脑不能直接读本机路径。只有结果实际回到最初输入的聊天、文件与摘要核验一致，才标记本次闭环通过。消息数量、截止时间是循环保护，不是模型积分保证。
 
 源码构建见 [INSTALL.md](../INSTALL.md)，故障与各原生传输边界见 [Client 说明](CLIENTS.md)。旧版单次 `submit / report` 另按其原协议处理，不与邮箱消息混用。
+
+## 保留已有 Windows Codex/Grok 旧协议安装
+
+Hub 支持新邮箱不要求迁移已验证的旧绑定。保留固定原会话、私有配置、成果、claim 与 Report，Grok 保持 mailbox `0`，使用相邻匹配 shared `0.2.0`。Node 的 `native.receive_tasks=true` 仅显式启用旧协议任务，须先安装固定报告指引与入口，见 [Codex 配置](../clients/codex/README.md)。
+
+Grok 文件模式在仓库外创建独立真实绝对 inbox、接收状态目录和授权成果工作区，保留启用、仅 webhook 的固定原 Bot Routine，并实际核对文件、原工具和报告能力。使用 grok-routine/external/queue 绑定及一致 session/routine 标签，私有 native 配置 file-webhook、inbox、URL/headers，不填 body。安装 [固定报告入口和 Routine 提示](../clients/grok-routine/GROK_INSTRUCTIONS.md)，消息不得选择配置、endpoint 或执行程序。[完整设置、HTTP 分类与去重](../clients/grok-routine/README.md) 均适用。
+
+用户已选择且配置完成的 endpoint 可在准备授权验收时启用，但唤醒标记须等独立真实空闲与文件消费证据后才开启；不得伪造 idle 或能力以放行。重启后重新核实原生真实状态。另用真实任务核对 Report、成果 SHA-256、关联 result 和原入口实际消费；配置接受、HTTP 200、模拟检查或旧桥成功不能替代。固定 Windows 安装的 [2026-10-16 证据](NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016) 不授权其他安装或新的模型测试。保留不确定执行和投递先对账，不重放、不恢复旧桥监听或定时轮询。

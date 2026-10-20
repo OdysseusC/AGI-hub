@@ -124,3 +124,7 @@ go run ./tools/package
 `dist/` 生成四个 Windows / macOS ZIP 和 `SHA256SUMS`。构建需要 Go 1.22+；包内包含实际目标平台程序，用户安装不需要编译。测试使用模拟接入点；原生验收证据另记在 [NATIVE-VALIDATION.md](docs/NATIVE-VALIDATION.md)。
 
 代码与个人配置从一开始分开，凭据、真实聊天和私密成果均放在仓库外，不进入安装包。
+
+## Windows Codex/Grok 旧协议接入
+
+本地 Windows 接入保留 Node 的 `native.receive_tasks=true` 旧协议 queue 任务和 Grok Client `0.2.0` 的 `file-webhook`。2026-10-16，固定原会话完成独立空闲唤醒、Codex 单入口自检及另一次双向 Task/Report 验收：三项任务、九份真实 Report、三份已核验成果、六条关联 task/result 和两端实际结果消费。范围限于该 Windows 安装及实际检查的工具，不代表 Grok 新邮箱、Windows Claude 或新的忙时投递能力通过。Grok 的 mailbox 能力保持 `0`。[配置](clients/grok-routine/README.md) · [分段证据](docs/NATIVE-VALIDATION.md#windows-grok-roundtrip-20261016)

@@ -177,7 +177,7 @@ func packageBinary(path, binary, name, setup, setupName, helper, helperName, pla
 		}
 		return e
 	}
-	files := map[string]string{binary: name, setup: setupName, helper: helperName, "START-HERE.md": "START-HERE.md", "INSTALL.md": "INSTALL.md", "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json", "tools/smoke_client.py": "tools/smoke_client.py"}
+	files := map[string]string{binary: name, setup: setupName, helper: helperName, "START-HERE.md": "START-HERE.md", "INSTALL.md": "INSTALL.md", "README.md": "README.md", "LICENSE": "LICENSE", "config.example.json": "config.example.json", "tools/smoke_client.py": "tools/smoke_client.py", "tools/smoke_grok_client.py": "tools/smoke_grok_client.py"}
 	for _, smoke := range []string{"tools/smoke_skill_sync.py", "tools/smoke_mailbox.py", "tools/MAILBOX-SMOKE.md"} {
 		files[smoke] = smoke
 	}

@@ -2,7 +2,7 @@
 
 # 本机原生接入记录
 
-记录日期：2026-10-14 至 2026-10-20，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+记录日期：2026-10-14 至 2026-10-20，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。10 月 16 日的 Windows Codex/Grok 旧协议验收单独记于后文；Windows Claude、其他 Windows 入口与 Linux 仍须分别验收，构建通过不能替代实测。
 
 ## 2026-10-19：受管技能同步，无模型调用
 
@@ -195,3 +195,35 @@ Desktop 界面还出现过服务商健康检查的 `ERR_CONNECTION_CLOSED` 横�
 WorkBuddy OpenAPI 的 `localassistant/message` 仍是独立候选，需第三方应用与本人 OAuth，当前未配置这条真实授权路径。CLI 正式登录不自动授予 OpenAPI 权限；它也不是普通桌面任意聊天的定位接口。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
 
 返回 [Client 说明](CLIENTS.md) · [接入范围](ADAPTERS.md)
+
+<a id="windows-codex-selfcheck-20261016"></a>
+
+## 2026-10-16：Windows Codex 旧协议单入口自检
+
+本机常驻 Node Client `0.3.0` 显式启用 `native.receive_tasks=true`。独立空闲唤醒探针已确认原聊天真实启动、消费新探针且所检查桌面工具可用；未新增 result_queue_while_busy_verified。
+
+随后 `origin=recipient=codex` 自检经过 Hub SSE → 独立 Node Client → 官方 Desktop MCP → 固定原聊天。原聊天保存并提交关联及执行标识一致的 accepted/running/succeeded，实读新输入校验值，实际调用官方 list_artifacts。Hub 核对成果工作区和 SHA-256，生成关联 result，两条消息 delivered，资源释放；另核对原聊天最终回复明确确认实际消费，不仅依据传输 ACK。此为自检，不是 Grok 发起或跨助手验收，也不代表所有桌面工具逐项通过。
+
+当天六平台包曾重建，Node `0.3.0` 源码与 manifest 逐包一致，未含私有 client.json。这是历史打包记录，不代表各平台原生接入通过或当前发行包数量。
+
+<a id="windows-grok-roundtrip-20261016"></a>
+
+## 2026-10-16：Windows Codex/Grok 双向旧协议验收
+
+原文件桥的忙闲唤醒与 Grok 文件回执只是迁移依据；新 Client 使用独立 inbox、claim、接收记录，不导入旧任务/回执。Windows exFAT 的真实本地 Hub + 模拟 Routine 冒烟核对完整文件先于仅 ID 通知、固定报告入口、SHA-256、一次关联 result 及重建 Adapter 不重发，未调用真实 webhook 或模型。
+
+初次配置请求因目标机器离线失败，保留失败。新请求截至本机 12:13 仍 processing，不能算完成。后按授权移除五份退役通知源码，84 份历史消息 JSON 与握手文件哈希不变，回执、协议、媒体和交付脚本保留；删除源码不能证明业务验收。
+
+下午配置收尾有正式答复、实读证明、终态回执和 Codex 实际消费，但经过一次入口显式续接，不算空闲唤醒。Bot 后解释曾把已批准 Routine 更新卡误认为 memory/profile 审批未完成；没有找回原始工具错误日志，不能当成恢复的审核证据。只做最小长期指引更新，description 未改，旧桥最后例外关闭。
+
+另在实核固定 Bot 空闲后只发一次 ID-only webhook。Routine 自动读取新文件内此前未知校验值并创建匹配消费记录，无 UI 续接或人工转述。该诊断不是业务任务，不伪造 Report，临时分支随后退役。它证明固定 Windows Routine 的空闲触发和真实文件消费；回执未列精确文件工具、主聊天未显示新 turn，不扩大这些结论。只启用对应 idle 唤醒标记，忙时标记未变。
+
+然后使用新 ID、新校验文件和独立成果路径完成三项真实旧协议 Hub 任务，不复用或重放旧草稿：
+
+1. Codex→Grok：SSE Client 只发 ID webhook，原 Bot 实际执行、读校验值并交三份 Report；Hub 核验成果并生成 result，官方 Desktop MCP 自动唤醒原 Codex 聊天，最终回复于本机 **16:15:37** 明确确认消费。
+2. Grok 提交：独立控制任务中原 Bot 只调用一次固定 Submission launcher，原生回执与新建 origin=grok/recipient=codex 任务匹配。控制任务只登记提交，不代做或等待反向业务。
+3. Grok→Codex：原聊天实读另一新校验值、核对固定身份、调用一次官方桌面只读工具并交 accepted/running/succeeded；Hub 核验成果回传，固定 Grok Routine 于 **16:21:36** 保存完整关联消费记录。官方线程工具另核对 Codex 反向执行与控制结果消费。
+
+三项任务的三个稳定执行标识、**九份**真实 Report 的 event_id/内容指纹、**三份**成果的工作区/SHA-256、**六条**task/result 关联和资源释放均逐一对账。业务验收无人工转发正文、重发 webhook 或 UI 续接，不从 HTTP 200、普通回复或模拟结果推导。
+
+双方保留原会话和现有工具，Grok 成果记录 Shell、CopyToBox、Read，Codex 实际调用 list_artifacts。范围限该 Windows 安装及所检查工具，不代表其他电脑、所有工具、休眠恢复、全部宿主或 Windows Claude。重启仍是 unknown，须核实实际状态。没有新增忙时能力、状态轮询、定时收件或替代执行器。历史失败、显式续接、独立诊断、最终业务验收分开保留。**这是旧 Task/Report 证据，Grok 的 mailbox 能力保持 `0`。**

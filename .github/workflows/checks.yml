@@ -103,12 +103,13 @@ jobs:
           python-version: '3.11'
       - name: Build four Windows and macOS portable packages
         run: go run ./tools/package
-      - name: Legacy, skill sync and mailbox smokes (zero models)
+      - name: Legacy, skill sync, mailbox and Grok smokes (zero models)
         run: |
           go build -o "$RUNNER_TEMP/agi-hub-smoke" ./cmd/agi-hub
           python tools/smoke_client.py --hub "$RUNNER_TEMP/agi-hub-smoke"
           python tools/smoke_skill_sync.py --hub "$RUNNER_TEMP/agi-hub-smoke"
           python tools/smoke_mailbox.py --hub "$RUNNER_TEMP/agi-hub-smoke"
+          python tools/smoke_grok_client.py --hub "$RUNNER_TEMP/agi-hub-smoke"
       - name: Verify versioned release notes
         run: |
           version=$("$RUNNER_TEMP/agi-hub-smoke" --version | cut -d ' ' -f 3)
