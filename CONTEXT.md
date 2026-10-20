@@ -1,37 +1,39 @@
 # AGI Hub
 
-用户从任意已接入的原生助手工作。技能按需选择其他助手、发送定址消息并处理回复；最终成果由助手发回用户最初输入的会话。Hub 保存消息、目录、投递证据、去重与基础限额，不规划业务、不自动回信或汇总。
+[English](CONTEXT.md) | [简体中文](CONTEXT.zh-CN.md)
 
-## Language
+Users work from any connected native assistant. Skills choose other assistants as needed, send addressed messages and process replies. Assistants send final artifacts back to the chat where the user first asked. The Hub stores messages, a directory, delivery evidence, deduplication records and basic limits. It does not plan business work or automatically reply or summarize.
 
-**助手实例 Assistant instance**：具体助手产品及其电脑、宿主、会话、原生工具和本人登录环境。相同模型的 API 调用不等于接入该助手。
+## Terminology
 
-**会话 Session**：可明确定位的原生持续对话。邮箱绑定到实际会话；模型一次回合结束不代表整个用户工作结束。
+**Assistant instance**: a specific assistant product together with its computer, host, session, native tools and the user's logged-in environment. Calling the same model through an API does not connect that assistant.
 
-**原入口 Root origin**：本次用户输入所在会话。消息中的 `root_origin` 固定保存 endpoint、设备、原生会话及输入引用，供技能判断最终回传位置；它不是 Hub 强制路由规则，也不是新的用户授权证明。
+**Session**: a native ongoing conversation that can be explicitly located. Mailboxes bind to actual sessions. The end of one model turn does not mean the user's work is complete.
 
-**邮箱 Mailbox**：一个已配置 endpoint 的定址收件箱。Client 只领取发给自己的邮件，翻译宿主实际支持的唤醒方式；Hub 不根据消息正文选择接收者。
+**Root origin**: the session where the user entered this request. A message's `root_origin` retains the endpoint, device, native session and request reference so the skill can determine where to deliver the final result. It is neither a Hub-enforced routing rule nor proof of new user authorization.
 
-**消息 Message**：独立 ID、明确发送者与接收者、类别和必要正文。`request/reply/status/result` 描述内容，不建立父子任务状态机。回复由助手明确发送，不由模型回合结束或 Report 自动生成。
+**Mailbox**: the addressed inbox of a configured endpoint. A Client claims only messages addressed to itself and translates wakeups into mechanisms actually supported by its host. The Hub does not choose recipients from message content.
 
-**关联 Conversation / Correlation**：一组消息共用的 `correlation_id`，保存原入口、参与者、截止时间和消息总量。它不包含计划、依赖或完成条件。
+**Message**: an independent ID, explicit sender and recipient, kind and necessary content. `request/reply/status/result` describe content without creating a parent/child task state machine. Assistants explicitly send replies; neither the end of a model turn nor a Report generates one automatically.
 
-**关联引用 Reply to**：可选的先前消息 ID，仅用于理解上下文；不强制回原发送者。收件人始终由发送助手在用户允许范围内选择。
+**Conversation / Correlation**: messages sharing a `correlation_id`, which retains the root origin, participants, deadline and total message allowance. It contains no plan, dependencies or completion conditions.
 
-**共治 Peer collaboration**：任意获准入口可发起、回应或转交；无需永久 leader 或新聊天入口。对等互通不表示可以冒充用户、扩大授权或共享其他助手的权限。
+**Reply to**: an optional previous message ID, used only to understand context. It does not force a reply to the original sender. The sending assistant always chooses a recipient within the user's authorized scope.
 
-**技能 Collaboration skill**：说明如何节省上下文、发现可见成员、检查授权、选择接收者、调用邮箱及核验成果。技能自身不监听消息、不提供唤醒，也不自动批准工具权限。
+**Peer collaboration**: any permitted entry can initiate, respond or forward, without a permanent leader or a new chat entry point. Peer communication does not permit impersonating the user, expanding authorization or sharing another assistant's permissions.
 
-**边车客户端 Client**：连接指定原生助手与 Hub 的收发实现，可以是独立进程或宿主插件。CLI、原桌面会话、云端 webhook、专业模型仍须分别说明能力；不能相互冒认。
+**Collaboration skill**: instructions for conserving context, discovering visible members, checking authorization, choosing recipients, calling the mailbox and verifying artifacts. The skill itself does not listen for messages, provide wakeups or approve tool permissions automatically.
 
-**状态消息 Status**：不需要收件模型判断的进度或需本人处理说明。Client 保存并 ACK，不注入模型。需助手实际处理的内容使用 request、reply 或 result。
+**Client**: the messaging implementation connecting a specific native assistant to the Hub, as a separate process or host plugin. CLI sessions, original desktop sessions, cloud webhooks and specialized models must describe their capabilities separately; none can stand in for another without evidence.
 
-**投递 Delivery**：pending、dispatching、delivered、uncertain、failed 描述传输。Client 的 ACK 不是业务完成；原生工作进度由助手另发消息说明。
+**Status**: progress or a request for human action that does not require the receiving model's judgment. The Client stores and acknowledges it without injecting it into the model. Use request, reply or result for content that an assistant must actually process.
 
-**投递不确定 Uncertain delivery**：操作可能已经发生但缺少确认。保留原记录，不自动重新消费或换 ID 重发。
+**Delivery**: pending, dispatching, delivered, uncertain and failed describe transport. A Client ACK is not business completion. Assistants describe native work progress through separate messages.
 
-**成果 Artifact**：可核对的文件或结构化结果。文件说明设备、工作区和位置；邮箱不自动跨电脑复制。最终入口按用户需求核对质量与证据。
+**Uncertain delivery**: an operation may have occurred but lacks confirmation. Retain the original record; do not consume it again automatically or resend under a new ID.
 
-**待用户处理 Needs user**：需要人类判断、信息或原生操作批准的业务情况，由助手说明；其他助手不能代替用户批准。它不是新邮箱的 Hub 任务阶段。
+**Artifact**: a verifiable file or structured result. Files identify their device, workspace and location. Mailboxes do not copy them between computers automatically. The final entry checks quality and evidence against the user's needs.
 
-当前邮箱协议 `1` 由 Codex Desktop MCP 与 WorkBuddy CLI 显式启用。Claude、Grok 邮箱为 `0`；旧版单次 Task/Report 与其 原生验收记录保留兼容，不作为新邮箱已接通的证明。旧默认 leader 只属于兼容任务接口。
+**Needs user**: a business situation requiring human judgment, information or native approval, described by the assistant. Other assistants cannot approve on the user's behalf. It is not a Hub task phase in the new mailbox protocol.
+
+Mailbox protocol `1` has native acceptance evidence for Codex Desktop MCP, WorkBuddy CLI and Claude Code mod `0.2.2`. The Claude test on 2026-10-20 covered idle wake of an existing macOS Claude-3p `2.1.299` Code session, native file Read and explicit `mail_send`, then return through the Hub and independent Codex Desktop MCP into the busy original entry. Claude is Code-only and queue-only; ordinary Chat/Cowork and busy steer are unsupported. Other hosts/platforms require separate acceptance. See the [native record](docs/NATIVE-VALIDATION.md). Grok remains at `0`. Legacy one-shot Task/Report and its native acceptance records remain compatible, without proving that the new mailbox is connected. The old default leader belongs only to the compatible task interface.

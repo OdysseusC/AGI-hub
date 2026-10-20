@@ -34,21 +34,25 @@ func inboxWait(r *http.Request) (time.Duration, error) {
 	return time.Duration(value) * time.Millisecond, nil
 }
 
-func (s *Server) nextForRequest(r *http.Request, endpoint string) (*manager.Envelope, error) {
+func (s *Server) nextForRequest(r *http.Request, endpoint string, mailbox bool) (*manager.Envelope, error) {
 	if err := r.Context().Err(); err != nil {
 		return nil, err
 	}
 	var envelope *manager.Envelope
 	err := s.withClientLease(r, endpoint, func() error {
 		var err error
-		envelope, err = s.Broker.Next(endpoint)
+		if mailbox {
+			envelope, err = s.Broker.NextMail(endpoint)
+		} else {
+			envelope, err = s.Broker.Next(endpoint)
+		}
 		return err
 	})
 	return envelope, err
 }
 
-func (s *Server) inbox(r *http.Request, endpoint string, wait time.Duration) (*manager.Envelope, error) {
-	envelope, err := s.nextForRequest(r, endpoint)
+func (s *Server) inbox(r *http.Request, endpoint string, wait time.Duration, mailbox bool) (*manager.Envelope, error) {
+	envelope, err := s.nextForRequest(r, endpoint, mailbox)
 	if err != nil || envelope != nil || wait == 0 {
 		return envelope, err
 	}
@@ -57,7 +61,7 @@ func (s *Server) inbox(r *http.Request, endpoint string, wait time.Duration) (*m
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	// Subscribe before the second check so a concurrent commit cannot be lost.
-	envelope, err = s.nextForRequest(r, endpoint)
+	envelope, err = s.nextForRequest(r, endpoint, mailbox)
 	if err != nil || envelope != nil {
 		return envelope, err
 	}
@@ -71,7 +75,7 @@ func (s *Server) inbox(r *http.Request, endpoint string, wait time.Duration) (*m
 			if !open {
 				return nil, errors.New("broker is closed")
 			}
-			envelope, err = s.nextForRequest(r, endpoint)
+			envelope, err = s.nextForRequest(r, endpoint, mailbox)
 			if err != nil || envelope != nil {
 				return envelope, err
 			}

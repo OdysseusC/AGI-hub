@@ -1,35 +1,37 @@
-# 技能驱动的邮箱协作
+[English](TEAM-ORCHESTRATION.md) | [简体中文](TEAM-ORCHESTRATION.zh-CN.md)
 
-用户从原生助手开始工作。每个助手读取自己的邮箱，自己决定处理、求助和回复；Hub 只搬运消息。
+# Skill-driven mailbox collaboration
 
-## 示例
+Users start work in a native assistant. Each assistant reads its own mailbox and decides how to handle work, ask for help and reply; the Hub only transports messages.
 
-A 向 B、C、D 分别发送消息，可以共用一个关联 ID。B 需要 D 协助时，B 再给 D 发一封信。D 根据上下文决定把结果给 B 或直接给 A；A 根据已收到的成果和原用户要求整合交付。
+## Example
 
-每次发送必须明确 `recipient`。`root_origin` 保存最初用户入口，`reply_to` 保存消息关联，不是强制回复链。中间助手不必先完成所有“子任务”才能发信，Hub 没有父子工作树或等待执行器。
+A sends separate messages to B, C and D, optionally sharing one correlation ID. If B needs D's help, B sends D another message. D decides from the context whether to reply to B or directly to A. A combines the received results according to the original user's request.
 
-## 最少约定
+Every send must specify `recipient`. `root_origin` preserves the original user entry and `reply_to` preserves message association; neither creates a mandatory reply chain. An intermediate assistant does not have to finish all its “subtasks” before sending mail. The Hub has no parent/child work tree or waiting executor.
 
-- 原生技能按需查询可用且获准的成员，发送清楚的小目标、原用户授权范围、必要上下文和文件引用。
-- 收到消息不是新增人类授权。继续已有协作沿用关联，不用新 ID 或新关联绕过不确定投递、限额或取消。
-- 请求需要实际处理，回复需要结合已有工作；没有必要时不再回复。发送感谢、收到或重复 ACK 不应触发模型。
-- 最终成果通常发给原入口，由它交付；谁来整合由助手根据用户工作决定，不是 Hub 固定一个 leader。
-- 同一工程或桌面的写操作由参与者明确协调；不能无差别复制全部历史或同时修改同一目标。
+## Minimal conventions
 
-## 消息与限额
+- Native skills look up available, permitted members when needed and send a clear small objective, the original authorization scope, necessary context and file references.
+- A received message is not new human authorization. Continue the existing correlation; do not use a new message or correlation ID to bypass uncertain delivery, limits or cancellation.
+- Requests require actual handling, and replies must fit the existing work. Do not reply again unnecessarily. Thanks, acknowledgments and duplicate ACKs should not trigger a model.
+- Final results normally go to the original entry for delivery to the user. Assistants decide who combines work; the Hub does not impose a permanent leader.
+- Participants explicitly coordinate writes to a shared project or desktop. Do not indiscriminately copy all history or modify the same target concurrently.
 
-`request / reply / status / result` 都是显式消息。状态默认不唤醒模型；结果不会由 Hub 自动衍生，也不会自动关闭整份用户工作。
+## Messages and limits
 
-一个关联只保存原入口、参与者、消息计数、期限和关闭标记。每封发布的消息占一个共享额度，同 ID 重投不重复占用。默认 16 封，最大 64 封；临近额度时应优先给出已知结论或真实障碍，不能把提示词当作费用硬上限。
+`request / reply / status / result` are all explicit messages. Status does not wake a model by default. The Hub neither derives results automatically nor closes the user's entire work automatically.
 
-投递和业务完成分开。Client 记录 pending/dispatching/delivered/uncertain/failed，助手通过明确的回复或状态说明业务结果。模糊的原生结果不自动重发。
+A conversation contains only its original entry, participants, message count, deadline and closed flag. Each published message consumes one shared slot; retrying the same ID does not consume another. The default is 16 messages, at most 64. Near the limit, return the known result or actual obstacle first. A prompt is not a hard spending limit.
 
-## 安装与扩展
+Delivery and business completion are separate. The Client records pending/dispatching/delivered/uncertain/failed; the assistant states business results in an explicit reply or status. An ambiguous native result is not automatically retried.
 
-技能小而稳定，成员目录按需读取，规则按受管修订更新。不为每对助手单独生成技能，不为目录变化唤醒模型。
+## Installation and extension
 
-每个产品有独立 Client，按实际支持的 CLI、消息接口或 webhook 接入。新会话或专业模型可以由后续 Client 明确提供，不先造统一 Agent 运行时；调用模型 API不能冒称接入原生桌面助手。
+The skill stays small and stable. The member directory is fetched when needed, and managed revisions update the rules. Do not generate a separate skill for each assistant pair or wake models for directory changes.
 
-目前先验证 Codex Desktop MCP 与 WorkBuddy CodeBuddy CLI。Claude Code 与 Grok 的旧接入保留，未启用新邮箱。各平台和宿主版本分别标注验证范围。
+Each product has its own Client using its actually supported CLI, messaging interface or webhook. A later Client can explicitly provide new sessions or specialist models without first introducing a universal Agent runtime. Calling a model API must not be presented as connecting its native desktop assistant.
 
-运行和安装见 [START-HERE](../START-HERE.md)、[协议](PROTOCOL.md)、[技能](SKILLS.md)。
+Codex Desktop MCP and WorkBuddy CodeBuddy CLI are the first verification targets. Claude Code mod 0.2.2 implements mailbox protocol 1 with native messaging tools; original macOS Code idle execution and explicit return to busy original Codex passed on 2026-10-20. Claude busy queuing and other hosts still require acceptance. Grok retains its legacy integration with mailbox 0. Verification scope is recorded separately for each platform and host version.
+
+For operation and installation, see [START-HERE](../START-HERE.md), the [protocol](PROTOCOL.md) and [skills](SKILLS.md).

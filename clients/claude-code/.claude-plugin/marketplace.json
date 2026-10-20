@@ -1,5 +1,5 @@
 {
   "name": "agi-hub-local",
   "owner": {"name": "AGI Hub contributors"},
-  "plugins": [{"name": "agi-hub-endpoint", "source": "./agi-hub-endpoint", "version": "0.1.4", "description": "Bind one native Claude Code session to the local AGI Hub."}]
+  "plugins": [{"name": "agi-hub-endpoint", "source": "./agi-hub-endpoint", "version": "0.2.2", "description": "Bind one native Claude Code session to the local AGI Hub."}]
 }

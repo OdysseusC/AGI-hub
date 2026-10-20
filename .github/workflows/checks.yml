@@ -75,6 +75,8 @@ jobs:
         run: |
           python -m unittest discover -s clients/tests -v
           python -m unittest discover -s tools -p 'test_*.py' -v
+      - name: English and Chinese documentation integrity
+        run: python tools/check_docs.py
       - name: Node transport and Claude protocol tests
         run: |
           node --test clients/codex/test_desktop_mcp_client.mjs

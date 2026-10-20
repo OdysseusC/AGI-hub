@@ -23,7 +23,7 @@ const (
 	// SkillRevision must increase whenever the released embedded rules change.
 	// It prevents an older installed CLI from replacing newer approved rules.
 	// This release counter is independent of manifest and registry schemas.
-	SkillRevision = 3
+	SkillRevision = 4
 
 	skillName    = "agi-hub-client"
 	manifestName = ".agi-hub-manifest.json"

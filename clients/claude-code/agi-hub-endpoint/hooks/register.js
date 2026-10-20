@@ -1,5 +1,6 @@
-import { EndpointClient } from './lib/client.js';
-import { reportToolResult, REPORT_SPEC } from './lib/protocol.js';
+import { CLIENT_VERSION, EndpointClient } from './lib/client.js';
+import { ClientError, clientConfigPath } from './lib/config.js';
+import { reportToolResult, REPORT_SPEC, MAIL_SEND_SPEC, PEERS_SPEC, MAIL_STATE_SPEC } from './lib/protocol.js';
 
 export function register(on, options) {
   let client;
@@ -7,7 +8,7 @@ export function register(on, options) {
     await $.command.register({ name: 'agi-hub-id', description: 'Show this native Claude Code session UUID.' });
     await $.command.register({ name: 'agi-hub-status', description: 'Show AGI Hub binding and delivery state without credentials.' });
     await $.command.register({ name: 'agi-hub-diagnose', description: 'Schedule one native idle-wake diagnostic in 30 seconds.' });
-    await $.tool.register(REPORT_SPEC);
+    for (const spec of [REPORT_SPEC, MAIL_SEND_SPEC, PEERS_SPEC, MAIL_STATE_SPEC]) await $.tool.register(spec);
     const port = {
       sessionID: () => $.session.id(),
       stat: path => $.fs.stat(path), read: path => $.fs.read(path),
@@ -17,7 +18,15 @@ export function register(on, options) {
       fetch: (url, init) => $.http.fetch(url, init),
       submit: input => $.prompt.submit(input), status: text => $.ui.status(text),
     };
-    client = new EndpointClient(port, options?.client_config);
+    let configPath = options?.client_config;
+    try {
+      if (configPath === undefined || configPath === '') configPath = clientConfigPath(options, $.plugin.name, await $.settings.read());
+    } catch (error) {
+      client = new EndpointClient(port);
+      client.halt(error instanceof ClientError ? error.code : 'plugin_config_read_unconfirmed');
+      return next(e);
+    }
+    client = new EndpointClient(port, configPath);
     const active = client;
     active.schedule(0, () => active.start());
     return next(e);
@@ -44,11 +53,18 @@ export function register(on, options) {
     return next(e);
   });
   on('command.run', { command: 'agi-hub-id' }, async ($) => ({ text: await $.session.id() }));
-  on('command.run', { command: 'agi-hub-status' }, async ($) => ({ text: JSON.stringify(client?.status() ?? { state: 'dormant', code: 'not_started' }) }));
+  on('command.run', { command: 'agi-hub-status' }, async ($) => ({ text: JSON.stringify(client?.status() ?? { client_version: CLIENT_VERSION, state: 'dormant', code: 'not_started' }) }));
   on('command.run', { command: 'agi-hub-diagnose' }, async ($) => client ? client.diagnose() : { text: 'AGI Hub: session has not started.' });
   on('tool.call', { tool: 'mcp__agi-hub-endpoint__report' }, async ($, e) => {
     const { tool, tool_use_id, agentId, requestMeta, consent, ...input } = e;
     if (agentId !== undefined) return reportToolResult({ ok: false, code: 'main_session_only' });
     return reportToolResult(client ? await client.report(input) : { ok: false, code: 'client_not_started' });
   }).catch(async () => ({ deny: 'AGI Hub report was not confirmed.' }));
+  for (const [name, method] of [['mail_send', 'mailSend'], ['peers', 'peers'], ['mail_state', 'mailState']]) {
+    on('tool.call', { tool: 'mcp__agi-hub-endpoint__' + name }, async ($, e) => {
+      const { tool, tool_use_id, agentId, requestMeta, consent, ...input } = e;
+      if (agentId !== undefined) return reportToolResult({ ok: false, code: 'main_session_only' });
+      return reportToolResult(client ? await client[method](input) : { ok: false, code: 'client_not_started' });
+    }).catch(async () => reportToolResult({ ok: false, code: 'mail_tool_unconfirmed' }));
+  }
 }

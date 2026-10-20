@@ -1,10 +1,11 @@
 import { absolutePath, byteLength, ClientError, cleanString, object, parseJSON, scopeKey, validateBinding, validateConfig, MAX_BYTES } from './config.js';
-import { canonicalJSON, nativeMarkerShape, notification, validateEnvelope, validateReport } from './protocol.js';
+import { canonicalJSON, nativeMarkerShape, notification, validateEnvelope, validateMail, validateReport } from './protocol.js';
 
 const freshID = () => 'mod-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
 const DELIVERED = 'A matching AGI Hub marker entered the bound Claude session in a native turn.start event.';
 const UNCERTAIN = 'Native entry is unconfirmed; reconcile the message marker in the bound session before retrying. No prompt will be resubmitted.';
 const TERMINAL = ['succeeded', 'failed'];
+export const CLIENT_VERSION = '0.2.2';
 
 /** Host-independent state machine. Only register.js knows the mod's $ API. */
 export class EndpointClient {
@@ -12,7 +13,7 @@ export class EndpointClient {
     this.port = port; this.configPath = configPath; this.owner = freshID();
     this.generation = 0; this.state = 'dormant'; this.code = 'unconfigured';
     this.timers = new Set(); this.messages = new Map(); this.currentTurn = null;
-    this.serialTail = Promise.resolve(); this.polling = false; this.backoff = 1000;
+    this.serialTail = Promise.resolve(); this.polling = false; this.backoff = 1000; this.mailbox = false;
   }
   serial(fn) {
     const result = this.serialTail.then(fn);
@@ -51,23 +52,24 @@ export class EndpointClient {
     await this.port.status('AGI Hub: ' + state + ' · ' + code);
   }
   status() {
-    return { state: this.state, code: this.code, last_message_id: this.lastMessage ?? null, native_turn_id: this.currentTurn, diagnostic: this.diagnostic ? { state: this.diagnostic.state, nonce: this.diagnostic.nonce, native_turn_id: this.diagnostic.turnId ?? null, native_message_shape: this.diagnostic.shape ?? null } : null };
+    return { client_version: CLIENT_VERSION, state: this.state, code: this.code, last_message_id: this.lastMessage ?? null, native_turn_id: this.currentTurn, diagnostic: this.diagnostic ? { state: this.diagnostic.state, nonce: this.diagnostic.nonce, native_turn_id: this.diagnostic.turnId ?? null, native_message_shape: this.diagnostic.shape ?? null } : null };
   }
-  async raw(config, path, method, body, lease) {
+  async raw(config, path, method, body, lease, query = {}) {
     const headers = { Authorization: 'Bearer ' + config.endpoint_token, Origin: config.address.origin, 'Content-Type': 'application/json' };
     if (lease) headers['X-AGI-Hub-Lease'] = lease;
     let response;
-    try { response = await this.port.fetch(config.address.origin + path + '?endpoint=' + encodeURIComponent(config.endpoint) + (path === '/v1/inbox' ? '&wait_ms=' + config.native.long_poll_ms : ''), { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
+    const suffix = Object.entries(query).map(([key, value]) => '&' + encodeURIComponent(key) + '=' + encodeURIComponent(value)).join('');
+    try { response = await this.port.fetch(config.address.origin + path + '?endpoint=' + encodeURIComponent(config.endpoint) + (['/v1/inbox', '/v1/mail/inbox'].includes(path) ? '&wait_ms=' + config.native.long_poll_ms : '') + suffix, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
     catch { throw new ClientError('hub_request_unconfirmed'); }
     if (!object(response) || !Number.isInteger(response.status)) throw new ClientError('invalid_hub_response');
     if (response.status < 200 || response.status >= 300) throw new ClientError('hub_http_' + response.status, response.status);
     try { return parseJSON(response.text); } catch { throw new ClientError('invalid_hub_response'); }
   }
-  async request(path, method, body, generation) {
+  async request(path, method, body, generation, query) {
     if (!this.alive(generation)) throw new ClientError('client_generation_changed');
     const config = this.config, lease = this.lease;
     try {
-      const result = await this.raw(config, path, method, body, lease);
+      const result = await this.raw(config, path, method, body, lease, query);
       this.guard(generation); return result;
     } catch (error) { this.guard(generation); if (error.status === 409) error.leaseRequest = true; throw error; }
   }
@@ -97,6 +99,7 @@ export class EndpointClient {
       this.config = config; this.prefix = scopeKey(config);
       const registered = validateBinding(await this.raw(config, '/v1/endpoint', 'GET'), config);
       if (this.generation !== generation) return;
+      this.mailbox = registered.endpoint.mailbox_protocol_version === 1;
       const startedAt = await this.port.now();
       let lease;
       try { lease = await this.raw(config, '/v1/client-lease', 'POST', { owner_id: owner }); }
@@ -109,6 +112,7 @@ export class EndpointClient {
       if (await this.port.now() >= this.leaseDeadline) throw new ClientError('client_lease_expired');
       this.scheduleRenew(generation);
       const current = validateBinding(await this.request('/v1/endpoint', 'GET', undefined, generation), config);
+      if ((current.endpoint.mailbox_protocol_version === 1) !== this.mailbox) throw new ClientError('mailbox_binding_changed_rebind_required');
       const ready = await this.recover(current.outstanding, generation);
       if (!this.alive(generation)) return;
       if (!ready) { await this.pause('reconcile_required', 'outstanding_native_entry_unconfirmed'); return; }
@@ -197,6 +201,12 @@ export class EndpointClient {
       this.guard(generation); await this.port.remove(prefix + 'msg:' + encodeURIComponent(record.message_id));
       this.guard(generation); this.messages.delete(record.message_id);
     }
+    for (const key of (await this.port.keys()).filter(key => key.startsWith(prefix + 'send:'))) {
+      this.guard(generation);
+      const record = await this.port.get(key);
+      this.guard(generation);
+      if (record?.state === 'sent' && Number.isFinite(record.at) && record.at < cutoff) await this.port.remove(key);
+    }
   }
   schedulePoll(ms, generation) {
     if (this.state !== 'running' || !this.alive(generation)) return;
@@ -207,8 +217,9 @@ export class EndpointClient {
     this.polling = true;
     try {
       await this.renew(generation);
-      validateBinding(await this.request('/v1/endpoint', 'GET', undefined, generation), this.config);
-      const envelope = await this.request('/v1/inbox', 'POST', {}, generation);
+      const registered = validateBinding(await this.request('/v1/endpoint', 'GET', undefined, generation), this.config);
+      if ((registered.endpoint.mailbox_protocol_version === 1) !== this.mailbox) throw new ClientError('mailbox_binding_changed_rebind_required');
+      const envelope = await this.request(this.mailbox ? '/v1/mail/inbox' : '/v1/inbox', 'POST', {}, generation);
       if (envelope === null) { this.backoff = 1000; return; }
       this.lastMessage = cleanString(envelope?.message_id) ? envelope.message_id : null;
       await this.consume(envelope, generation);
@@ -239,12 +250,16 @@ export class EndpointClient {
       return;
     }
     const at = await this.port.now(); this.guard(generation);
-    const record = { scope: prefix, message_id: envelope.message_id, task_id: envelope.task_id ?? '', kind: envelope.kind ?? '', marker: `[AGI Hub message_id=${encodeURIComponent(envelope.message_id)} nonce=${freshID()}]`, state: 'claimed', at };
+    const record = { scope: prefix, message_id: envelope.message_id, task_id: envelope.task_id ?? '', kind: envelope.kind ?? '', mailbox: envelope.mailbox === true, marker: `[AGI Hub message_id=${encodeURIComponent(envelope.message_id)} nonce=${freshID()}]`, state: 'claimed', at };
     this.messages.set(record.message_id, record);
     await this.serial(() => this.saveMessage(record, generation));
     this.guard(generation);
-    try { validateEnvelope(envelope, config.endpoint); }
+    try { validateEnvelope(envelope, config.endpoint, this.mailbox); }
     catch { await this.receipt(record, 'failed', 'Invalid Envelope for the bound Claude endpoint; no prompt submitted.', generation); return; }
+    if (record.mailbox && envelope.kind === 'status') {
+      await this.receipt(record, 'delivered', 'Addressed status recorded without native input or a model wake.', generation);
+      return;
+    }
     const text = notification(envelope, record.marker);
     if (byteLength(text) > config.native.max_prompt_bytes) { await this.receipt(record, 'failed', 'Claude prompt exceeds the configured byte limit; no prompt submitted.', generation); return; }
     if (envelope.kind === 'task') {
@@ -280,7 +295,7 @@ export class EndpointClient {
     if (this.alive(generation)) await this.pause('awaiting_native_entry', 'waiting_for_native_turn_marker');
   }
   async postReceipt(record, generation) {
-    await this.request('/v1/delivery', 'POST', { message_id: record.message_id, ...record.receipt }, generation);
+    await this.request(record.mailbox ? '/v1/mail/delivery' : '/v1/delivery', 'POST', { message_id: record.message_id, ...record.receipt }, generation);
     if (!this.alive(generation)) return;
     record.state = 'receipted'; await this.saveMessage(record, generation);
   }
@@ -323,6 +338,74 @@ export class EndpointClient {
     }, generation);
   }
   completeTurn(event) { if (event?.agentId === undefined && event?.turnId === this.currentTurn) this.currentTurn = null; }
+  toolError(error) {
+    return { ok: false, ...(Number.isInteger(error?.status) ? { status: error.status } : {}), code: error instanceof ClientError ? error.code : 'mail_tool_unconfirmed' };
+  }
+  async requireMailbox(generation) {
+    if (!this.mailbox) throw new ClientError('mailbox_not_enabled');
+    await this.renew(generation);
+    const current = validateBinding(await this.request('/v1/endpoint', 'GET', undefined, generation), this.config);
+    if (current.endpoint.mailbox_protocol_version !== 1) throw new ClientError('mailbox_binding_changed_rebind_required');
+  }
+  async peers(input) {
+    const generation = this.generation;
+    try {
+      if (!object(input) || Object.keys(input).length) throw new ClientError('invalid_peers_input');
+      await this.requireMailbox(generation);
+      return { ok: true, catalog: await this.request('/v1/catalog', 'GET', undefined, generation) };
+    } catch (error) { return this.toolError(error); }
+  }
+  async mailState(input) {
+    const generation = this.generation;
+    try {
+      if (!object(input) || Object.keys(input).some(key => key !== 'correlation_id') || !cleanString(input.correlation_id) || input.correlation_id.length > 128) throw new ClientError('invalid_mail_state_input');
+      await this.requireMailbox(generation);
+      return { ok: true, conversation: await this.request('/v1/mail/state', 'GET', undefined, generation, { correlation_id: input.correlation_id }) };
+    } catch (error) { return this.toolError(error); }
+  }
+  async mailSend(input) {
+    const generation = this.generation, originTurn = this.currentTurn;
+    try {
+      validateMail(input);
+      const payload = parseJSON(JSON.stringify(input));
+      await this.requireMailbox(generation);
+      return await this.serial(async () => {
+        this.guard(generation);
+        const key = this.prefix + 'send:' + encodeURIComponent(payload.id), saved = await this.port.get(key);
+        this.guard(generation);
+        if (!payload.correlation_id && !payload.origin_ref) {
+          payload.origin_ref = saved?.payload?.origin_ref;
+          if (!payload.origin_ref) {
+            if (!cleanString(originTurn)) throw new ClientError('native_origin_turn_unconfirmed');
+            payload.origin_ref = 'claude-turn:' + originTurn;
+          }
+        }
+        if (saved) {
+          if (!object(saved.payload) || canonicalJSON(saved.payload) !== canonicalJSON(payload)) throw new ClientError('mail_id_content_changed');
+          if (saved.state === 'sent' && !object(saved.message)) throw new ClientError('invalid_mail_send_journal');
+          return saved.state === 'sent' ? { ok: true, message: saved.message } : { ok: false, code: 'mail_send_unconfirmed_reconcile', message_id: payload.id, correlation_id: payload.correlation_id || payload.id };
+        }
+        const pending = { payload, state: 'sending', at: await this.port.now() };
+        this.guard(generation);
+        await this.port.set(key, pending);
+        this.guard(generation);
+        let result;
+        try {
+          result = await this.request('/v1/mail/send', 'POST', payload, generation);
+          if (!object(result) || result.mailbox !== true || result.message_id !== payload.id || result.sender !== this.config.endpoint || result.recipient !== payload.recipient || result.kind !== payload.kind || result.content !== payload.content || result.correlation_id !== (payload.correlation_id || payload.id) || !object(result.root_origin)) throw new ClientError('mail_send_ack_unconfirmed');
+        } catch (error) {
+          this.guard(generation);
+          pending.state = 'uncertain'; await this.port.set(key, pending);
+          return { ...this.toolError(error), message_id: payload.id, correlation_id: payload.correlation_id || payload.id };
+        }
+        const { message_id, correlation_id, sender, recipient, kind, root_origin, delivery } = result;
+        const message = { message_id, correlation_id, sender, recipient, kind, root_origin, delivery };
+        this.guard(generation);
+        await this.port.set(key, { ...pending, state: 'sent', message });
+        return { ok: true, message };
+      });
+    } catch (error) { return this.toolError(error); }
+  }
   async report(input) {
     const generation = this.generation;
     try {

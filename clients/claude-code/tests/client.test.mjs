@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EndpointClient } from '../agi-hub-endpoint/hooks/lib/client.js';
-import { absolutePath, byteLength, parseAddress, parseJSON, scopeKey, tokenFingerprint, validateBinding, validateConfig } from '../agi-hub-endpoint/hooks/lib/config.js';
+import { absolutePath, byteLength, clientConfigPath, parseAddress, parseJSON, scopeKey, tokenFingerprint, validateBinding, validateConfig } from '../agi-hub-endpoint/hooks/lib/config.js';
 import { nativeMarkerShape, notification, reportToolResult, validateEnvelope } from '../agi-hub-endpoint/hooks/lib/protocol.js';
 
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -11,7 +11,7 @@ const envelope = (id = 'one', kind = 'task') => ({ message_id: kind + ':' + id, 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const nativeWrapped = text => 'The agi-hub-endpoint plugin sent a message:\n' + text + '\n\nThis is how Claude Code surfaces a prompt a plugin submits between turns — it starts this turn in the user\'s place. Address the message above.';
 
-function harness({ sid = 'session-a', saved = new Map() } = {}) {
+function harness({ sid = 'session-a', saved = new Map(), mailbox = false } = {}) {
   const state = { now: 0, sid, calls: [], timers: [], prompts: [], writes: [], saved, available: true, outstanding: [] };
   let client;
   const port = {
@@ -29,9 +29,9 @@ function harness({ sid = 'session-a', saved = new Map() } = {}) {
       const call = { url, init: clone(init), body: init.body ? JSON.parse(init.body) : undefined }; state.calls.push(call);
       if (!state.available) throw new Error('do not expose native raw error or token');
       let value = {};
-      if (url.includes('/v1/endpoint?')) value = { protocol_version: 1, endpoint: { id: 'claude', enabled: true, driver: 'claude-code', session_id: state.sid, modes: ['queue'], idle_wake_verified: false }, session: { state: 'idle' }, outstanding: clone(state.outstanding) };
+      if (url.includes('/v1/endpoint?')) value = { protocol_version: 1, capabilities: { mailbox_long_poll_max_ms: 25000, mailbox_client_lease: true }, endpoint: { id: 'claude', enabled: true, driver: 'claude-code', session_id: state.sid, modes: ['queue'], idle_wake_verified: false, mailbox_protocol_version: mailbox ? 1 : 0 }, session: { state: 'idle' }, outstanding: clone(state.outstanding) };
       if (url.includes('/v1/client-lease?')) value = { lease_id: 'lease-a', ttl_ms: 60000, expires_at: '2026-10-16T00:01:00Z' };
-      if (url.includes('/v1/inbox?')) value = null;
+      if (url.includes('/v1/inbox?') || url.includes('/v1/mail/inbox?')) value = null;
       return { status: 200, text: JSON.stringify(value) };
     },
   };
@@ -40,6 +40,31 @@ function harness({ sid = 'session-a', saved = new Map() } = {}) {
 }
 const receipts = state => state.calls.filter(call => call.url.includes('/v1/delivery?')).map(call => call.body);
 const reports = state => state.calls.filter(call => call.url.includes('/v1/report?')).map(call => call.body);
+const mail = (id = 'mail-one', kind = 'request') => ({ message_id: id, mailbox: true, task_id: '', recipient: 'claude', sender: 'codex', delivery: 'dispatching', mode: 'queue', kind, correlation_id: 'original-correlation', root_origin: { endpoint: 'codex', device_id: 'local', session_id: 'original-human-chat', request_ref: 'human-input' }, content: 'One authorized mailbox check.' });
+const mailReceipts = state => state.calls.filter(call => call.url.includes('/v1/mail/delivery?')).map(call => call.body);
+
+test('configuration reads only the actual plugin identity and respects explicit activation options', () => {
+  const settings = { pluginConfigs: {
+    'agi-hub-endpoint@agi-hub-local': { options: { client_config: '/private/own.json' } },
+    'another-plugin@agi-hub-local': { options: { client_config: '/private/other.json' } },
+  } };
+  assert.equal(clientConfigPath({ client_config: '/private/explicit.json' }, 'agi-hub-endpoint', settings), '/private/explicit.json');
+  assert.equal(clientConfigPath({ client_config: '' }, 'agi-hub-endpoint', settings), '/private/own.json');
+  assert.equal(clientConfigPath(undefined, 'agi-hub-endpoint@agi-hub-local', settings), '/private/own.json');
+  assert.equal(clientConfigPath({}, 'agi-hub-endpoint@other', settings), undefined);
+  assert.equal(clientConfigPath({}, 'unconfigured', settings), undefined);
+  assert.equal(clientConfigPath({}, 'agi-hub-endpoint', {}), undefined);
+  settings.pluginConfigs['agi-hub-endpoint@other'] = { options: { client_config: '/private/conflicting.json' } };
+  assert.throws(() => clientConfigPath({}, 'agi-hub-endpoint', settings), /ambiguous_plugin_configuration/);
+  settings.pluginConfigs['agi-hub-endpoint'] = { options: { client_config: '' } };
+  assert.throws(() => clientConfigPath({}, 'agi-hub-endpoint', settings), /ambiguous_plugin_configuration/);
+  delete settings.pluginConfigs['agi-hub-endpoint@other'];
+  settings.pluginConfigs['agi-hub-endpoint'].options.client_config = '/private/conflicting.json';
+  assert.throws(() => clientConfigPath({}, 'agi-hub-endpoint', settings), /ambiguous_plugin_configuration/);
+  assert.equal(clientConfigPath({}, 'agi-hub-endpoint@agi-hub-local', settings), '/private/own.json');
+  settings.pluginConfigs['agi-hub-endpoint'].options.client_config = '/private/own.json';
+  assert.equal(clientConfigPath({}, 'agi-hub-endpoint', settings), '/private/own.json');
+});
 
 test('configuration rejects duplicate keys, exotic addresses and private transport overrides', () => {
   assert.throws(() => parseJSON('{"endpoint":"a","endpo\\u0069nt":"b"}'), /duplicate_json_key/);
@@ -104,14 +129,14 @@ test('unsupported peer bindings stop Claude before lease acquisition or inbox cl
 });
 
 test('unsupported addressed mailbox bindings stop Claude before acquiring a lease', async () => {
-  for (const [field, value] of [['mailbox_protocol_version', 1], ['mailbox_protocol_version', '1'], ['mailbox_while_busy_verified', true]]) {
+  for (const [field, value, code] of [['mailbox_protocol_version', 2, 'claude_mailbox_protocol_not_supported'], ['mailbox_protocol_version', '1', 'claude_mailbox_protocol_not_supported'], ['mailbox_while_busy_verified', true, 'claude_mailbox_busy_guidance_not_supported']]) {
     const { client, port, state } = harness(); const original = port.fetch;
     port.fetch = async (url, init) => {
       const response = await original(url, init);
       if (url.includes('/v1/endpoint?')) { const body = JSON.parse(response.text); body.endpoint[field] = value; response.text = JSON.stringify(body); }
       return response;
     };
-    await client.start(); assert.equal(client.state, 'stopped'); assert.equal(client.code, 'claude_mailbox_protocol_not_supported');
+    await client.start(); assert.equal(client.state, 'stopped'); assert.equal(client.code, code);
     assert.equal(state.calls.some(call => /\/v1\/(client-lease|inbox)\?/.test(call.url)), false);
     assert.equal(state.prompts.length, 0);
   }
@@ -382,4 +407,120 @@ test('only old terminal journals in the current binding are compacted', async ()
   state.saved.set(prefix + 'task:one', { task_id: 'one', message_id: 'task:one', terminal: true, run_id: 'claude-turn:old-turn' });
   state.saved.set(prefix + 'turn:old-turn', 'one'); state.saved.set('another-scope:must-remain', { receipt: { outcome: 'delivered' } });
   await client.start(); assert.equal(client.state, 'running'); assert.equal(state.saved.size, 1); assert.equal(state.saved.has('another-scope:must-remain'), true);
+});
+
+test('mailbox opt-in requires actual long-poll and lease capabilities before any claim', async () => {
+  for (const capabilities of [undefined, { mailbox_long_poll_max_ms: 25000 }, { mailbox_long_poll_max_ms: 0, mailbox_client_lease: true }]) {
+    const { client, port, state } = harness({ mailbox: true }); const fetch = port.fetch;
+    port.fetch = async (url, init) => { const response = await fetch(url, init); if (url.includes('/v1/endpoint?')) { const body = JSON.parse(response.text); body.capabilities = capabilities; response.text = JSON.stringify(body); } return response; };
+    await client.start(); assert.equal(client.code, 'hub_mailbox_mod_capabilities_required');
+    assert.equal(state.calls.some(call => /client-lease|inbox/.test(call.url)), false);
+  }
+});
+
+test('mailbox uses only long-poll mail inbox and native turn-confirmed delivery with lease', async () => {
+  const { client, state, port, start } = harness({ mailbox: true }); const generation = await start();
+  await client.poll(generation);
+  assert.ok(state.calls.some(call => call.url.includes('/v1/mail/inbox?endpoint=claude&wait_ms=25000')));
+  assert.equal(state.calls.some(call => call.url.includes('/v1/inbox?')), false);
+  await client.consume(mail(), generation);
+  assert.equal(mailReceipts(state).at(-1).outcome, 'delivered');
+  const sent = state.prompts[0].text;
+  assert.match(sent, /mcp__agi-hub-endpoint__mail_send/); assert.match(sent, /"id":"<new-saved-stable-id>"/);
+  assert.match(sent, /root_origin/); assert.match(sent, /No Task\/Report/);
+  assert.equal([...state.saved.keys()].some(key => key.includes('task:')), false);
+  assert.equal(state.calls.find(call => call.url.includes('/v1/mail/delivery?')).init.headers['X-AGI-Hub-Lease'], 'lease-a');
+  await client.consume(mail(), generation); assert.equal(state.prompts.length, 1);
+  assert.equal((await client.report({ event_id: 'wrong', task_id: 'mail-one', state: 'accepted' })).code, 'report_task_not_received');
+  assert.equal(reports(state).length, 0);
+  const prior = state.prompts.length;
+  await client.consume(envelope('legacy'), generation);
+  assert.equal(state.prompts.length, prior); assert.equal(receipts(state).at(-1).outcome, 'failed');
+});
+
+test('silent mailbox status is durably recorded without native prompt, turn or business reply', async () => {
+  const { client, state, start } = harness({ mailbox: true }); const generation = await start();
+  await client.consume(mail('progress', 'status'), generation);
+  assert.equal(state.prompts.length, 0); assert.equal(client.currentTurn, null);
+  assert.equal(mailReceipts(state).at(-1).outcome, 'delivered');
+  assert.equal(state.calls.some(call => call.url.includes('/v1/mail/send?') || call.url.includes('/v1/report?')), false);
+  assert.ok(state.writes.some(write => write.value.message_id === 'progress' && write.value.state === 'receipted'));
+});
+
+test('mailbox returned prompt text is uncertain until exact native turn starts, without re-submit', async () => {
+  const { client, port, state, start } = harness({ mailbox: true }); const generation = await start();
+  port.submit = async input => { state.prompts.push(input); return { text: input.text }; };
+  await client.consume(mail(), generation);
+  assert.equal(mailReceipts(state).at(-1).outcome, 'uncertain');
+  client.observeTurn({ text: nativeWrapped(state.prompts[0].text), turnId: 'queued-mail-turn' });
+  await state.timers.findLast(timer => timer.ms === 0 && !timer.cancelled).fn(); await client.serialTail;
+  assert.equal(mailReceipts(state).at(-1).outcome, 'delivered'); assert.equal(state.prompts.length, 1);
+});
+
+test('restart replays mailbox receipt and pauses missing native evidence; never republishes prompts', async () => {
+  for (const outcome of ['delivered', 'uncertain']) {
+    const saved = new Map(), { client, state } = harness({ mailbox: true, saved });
+    const prefix = scopeKey(validateConfig(config()));
+    saved.set(prefix + 'msg:mail-one', { scope: prefix, mailbox: true, message_id: 'mail-one', kind: 'request', marker: '[mail marker]', state: 'receipt_pending', at: 0, receipt: { outcome, detail: 'saved exact evidence' } });
+    await client.start(); assert.equal(state.prompts.length, 0);
+    assert.deepEqual(mailReceipts(state), [{ message_id: 'mail-one', outcome, detail: 'saved exact evidence' }]);
+    assert.equal(client.state, outcome === 'delivered' ? 'running' : 'reconcile_required');
+  }
+  const { client, state } = harness({ mailbox: true }); state.outstanding = [mail()]; await client.start();
+  assert.equal(client.state, 'reconcile_required'); assert.equal(state.prompts.length, 0);
+});
+
+test('native mailbox send fixes identity, freezes caller ID and saves payload before HTTP', async () => {
+  const { client, port, state, start } = harness({ mailbox: true }); await start(); const fetch = port.fetch;
+  client.observeTurn({ turnId: 'actual-human-turn', text: 'A real user request' });
+  port.fetch = async (url, init) => {
+    if (!url.includes('/v1/mail/send?')) return fetch(url, init);
+    const body = JSON.parse(init.body); state.calls.push({ url, init: clone(init), body });
+    assert.ok([...state.saved.values()].some(value => value.state === 'sending' && value.payload?.id === body.id));
+    assert.equal(init.headers['X-AGI-Hub-Lease'], 'lease-a');
+    return { status: 200, text: JSON.stringify({ mailbox: true, message_id: body.id, sender: 'claude', recipient: body.recipient, kind: body.kind, content: body.content, correlation_id: body.correlation_id || body.id, root_origin: { endpoint: 'claude', session_id: 'session-a' }, delivery: 'pending' }) };
+  };
+  const input = { id: 'stable-root', recipient: 'workbuddy', kind: 'request', content: 'A bounded check' };
+  const first = await client.mailSend(input); assert.equal(first.ok, true);
+  assert.equal(state.calls.find(call => call.url.includes('/v1/mail/send?')).body.origin_ref, 'claude-turn:actual-human-turn');
+  client.currentTurn = 'later-turn'; assert.deepEqual(await client.mailSend(input), first);
+  assert.equal((await client.mailSend({ ...input, content: 'changed' })).code, 'mail_id_content_changed');
+  assert.equal((await client.mailSend({ ...input, id: undefined })).code, 'mail_id_required');
+  assert.equal((await client.mailSend({ ...input, endpoint: 'codex' })).code, 'unsupported_mail_fields');
+  assert.equal(state.calls.filter(call => call.url.includes('/v1/mail/send?')).length, 1);
+  assert.ok(!JSON.stringify(first).includes('test-only-scoped-token'));
+});
+
+test('outbound uncertainty survives restart and does not automatically resend the saved ID', async () => {
+  const saved = new Map(), first = harness({ mailbox: true, saved }); await first.start(); const fetch = first.port.fetch;
+  first.port.fetch = async (url, init) => { if (url.includes('/v1/mail/send?')) { first.state.calls.push({ url, init }); throw new Error('private network detail'); } return fetch(url, init); };
+  const input = { id: 'saved-reply', recipient: 'codex', kind: 'reply', content: 'Checked', correlation_id: 'original-correlation', reply_to: 'mail-one' };
+  const failed = await first.client.mailSend(input); assert.equal(failed.ok, false); assert.equal(failed.message_id, input.id);
+  const second = harness({ mailbox: true, saved }); await second.start();
+  assert.equal((await second.client.mailSend(input)).code, 'mail_send_unconfirmed_reconcile');
+  assert.equal(second.state.calls.some(call => call.url.includes('/v1/mail/send?')), false);
+});
+
+test('new-root reference captures the calling native turn before asynchronous reads', async () => {
+  const { client, port, start } = harness({ mailbox: true }); await start(); const get = port.get, fetch = port.fetch;
+  client.observeTurn({ turnId: 'original-tool-turn', text: 'Original human request' });
+  port.get = async key => { const value = await get(key); if (key.includes('send:')) client.currentTurn = 'a-later-turn'; return value; };
+  port.fetch = async (url, init) => {
+    if (!url.includes('/v1/mail/send?')) return fetch(url, init);
+    const body = JSON.parse(init.body); assert.equal(body.origin_ref, 'claude-turn:original-tool-turn');
+    return { status: 200, text: JSON.stringify({ ...body, mailbox: true, message_id: body.id, sender: 'claude', correlation_id: body.id, root_origin: { endpoint: 'claude' }, delivery: 'pending' }) };
+  };
+  assert.equal((await client.mailSend({ id: 'new-root', recipient: 'codex', kind: 'request', content: 'Check' })).ok, true);
+});
+
+test('native peers and mailbox state read only scoped endpoints and encode correlation data', async () => {
+  const { client, port, state, start } = harness({ mailbox: true }); await start(); const fetch = port.fetch;
+  port.fetch = async (url, init) => { const response = await fetch(url, init); if (url.includes('/v1/catalog?')) response.text = '{"peers":[]}'; if (url.includes('/v1/mail/state?')) response.text = '{"messages":[]}'; return response; };
+  assert.deepEqual(await client.peers({}), { ok: true, catalog: { peers: [] } });
+  assert.deepEqual(await client.mailState({ correlation_id: 'reference / ? &' }), { ok: true, conversation: { messages: [] } });
+  assert.equal((await client.peers({ endpoint: 'other' })).code, 'invalid_peers_input');
+  assert.equal((await client.mailState({ correlation_id: 'known', endpoint: 'other' })).code, 'invalid_mail_state_input');
+  const read = state.calls.find(call => call.url.includes('/v1/mail/state?'));
+  assert.match(read.url, /endpoint=claude&correlation_id=reference%20%2F%20%3F%20%26/);
+  assert.equal(read.init.headers['X-AGI-Hub-Lease'], 'lease-a');
 });
