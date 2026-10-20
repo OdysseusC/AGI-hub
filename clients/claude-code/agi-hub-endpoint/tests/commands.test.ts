@@ -60,7 +60,7 @@ test('a missing activation option uses only its configured plugin path from host
   on('session.start', () => ({ cwd: '/test' }));
   await $.session.start({ cwd: '/test', surface: 'terminal', isInteractive: true });
   await clock.settle();
-  expect(paths).toEqual(['/private/own-client.json']);
+  expect(paths.map(path => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''))).toEqual(['/private/own-client.json']);
   const answer = JSON.parse((await $.command.run({ command: 'agi-hub-status', args: '' })).text);
   expect(answer.state).toBe('stopped');
   expect(answer.code).toBe('invalid_endpoint');
@@ -77,7 +77,7 @@ test('explicit activation configuration takes priority without reading host sett
   on('session.start', () => ({ cwd: '/test' }));
   await $.session.start({ cwd: '/test', surface: 'terminal', isInteractive: true });
   await clock.settle();
-  expect(paths).toEqual(['/private/explicit-client.json']);
+  expect(paths.map(path => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''))).toEqual(['/private/explicit-client.json']);
 });
 
 test('mailbox native tools return JSON text before binding, without executing HTTP or Bash', async ($) => {
