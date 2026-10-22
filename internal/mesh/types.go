@@ -10,7 +10,8 @@ import (
 	"agihub/internal/language"
 )
 
-const Version = 1
+// Version covers the internal mesh protocol, not mailbox protocol 1.
+const Version = 2
 
 const (
 	maxFrame   = 512 << 10

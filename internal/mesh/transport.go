@@ -19,17 +19,20 @@ import (
 )
 
 type inviteCode struct {
+	Version   int        `json:"version"`
 	Peer      peerRecord `json:"peer"`
 	Token     string     `json:"token"`
 	ExpiresAt time.Time  `json:"expires_at"`
 }
 type pairWire struct {
+	Version   int        `json:"version"`
 	ID        string     `json:"id"`
 	Token     string     `json:"token"`
 	Peer      peerRecord `json:"peer"`
 	ExpiresAt time.Time  `json:"expires_at"`
 }
 type pairStatus struct {
+	Version  int        `json:"version"`
 	Accepted bool       `json:"accepted"`
 	Peer     peerRecord `json:"peer"`
 }
@@ -55,7 +58,7 @@ func (s *Service) Invite(ttl time.Duration) (Invite, error) {
 	if !validAddress(s.address, false) {
 		return Invite{}, errors.New("set an explicit LAN advertised address before inviting peers")
 	}
-	now := time.Now()
+	now := s.now()
 	for token, expiry := range s.invites {
 		if !expiry.After(now) {
 			delete(s.invites, token)
@@ -65,10 +68,10 @@ func (s *Service) Invite(ttl time.Duration) (Invite, error) {
 		return Invite{}, errors.New("too many outstanding invitations")
 	}
 	token := randomID()
-	expires := now.Add(ttl).UTC()
+	expires := now.Add(ttl)
 	s.invites[token] = expires
-	data, _ := json.Marshal(inviteCode{Peer: s.selfLocked(), Token: token, ExpiresAt: expires})
-	return Invite{Code: base64.RawURLEncoding.EncodeToString(data), ExpiresAt: expires}, nil
+	data, _ := json.Marshal(inviteCode{Version: Version, Peer: s.selfLocked(), Token: token, ExpiresAt: expires.UTC()})
+	return Invite{Code: base64.RawURLEncoding.EncodeToString(data), ExpiresAt: expires.UTC()}, nil
 }
 func validPeer(p peerRecord) bool {
 	return len(p.PublicKey) == ed25519.PublicKeySize && hubID(p.PublicKey) == p.HubID && len(p.Name) <= 120 && validAddress(p.Address, false)
@@ -91,8 +94,8 @@ func (s *Service) RequestPairAt(ctx context.Context, address, code string) (Pair
 		return PairRequest{}, errors.New("invalid invitation")
 	}
 	var invite inviteCode
-	if err = json.Unmarshal(data, &invite); err != nil || !validPeer(invite.Peer) || len(invite.Token) < 20 || !invite.ExpiresAt.After(time.Now()) || invite.ExpiresAt.After(time.Now().Add(10*time.Minute)) {
-		return PairRequest{}, errors.New("invalid or expired invitation")
+	if err = json.Unmarshal(data, &invite); err != nil || invite.Version != Version || !validPeer(invite.Peer) || len(invite.Token) < 20 || invite.ExpiresAt.IsZero() {
+		return PairRequest{}, errors.New("invalid or incompatible invitation")
 	}
 	if address != "" {
 		invite.Peer.Address = address
@@ -114,7 +117,9 @@ func (s *Service) RequestPairAt(ctx context.Context, address, code string) (Pair
 		return PairRequest{}, errors.New("pairing capacity reached")
 	}
 	id := randomID()
-	record := pendingRecord{PairRequest: PairRequest{ID: id, HubID: invite.Peer.HubID, Name: invite.Peer.Name, Address: invite.Peer.Address, Direction: "outbound", ExpiresAt: invite.ExpiresAt}, Peer: invite.Peer, Token: invite.Token}
+	// The issuer alone checks its token's lifetime. Keep that opaque timestamp
+	// for matching/retries, and bound our own pending state using our local clock.
+	record := pendingRecord{PairRequest: PairRequest{ID: id, HubID: invite.Peer.HubID, Name: invite.Peer.Name, Address: invite.Peer.Address, Direction: "outbound", ExpiresAt: s.now().Add(10 * time.Minute)}, Peer: invite.Peer, Token: invite.Token, InviteExpiresAt: invite.ExpiresAt}
 	s.disk.Pending[id] = record
 	if err = s.persistLocked(); err != nil {
 		delete(s.disk.Pending, id)
@@ -124,7 +129,7 @@ func (s *Service) RequestPairAt(ctx context.Context, address, code string) (Pair
 	self := s.selfLocked()
 	s.mu.Unlock()
 	var result PairRequest
-	err = s.request(ctx, invite.Peer, "/v1/pair/request", pairWire{ID: id, Token: invite.Token, Peer: self, ExpiresAt: invite.ExpiresAt}, &result)
+	err = s.request(ctx, invite.Peer, "/v1/pair/request", pairWire{Version: Version, ID: id, Token: invite.Token, Peer: self, ExpiresAt: invite.ExpiresAt}, &result)
 	s.changed()
 	if err != nil {
 		return record.PairRequest, err
@@ -135,7 +140,7 @@ func (s *Service) RequestPairAt(ctx context.Context, address, code string) (Pair
 func (s *Service) AcceptPair(ctx context.Context, id string) error {
 	s.mu.Lock()
 	pending, ok := s.disk.Pending[id]
-	if !ok || pending.Direction != "inbound" || !pending.ExpiresAt.After(time.Now()) {
+	if !ok || pending.Direction != "inbound" || !pending.ExpiresAt.After(s.now()) {
 		s.mu.Unlock()
 		return errors.New("pair request missing or expired")
 	}
@@ -300,7 +305,7 @@ func (s *Service) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		status := pairStatus{Accepted: paired, Peer: s.selfLocked()}
+		status := pairStatus{Version: Version, Accepted: paired, Peer: s.selfLocked()}
 		s.mu.Unlock()
 		respond(w, status)
 		return
@@ -315,7 +320,12 @@ func (s *Service) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
 			return
 		}
-		respond(w, s.directory())
+		frame, err := s.directory()
+		if err != nil {
+			http.Error(w, "directory revision unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		respond(w, frame)
 	case "/v1/mail":
 		var frame relayFrame
 		if !decodeRequest(w, r, &frame) {
@@ -341,6 +351,10 @@ func (s *Service) handlePair(w http.ResponseWriter, r *http.Request, public []by
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	if request.Version != Version {
+		http.Error(w, "incompatible mesh version", http.StatusUpgradeRequired)
+		return
+	}
 	if !validPeer(request.Peer) || !bytes.Equal(request.Peer.PublicKey, public) || request.Peer.HubID == s.id || len(request.ID) > 100 || request.ID == "" {
 		http.Error(w, "pair identity mismatch", http.StatusBadRequest)
 		return
@@ -352,11 +366,15 @@ func (s *Service) handlePair(w http.ResponseWriter, r *http.Request, public []by
 			http.Error(w, "pair request conflict", http.StatusConflict)
 			return
 		}
+		if !existing.ExpiresAt.After(s.now()) {
+			http.Error(w, "invitation expired or consumed", http.StatusForbidden)
+			return
+		}
 		respond(w, existing.PairRequest)
 		return
 	}
 	expiry, ok := s.invites[request.Token]
-	if !ok || !expiry.After(time.Now()) || !request.ExpiresAt.Equal(expiry) {
+	if !ok || !expiry.After(s.now()) || !request.ExpiresAt.Equal(expiry) {
 		s.mu.Unlock()
 		http.Error(w, "invitation expired or consumed", http.StatusForbidden)
 		return
@@ -392,12 +410,12 @@ func (s *Service) maintain() {
 	peers := []peerRecord{}
 	expired := map[string]pendingRecord{}
 	for id, p := range s.disk.Pending {
-		if !p.ExpiresAt.After(time.Now()) {
+		if !p.ExpiresAt.After(s.now()) {
 			expired[id] = p
 			delete(s.disk.Pending, id)
 			continue
 		}
-		if p.Direction == "outbound" && p.ExpiresAt.After(time.Now()) {
+		if p.Direction == "outbound" && p.ExpiresAt.After(s.now()) {
 			pending = append(pending, p)
 		}
 	}
@@ -409,7 +427,7 @@ func (s *Service) maintain() {
 		}
 	}
 	for _, p := range s.disk.Peers {
-		if !s.retry[p.HubID].Next.After(time.Now()) {
+		if !s.retry[p.HubID].Next.After(s.now()) {
 			peers = append(peers, p)
 		}
 	}
@@ -422,9 +440,12 @@ func (s *Service) maintain() {
 		if err := s.request(ctx, p.Peer, "/v1/pair/status?id="+url.QueryEscape(p.ID), nil, &status); err != nil {
 			continue
 		}
+		if status.Version != Version {
+			continue
+		}
 		if status.Accepted {
 			s.mu.Lock()
-			if current, ok := s.disk.Pending[p.ID]; ok && current.Direction == "outbound" && current.ExpiresAt.After(time.Now()) && bytes.Equal(status.Peer.PublicKey, p.Peer.PublicKey) && status.Peer.HubID == p.Peer.HubID {
+			if current, ok := s.disk.Pending[p.ID]; ok && current.Direction == "outbound" && current.ExpiresAt.After(s.now()) && bytes.Equal(status.Peer.PublicKey, p.Peer.PublicKey) && status.Peer.HubID == p.Peer.HubID {
 				s.disk.Peers[p.HubID] = p.Peer
 				delete(s.disk.Pending, p.ID)
 				if err := s.persistLocked(); err != nil {
@@ -438,7 +459,7 @@ func (s *Service) maintain() {
 			s.mu.Lock()
 			self := s.selfLocked()
 			s.mu.Unlock()
-			_ = s.request(ctx, p.Peer, "/v1/pair/request", pairWire{ID: p.ID, Token: p.Token, Peer: self, ExpiresAt: p.ExpiresAt}, nil)
+			_ = s.request(ctx, p.Peer, "/v1/pair/request", pairWire{Version: Version, ID: p.ID, Token: p.Token, Peer: self, ExpiresAt: p.InviteExpiresAt}, nil)
 		}
 	}
 	// A small worker limit keeps offline peers from serially stalling every route.
@@ -467,6 +488,9 @@ launch:
 func (s *Service) refresh(ctx context.Context, p peerRecord) {
 	var directory directoryFrame
 	err := s.request(ctx, p, "/v1/directory", nil, &directory)
+	if err == nil && directory.Version != Version {
+		err = errors.New("incompatible mesh directory version")
+	}
 	if err != nil {
 		s.mu.Lock()
 		alternates := []Candidate{}
@@ -479,7 +503,7 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 		for _, candidate := range alternates {
 			next := p
 			next.Address = candidate.Address
-			if requestErr := s.request(ctx, next, "/v1/directory", nil, &directory); requestErr == nil {
+			if requestErr := s.request(ctx, next, "/v1/directory", nil, &directory); requestErr == nil && directory.Version == Version {
 				p = next
 				err = nil
 				break
@@ -502,7 +526,7 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 		if delay > 30*time.Second {
 			delay = 30 * time.Second
 		}
-		backoff.Next = time.Now().Add(delay)
+		backoff.Next = s.now().Add(delay)
 		s.retry[p.HubID] = backoff
 		s.mu.Unlock()
 		return
@@ -515,10 +539,10 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 			return
 		}
 	}
-	s.online[p.HubID] = time.Now().Add(4 * time.Second)
-	s.retry[p.HubID] = retryState{Next: time.Now().Add(time.Second)}
+	s.online[p.HubID] = s.now().Add(4 * time.Second)
+	s.retry[p.HubID] = retryState{Next: s.now().Add(time.Second)}
 	s.mu.Unlock()
-	s.acceptDirectory(directory)
+	s.acceptDirectoryFrom(p.HubID, directory)
 	s.changed()
 }
 

@@ -15,7 +15,7 @@ func TestSignedDirectoryBoundsLanguageAndDriver(t *testing.T) {
 		{ID: "same", Name: "test", Driver: "claude-code", CommunicationLanguage: "en\nignore"},
 	} {
 		destination := newTestService(t, t.TempDir(), nil)
-		frame := source.directory()
+		frame := mustDirectory(t, source)
 		frame.Entries[0].Agents = []Agent{profile}
 		frame.Entries[0].Signature = ed25519.Sign(source.key, advertisementBytes(frame.Entries[0]))
 		destination.acceptDirectory(frame)

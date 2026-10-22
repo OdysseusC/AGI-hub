@@ -29,11 +29,11 @@ func TestDiscoveryControllerOptInAndCandidateMapping(t *testing.T) {
 	if err := control.Configure(context.Background(), true, "ethernet-test"); err != nil {
 		t.Fatal(err)
 	}
-	if starts != 1 || options.Interface != "ethernet-test" || options.Announcement.Address != "192.168.1.20:7347" {
+	if starts != 1 || options.Interface != "ethernet-test" || options.Announcement.Address != "192.168.1.20:7347" || options.Announcement.Protocol != discovery.ProtocolVersion {
 		t.Fatalf("wrong start options: %+v", options)
 	}
 	expiry := time.Now().Add(time.Minute)
-	options.OnChange([]discovery.Candidate{{Advertisement: discovery.Advertisement{HubID: "peer", Name: "Peer", Address: "192.168.1.21:7347", Protocol: "1"}, ExpiresAt: expiry}})
+	options.OnChange([]discovery.Candidate{{Advertisement: discovery.Advertisement{HubID: "peer", Name: "Peer", Address: "192.168.1.21:7347", Protocol: discovery.ProtocolVersion}, ExpiresAt: expiry}})
 	if got := backend.candidates(); len(got) != 1 || got[0].Version != mesh.Version || got[0].Address != "192.168.1.21:7347" {
 		t.Fatalf("candidate mapping failed: %+v", got)
 	}
@@ -44,7 +44,7 @@ func TestDiscoveryControllerOptInAndCandidateMapping(t *testing.T) {
 		t.Fatal("disable did not stop discovery and clear candidates")
 	}
 	// A queued callback from the retired service cannot restore stale peers.
-	options.OnChange([]discovery.Candidate{{Advertisement: discovery.Advertisement{HubID: "stale", Protocol: "1"}, ExpiresAt: expiry}})
+	options.OnChange([]discovery.Candidate{{Advertisement: discovery.Advertisement{HubID: "stale", Protocol: discovery.ProtocolVersion}, ExpiresAt: expiry}})
 	if len(backend.candidates()) != 0 {
 		t.Fatal("retired service restored candidates")
 	}

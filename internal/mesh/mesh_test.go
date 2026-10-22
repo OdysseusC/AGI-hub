@@ -2,7 +2,6 @@ package mesh
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -381,13 +380,13 @@ func TestCompletedHistoryDoesNotConsumeActiveQueueCapacity(t *testing.T) {
 	})
 }
 
-func TestExpiredAndForgedDirectoryRoutesAreIgnored(t *testing.T) {
+func TestOldVersionAndForgedDirectoryRoutesAreIgnored(t *testing.T) {
 	a := newTestService(t, t.TempDir(), nil)
 	b := newTestService(t, t.TempDir(), nil)
 	enable(t, a)
 	enable(t, b)
 	pair(t, a, b)
-	frame := b.directory()
+	frame := mustDirectory(t, b)
 	frame.Entries[0].Name = "forged"
 	a.mu.Lock()
 	delete(a.ads, b.id)
@@ -399,15 +398,14 @@ func TestExpiredAndForgedDirectoryRoutesAreIgnored(t *testing.T) {
 	if exists {
 		t.Fatal("forged directory accepted")
 	}
-	frame = b.directory()
-	frame.Entries[0].ExpiresAt = time.Now().Add(-time.Second)
-	frame.Entries[0].Signature = ed25519.Sign(b.key, advertisementBytes(frame.Entries[0]))
+	frame = mustDirectory(t, b)
+	frame.Version = Version - 1
 	a.acceptDirectory(frame)
 	a.mu.Lock()
 	_, exists = a.ads[b.id]
 	a.mu.Unlock()
 	if exists {
-		t.Fatal("expired directory accepted")
+		t.Fatal("old mesh directory version accepted")
 	}
 }
 
@@ -502,7 +500,7 @@ func TestSharedAddressInvitationPairsThroughExistingManualRoute(t *testing.T) {
 	if peer.HubID != a.id || peer.Address != actual {
 		t.Fatal("manual route replaced the invited identity")
 	}
-	b.acceptDirectory(a.directory())
+	b.acceptDirectory(mustDirectory(t, a))
 	b.mu.Lock()
 	ad, ok := b.ads[a.id]
 	b.mu.Unlock()
@@ -713,7 +711,7 @@ func TestDirectoryFrameAndAgentTextAreBounded(t *testing.T) {
 		}
 		return agents
 	}
-	frame := s.directory()
+	frame := mustDirectory(t, s)
 	raw, _ := json.Marshal(frame)
 	if len(raw) > maxFrame {
 		t.Fatalf("directory frame too large: %d", len(raw))

@@ -34,8 +34,9 @@ type peerRecord struct {
 }
 type pendingRecord struct {
 	PairRequest
-	Peer  peerRecord `json:"peer"`
-	Token string     `json:"token,omitempty"`
+	Peer            peerRecord `json:"peer"`
+	Token           string     `json:"token,omitempty"`
+	InviteExpiresAt time.Time  `json:"invite_expires_at,omitempty"`
 }
 type signedMessage struct {
 	Message
@@ -70,27 +71,32 @@ type retryState struct {
 var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
 
 type Service struct {
-	mu          sync.Mutex
-	lifecycle   sync.Mutex
-	receiveMu   sync.Mutex
-	flushMu     sync.Mutex
-	opts        Options
-	key         ed25519.PrivateKey
-	id          string
-	certificate tls.Certificate
-	disk        diskState
-	invites     map[string]time.Time
-	online      map[string]time.Time
-	ads         map[string]advertisement
-	candidates  []Candidate
-	clients     map[string]*http.Client
-	retry       map[string]retryState
-	address     string
-	server      *http.Server
-	listener    net.Listener
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	mu            sync.Mutex
+	lifecycle     sync.Mutex
+	receiveMu     sync.Mutex
+	flushMu       sync.Mutex
+	opts          Options
+	key           ed25519.PrivateKey
+	id            string
+	certificate   tls.Certificate
+	disk          diskState
+	invites       map[string]time.Time
+	online        map[string]time.Time
+	ads           map[string]advertisement
+	adLeases      map[string]time.Time
+	adRevisions   map[string]uint64
+	revision      uint64
+	revisionLimit uint64
+	clock         func() time.Time
+	candidates    []Candidate
+	clients       map[string]*http.Client
+	retry         map[string]retryState
+	address       string
+	server        *http.Server
+	listener      net.Listener
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 func hubID(public []byte) string {
@@ -136,7 +142,7 @@ func New(opts Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{opts: opts, key: key, id: id, certificate: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, invites: map[string]time.Time{}, online: map[string]time.Time{}, ads: map[string]advertisement{}, clients: map[string]*http.Client{}, retry: map[string]retryState{}}
+	s := &Service{opts: opts, key: key, id: id, certificate: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, invites: map[string]time.Time{}, online: map[string]time.Time{}, ads: map[string]advertisement{}, adLeases: map[string]time.Time{}, adRevisions: map[string]uint64{}, clients: map[string]*http.Client{}, retry: map[string]retryState{}}
 	s.disk = diskState{Config: Config{Name: "AGI Hub", ListenAddr: "0.0.0.0:7347", Exports: []string{}}}
 	data, err = os.ReadFile(filepath.Join(opts.DataDir, "state.json"))
 	if err == nil {
@@ -157,10 +163,34 @@ func New(opts Options) (*Service, error) {
 	if s.disk.Inbox == nil {
 		s.disk.Inbox = map[string]inboxRecord{}
 	}
+	// Version 1 stored the issuer's timestamp as the requester's deadline.
+	// It cannot be reinterpreted as a bounded local pending request on upgrade.
+	legacyPending := false
+	for id, pending := range s.disk.Pending {
+		if pending.Direction == "outbound" && pending.InviteExpiresAt.IsZero() {
+			delete(s.disk.Pending, id)
+			legacyPending = true
+		}
+	}
+	if legacyPending {
+		if err := s.persistLocked(); err != nil {
+			return nil, fmt.Errorf("expire legacy mesh pairing: %w", err)
+		}
+	}
 	if err := s.expireInboxLocked(time.Now()); err != nil {
 		return nil, fmt.Errorf("expire mesh inbox: %w", err)
 	}
+	if err := s.reserveDirectoryRevisions(); err != nil {
+		return nil, fmt.Errorf("mesh directory revision: %w", err)
+	}
 	return s, nil
+}
+
+func (s *Service) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 // Expiration preserves the ID/hash tombstone and never grants a received ACK.
@@ -365,6 +395,8 @@ func (s *Service) Configure(cfg Config) error {
 	if restart {
 		s.server, s.listener, s.address = nil, nil, ""
 		s.online = map[string]time.Time{}
+		s.ads = map[string]advertisement{}
+		s.adLeases = map[string]time.Time{}
 		s.retry = map[string]retryState{}
 	}
 	s.mu.Unlock()
@@ -456,11 +488,11 @@ func (s *Service) Snapshot() State {
 	defer s.mu.Unlock()
 	state := State{HubID: s.id, Name: s.disk.Config.Name, Address: s.address, Config: s.disk.Config, Peers: []Peer{}, Pending: []PairRequest{}, Routes: []Route{}, Candidates: []Candidate{}, Outbox: []Receipt{}}
 	state.Config.Exports = append([]string{}, s.disk.Config.Exports...)
-	now := time.Now()
+	now := s.now()
 	for id, p := range s.disk.Peers {
 		path, expiry := s.routeLocked(id, nil)
 		agents := []Agent{}
-		if ad, ok := s.ads[id]; ok && ad.ExpiresAt.After(now) {
+		if ad, ok := s.ads[id]; ok && s.adLeases[id].After(now) {
 			agents = append(agents, ad.Agents...)
 		}
 		state.Peers = append(state.Peers, Peer{HubID: id, Name: p.Name, Address: p.Address, Online: s.isOnlineLocked(id), Reachable: len(path) > 0, Agents: agents})
@@ -538,6 +570,8 @@ func (s *Service) Disconnect(id string) error {
 		s.mu.Unlock()
 		return err
 	}
+	delete(s.adLeases, id)
+	delete(s.adRevisions, id)
 	for k, client := range s.clients {
 		if strings.HasPrefix(k, id+"|") {
 			client.CloseIdleConnections()

@@ -6,6 +6,8 @@ Run one Hub per computer. Native assistants retain their local Clients and exist
 
 ## Enable networking and pair
 
+Pairing and directory synchronization require no manual clock alignment between computers. The issuer checks invitation expiry against its locally stored token lifetime; the requester also applies a local lifetime limit to pending requests.
+
 1. Install and start a Hub on each computer using the [installation guide](../INSTALL.en.md). Open each computer's local management page, normally `http://127.0.0.1:7331`, and use its existing local management credential. Administrative APIs and native Clients remain on loopback.
 2. Set the host name and a LAN listen address, such as `192.168.1.20:7347`. Enable LAN communication and save. The default LAN port is `7347`, separate from management; do not change the administrative listener to a LAN address. With `0.0.0.0:7347`, select an interface so management can derive its actual IPv4 address for advertisements and pairing. Selecting an interface does not narrow a wildcard TCP listener to that interface; enter the interface's specific address to restrict TCP reception.
 3. Optionally enable discovery and explicitly select an interface. LAN communication and discovery both default to off. This version uses IPv4 mDNS/DNS-SD on the selected interface, service `_agihub._tcp.local.`, UDP port `5353`. The interface must be active, multicast-capable and have an IPv4 address. Service records can carry IPv4 or IPv6 addresses; discovery transport on IPv6-only networks is not implemented.
@@ -26,6 +28,8 @@ The Hub ID is a 64-character lowercase hexadecimal value derived from its persis
 Discovery advertises only Hub ID, name, service address and protocol version. It carries no agent directory, credentials, message body or session history. Candidates are unauthenticated hints and never establish trust automatically. Cache records expire; a goodbye shortens their remaining lifetime to a one-second grace period. Disabled discovery does not refresh candidates.
 
 The management page distinguishes discovered, paired, online, relayed and offline hosts. Counts describe this Hub's view. Paired hosts exchange signed directory and route advertisements containing only explicitly shared local agents.
+
+A directory has a **10-second lease** measured from the receiver's local receipt time, independent of the origin computer's absolute time. The origin Hub signs advertisements with a monotonically increasing `revision` persisted across restarts, and receivers retain the highest observed revision. Repeated or older relayed revisions do not renew a lease. A historical relayed advertisement seen for the first time is only a bounded routing hint; it proves neither a live host nor pairing trust. The receiver's highest revision is retained only for its current run, and restarting restores no old leases; an old relayed revision first received after restart can provide at most one 10-second routing hint. Hub connectivity, a valid directory and native assistant acceptance remain separate evidence.
 
 Transport uses TLS 1.3 with pinned peer keys and reuses long-lived connections through HTTP keep-alive. An available direct link takes priority; otherwise breadth-first search selects a shorter route through valid neighbor advertisements. Paths and visited nodes are bounded by `maxHops = 8`, reject loops and expire with their advertisements. There is no latency learning, adaptive weighting or guarantee of a globally optimal route.
 
@@ -54,7 +58,7 @@ Client responses for federated messages retain the original submission ID in `so
 
 Each federation protocol 1 conversation has exactly two addressed endpoints. Its `max_messages` budget is assigned at creation: the initiating endpoint receives `ceil(max_messages / 2)` permits and the other receives `floor(max_messages / 2)`. A budget of 5 splits into 3 and 2; a budget of 16 splits into 8 and 8. Concurrent or disconnected writers cannot multiply permits, and an exhausted sender cannot borrow the other's remaining allocation.
 
-Participants, original entry reference, total budget and deadline are immutable within the conversation. Contacting a third endpoint requires a separate user-authorized conversation. Never create a new correlation, change IDs or reset a budget to evade the current conversation's exhausted limit. Defaults are 16 total messages and 30 minutes; the budget range is 1–64, with a deadline in the next 24 hours at submission.
+Participants, original entry reference, total budget and deadline are immutable within the conversation. Contacting a third endpoint requires a separate user-authorized conversation. Never create a new correlation, change IDs or reset a budget to evade the current conversation's exhausted limit. Defaults are 16 total messages and 30 minutes; the budget range is 1–64, with a deadline in the next 24 hours at submission. The user's business-message `deadline` retains its existing cutoff semantics. Local directory leases neither change that cutoff nor remove the effect of clock differences on business-deadline decisions.
 
 `network_pending` means the local Hub durably saved the message and is waiting for network delivery. `remote_received` means only that the destination Hub durably accepted it. Native Client claims, actual session consumption, tool execution and artifact verification still require their own evidence. `used_messages` counts messages observed by the current Hub, not a globally synchronized network total.
 
@@ -92,6 +96,8 @@ The install button invokes the repository's fixed managed-skill installer for Co
 The data directory gains `network/identity.json`, `network/state.json` and `discovery.json`, holding the private host identity, network state and discovery preferences. Do not copy identity files, invitation proofs or private configuration into public documentation, repositories or logs. Preserve the identity file to retain the same Hub ID after restarting.
 
 The first federated message upgrades the snapshot version in the local append-only `state.jsonl` journal to **4**. Older programs cannot safely interpret these fields. Back up the complete data directory before upgrading; a rollback requires matching software and a complete compatible backup. Do not point an older executable blindly at the upgraded directory.
+
+This version upgrades the internal mesh wire protocol to **2**, requiring both Mac and Windows peers to update together; the mailbox protocol remains **1**.
 
 Offline tests use temporary directories, simulated native Clients and injected discovery sockets. They cover parsing, expiry, lifecycle, pairing, directories, durable messages, replay, loop prevention and management operations. Development checks include:
 

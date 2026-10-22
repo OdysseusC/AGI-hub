@@ -14,7 +14,7 @@ import (
 
 const (
 	ServiceName     = "_agihub._tcp.local."
-	ProtocolVersion = "1"
+	ProtocolVersion = "2"
 	maxPacketSize   = 4096
 	maxRecords      = 128
 	recordTTL       = 120
