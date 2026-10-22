@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptrace"
 	"strings"
 	"sync"
@@ -536,6 +538,43 @@ func TestManualAddressOverrideRetainsInviteIdentityPin(t *testing.T) {
 	eventually(t, func() bool { return len(b.Snapshot().Peers) == 1 })
 	if b.Snapshot().Peers[0].HubID != a.id || b.Snapshot().Peers[0].Address != actual {
 		t.Fatal("manual override changed invited identity")
+	}
+}
+
+type offlineRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f offlineRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestRequestPreservesIPv6ScopeAndPairingQueryWithoutNetwork(t *testing.T) {
+	for _, address := range []string{"[fe80::1%en0]:7347", "[fe80::1%12]:7347", "[fd00:1::2]:7347", "100.70.1.2:7347"} {
+		t.Run(address, func(t *testing.T) {
+			if !validAddress(address, false) {
+				t.Fatal("test address is outside the declared supported address set")
+			}
+			peer := peerRecord{HubID: strings.Repeat("a", 64), Address: address}
+			called := false
+			client := &http.Client{Transport: offlineRoundTripper(func(r *http.Request) (*http.Response, error) {
+				called = true
+				if r.URL.Scheme != "https" || r.URL.Host != address || r.URL.Path != "/v1/pair/status" || r.URL.Query().Get("id") != "proof+slash/=" || r.Method != http.MethodGet {
+					t.Fatalf("address scope or pairing request changed: %s", r.URL)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true}`))}, nil
+			})}
+			// Exercise the real request construction while replacing the transport
+			// entirely. No interface, listener, TLS handshake or peer is contacted.
+			s := &Service{clients: map[string]*http.Client{peer.HubID + "|" + address: client}}
+			var result struct {
+				OK bool `json:"ok"`
+			}
+			if err := s.request(context.Background(), peer, "/v1/pair/status?id=proof%2Bslash%2F%3D", nil, &result); err != nil {
+				t.Fatal(err)
+			}
+			if !called || !result.OK {
+				t.Fatal("request did not reach the offline transport and decode its reply")
+			}
+		})
 	}
 }
 

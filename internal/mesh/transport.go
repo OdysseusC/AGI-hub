@@ -209,7 +209,14 @@ func (s *Service) request(ctx context.Context, peer peerRecord, path string, inp
 		body = bytes.NewReader(data)
 		method = http.MethodPost
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "https://"+peer.Address+path, body)
+	route, err := url.ParseRequestURI(path)
+	if err != nil {
+		return err
+	}
+	// URL.String escapes an IPv6 scope delimiter for HTTP without changing the
+	// numeric peer address used by the dialer or the pairing query parameters.
+	target := url.URL{Scheme: "https", Host: peer.Address, Path: route.Path, RawPath: route.RawPath, RawQuery: route.RawQuery}
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), body)
 	if err != nil {
 		return err
 	}
