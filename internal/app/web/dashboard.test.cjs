@@ -46,6 +46,8 @@ test("installation and runtime states never imply native validation", () => {
   assert.equal(ui.installationStatus("validated").label, "已验证");
   assert.equal(ui.installationStatus("new-state").label, "状态待核实");
   assert.equal(ui.sessionStatus("unknown").label, "待核实");
+  assert.equal(ui.agentStatus("bound").label, "已绑定 · 连接待核实");
+  assert.notEqual(ui.agentStatus("bound").label, ui.agentStatus("connected").label);
 });
 
 test("network counts distinguish paired, directly connected, relayed and discovered", () => {

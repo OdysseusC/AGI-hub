@@ -27,6 +27,7 @@
   const installationStatus = value => installationStates[value] || installationStates.unknown;
   const sessionStatus = value => sessionStates[value] || sessionStates.unknown;
   const agentStates = {
+    bound: status("已绑定 · 连接待核实", "warn"),
     connected: status("Client 已连接", "soft"), verified: status("原生唤醒已验证", "good"),
     disabled: status("未启用"),
   };

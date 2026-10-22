@@ -433,6 +433,82 @@ func TestConfigureRejectsNonLANAddressesAndFailsClosed(t *testing.T) {
 	}
 }
 
+func TestSharedAddressSpaceBoundariesAndDestinationRestrictions(t *testing.T) {
+	for _, tc := range []struct {
+		address               string
+		destination, listener bool
+	}{
+		{"100.63.255.255:7347", false, false},
+		{"100.64.0.0:7347", true, true},
+		{"100.70.1.2:7347", true, true},
+		{"100.127.255.255:7347", true, true},
+		{"100.128.0.0:7347", false, false},
+		{"[::ffff:100.70.1.2]:7347", true, true},
+		{"[fd00:1::2]:7347", true, true},
+		{"8.8.8.8:7347", false, false},
+		{"[2001:4860:4860::8888]:7347", false, false},
+		{"0.0.0.0:7347", false, true},
+		{"[::]:7347", false, true},
+		{"100.70.1.2:0", false, true},
+		{"example.ts.net:7347", false, false},
+	} {
+		t.Run(tc.address, func(t *testing.T) {
+			if got := validAddress(tc.address, false); got != tc.destination {
+				t.Fatalf("destination accepted=%v, want %v", got, tc.destination)
+			}
+			if got := validAddress(tc.address, true); got != tc.listener {
+				t.Fatalf("listener accepted=%v, want %v", got, tc.listener)
+			}
+		})
+	}
+}
+
+func TestSharedAddressInvitationPairsThroughExistingManualRoute(t *testing.T) {
+	const advertised = "100.70.1.2:7347"
+	// Validate the existing overlay's concrete bind address without creating a
+	// real overlay interface or changing the machine's network configuration.
+	if err := validateConfig(Config{ListenAddr: advertised, AdvertiseAddr: advertised}); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestService(t, t.TempDir(), nil)
+	b := newTestService(t, t.TempDir(), nil)
+	if err := a.Configure(Config{Enabled: true, ListenAddr: "127.0.0.1:0", AdvertiseAddr: advertised, Exports: []string{"same"}}); err != nil {
+		t.Fatal(err)
+	}
+	enable(t, b)
+	inv, err := a.Invite(time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := base64.RawURLEncoding.DecodeString(inv.Code)
+	var decoded inviteCode
+	if err := json.Unmarshal(raw, &decoded); err != nil || decoded.Peer.Address != advertised {
+		t.Fatalf("shared advertised address missing from invitation: %v", err)
+	}
+	// The TLS exchange stays entirely on loopback. An explicit route override
+	// changes only the destination address, preserving the invitation's identity.
+	actual := a.listener.Addr().String()
+	req, err := b.RequestPairAt(context.Background(), actual, inv.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AcceptPair(context.Background(), req.ID); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return len(b.Snapshot().Peers) == 1 && b.Snapshot().Peers[0].Online })
+	peer := b.Snapshot().Peers[0]
+	if peer.HubID != a.id || peer.Address != actual {
+		t.Fatal("manual route replaced the invited identity")
+	}
+	b.acceptDirectory(a.directory())
+	b.mu.Lock()
+	ad, ok := b.ads[a.id]
+	b.mu.Unlock()
+	if !ok || ad.Address != advertised {
+		t.Fatal("signed shared-address directory was rejected")
+	}
+}
+
 func TestManualAddressOverrideRetainsInviteIdentityPin(t *testing.T) {
 	a := newTestService(t, t.TempDir(), nil)
 	b := newTestService(t, t.TempDir(), nil)

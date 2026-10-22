@@ -237,7 +237,12 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		}
 		e.Enabled = action == "enable"
 		if e.Enabled && e.MailboxProtocolVersion == 0 {
-			e.MailboxProtocolVersion = 1
+			// Enable only capabilities implemented by this release's Clients.
+			// In particular Grok Routine still consumes the legacy task inbox.
+			switch e.Driver {
+			case "codex", "workbuddy", "claude-code":
+				e.MailboxProtocolVersion = 1
+			}
 		}
 		if e.Enabled && strings.TrimSpace(e.SessionID) == "" {
 			return nil, errors.New("a real native session ID is required; installation cannot create or guess it")
@@ -276,6 +281,28 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		if host == "" {
 			return map[string]any{"ok": true, "detail": "此平台需要手动配置原生入口；未执行安装。", "steps": []string{"按该 Client 的 README 配置原生例程和私有配置。", "填写真实会话 ID 后再启用。"}}, nil
 		}
+		registered, err := install.StatusEndpoint(m.dir, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(registered) != 0 {
+			// Registered inputs include the scoped helper, custom profile and
+			// maintenance binary. Do not replace them with the current Hub.
+			results, err := install.SyncEndpoint(m.dir, id)
+			if err != nil {
+				return nil, err
+			}
+			complete := len(results) != 0
+			for _, result := range results {
+				complete = complete && (result.State == "current" || result.State == "updated")
+			}
+			detail := "协作技能已按原登记同步，保留原安装目录和固定身份程序；运行会话是否重新读取仍须核实。"
+			if !complete {
+				detail = "部分已登记技能未能同步；保留原安装位置、固定身份程序、手动修改和卸载，请查看同步结果。"
+			}
+			s.Broker.Signal()
+			return map[string]any{"ok": true, "detail": detail, "skill_sync": results, "skill_sync_complete": complete}, nil
+		}
 		executable, err := os.Executable()
 		if err != nil {
 			return nil, err
@@ -309,7 +336,11 @@ func (s *Server) managementState() (any, error) {
 		detail := "尚未启用"
 		if e.Enabled {
 			status = "unknown"
-			detail = "已启用，等待原生 Client 和真实会话状态"
+			detail = "已启用，绑定和原生 Client 连接状态尚未核实"
+			if e.SessionID != "" {
+				status = "bound"
+				detail = "已有会话已绑定，Client 连接状态尚未验证；请核对本机 Client 输出和实际消息。"
+			}
 			s.leaseMu.Lock()
 			lease, exists := s.leases[e.ID]
 			connected := exists && time.Now().Before(lease.expiresAt) && lease.binding == fingerprint(e)

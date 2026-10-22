@@ -64,6 +64,11 @@ type retryState struct {
 	Failures int
 	Next     time.Time
 }
+
+// RFC 6598 shared address space is used by existing private overlay networks.
+// Accepting its numeric addresses neither configures nor depends on a VPN.
+var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+
 type Service struct {
 	mu          sync.Mutex
 	lifecycle   sync.Mutex
@@ -315,7 +320,7 @@ func validAddress(address string, listener bool) bool {
 		return false
 	}
 	ip = ip.Unmap()
-	if !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || (listener && ip.IsUnspecified())) {
+	if !(ip.IsPrivate() || sharedAddressSpace.Contains(ip) || ip.IsLoopback() || ip.IsLinkLocalUnicast() || (listener && ip.IsUnspecified())) {
 		return false
 	}
 	number, err := strconv.Atoi(port)
