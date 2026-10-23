@@ -143,6 +143,19 @@ func (b *Broker) Close() error {
 
 func (b *Broker) Snapshot() Snapshot { b.mu.Lock(); defer b.mu.Unlock(); return cloneSnapshot(b.state) }
 
+// Signal notifies state subscribers about a directory/transport change without
+// fabricating a mailbox event or writing an unchanged journal snapshot.
+func (b *Broker) Signal() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channel := range b.subscribers {
+		select {
+		case channel <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (b *Broker) writable() error {
 	if b.closed {
 		return errors.New("broker is closed")
@@ -203,6 +216,9 @@ func (b *Broker) Register(endpoint Endpoint) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.writable(); err != nil {
+		return err
+	}
+	if err := normalizeEndpointLanguage(&endpoint); err != nil {
 		return err
 	}
 	if strings.TrimSpace(endpoint.ID) == "" || strings.TrimSpace(endpoint.DeviceID) == "" || strings.TrimSpace(endpoint.Driver) == "" {
@@ -387,6 +403,7 @@ func (b *Broker) Submit(submission Submission) (Task, error) {
 		kind = "control"
 	}
 	envelope := Envelope{ID: taskMessageID(submission.ID), TaskID: submission.ID, CorrelationID: submission.ID, Kind: kind, Sender: submission.Origin, Recipient: submission.Recipient, Mode: submission.Mode, TargetRunID: submission.TargetRunID, Content: string(content), Delivery: "pending"}
+	envelope.CommunicationLanguage = collaborationLanguage(b.state.Endpoints[submission.Origin], recipient)
 	next := cloneSnapshot(b.state)
 	next.Tasks[task.ID] = task
 	next.Messages[envelope.ID] = envelope
@@ -932,7 +949,8 @@ func addResult(state *Snapshot, task Task) {
 		return
 	}
 	content, _ := json.Marshal(task)
-	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, ReplyTo: taskMessageID(task.ID), CorrelationID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending"}
+	state.Messages[id] = Envelope{ID: id, TaskID: task.ID, ReplyTo: taskMessageID(task.ID), CorrelationID: task.ID, Kind: "result", Sender: task.Recipient, Recipient: task.Origin, Mode: "queue", Content: string(content), Delivery: "pending",
+		CommunicationLanguage: collaborationLanguage(state.Endpoints[task.Recipient], state.Endpoints[task.Origin])}
 }
 func resolveInterruptControls(state *Snapshot, original Task) {
 	for id, task := range state.Tasks {
@@ -1000,6 +1018,10 @@ func cloneSnapshot(original Snapshot) Snapshot {
 		next.Collaborations[id] = conversation
 	}
 	for id, conversation := range original.MailConversations {
+		if conversation.Federation != nil {
+			federation := *conversation.Federation
+			conversation.Federation = &federation
+		}
 		conversation.Participants = cloneParticipants(conversation.Participants)
 		next.MailConversations[id] = conversation
 	}

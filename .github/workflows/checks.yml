@@ -81,6 +81,7 @@ jobs:
         run: |
           node --test clients/codex/test_desktop_mcp_client.mjs
           node --test clients/claude-code/tests/client.test.mjs
+          node --test internal/app/web/dashboard.test.cjs
 
   portable:
     name: portable packages and offline smokes

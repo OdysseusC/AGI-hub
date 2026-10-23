@@ -28,6 +28,15 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 		if err := decode(w, r, &in); err != nil {
 			return nil, err
 		}
+		if _, _, remoteErr := manager.ParseRemoteAddress(in.Recipient); remoteErr == nil {
+			var message manager.Envelope
+			err := s.withClientLease(r, endpoint, func() error {
+				var err error
+				message, err = s.publishRemote(endpoint, in)
+				return err
+			})
+			return clientEnvelope(message), err
+		}
 		allowed := false
 		for _, binding := range s.Config.Bindings {
 			if binding.Endpoint.ID == endpoint {
@@ -96,9 +105,16 @@ func (s *Server) mail(w http.ResponseWriter, r *http.Request, endpoint string) (
 		sort.Slice(messages, func(i, j int) bool { return messages[i].ID < messages[j].ID })
 		// Only the caller's own status bodies are returned on explicit query.
 		// Ordinary work context and other participants' mail are not copied.
-		return map[string]any{"protocol_version": 1, "correlation_id": id, "root_origin": conversation.RootOrigin,
+		result := map[string]any{"protocol_version": 1, "correlation_id": id, "root_origin": conversation.RootOrigin,
 			"max_messages": conversation.MaxMessages, "used_messages": conversation.UsedMessages,
-			"deadline": conversation.Deadline, "closed": conversation.Closed, "messages": messages}, nil
+			"deadline": conversation.Deadline, "closed": conversation.Closed, "messages": messages}
+		if conversation.Federation != nil {
+			result["federation"] = conversation.Federation
+			result["budget_policy"] = "fixed_pair_origin_ceil_peer_floor"
+			result["used_messages_scope"] = "messages_observed_by_this_hub"
+			result["cancel_scope"] = "local_only; already_network_queued_or_dispatched_messages_may_continue"
+		}
+		return result, nil
 	case r.URL.Path == "/v1/mail/cancel" && r.Method == http.MethodPost:
 		var in struct {
 			CorrelationID string `json:"correlation_id"`

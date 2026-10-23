@@ -1,8 +1,8 @@
 [简体中文](NATIVE-VALIDATION.md) | [English](NATIVE-VALIDATION.en.md)
 
-# Local native integration records
+# Native integration acceptance records
 
-Recorded 2026-10-14 through 2026-10-20 on macOS arm64. October 14 used WorkBuddy 5.8.2 and official CodeBuddy CLI 2.161.0; October 16 added an original local Claude-3p Desktop Code session with bundled Claude Code 2.1.299. WorkBuddy was 5.8.3 on October 19, when zero-model skill-maintenance checks were added. Only methods, results and scope are public: no credentials, personal contacts, real session IDs or private absolute paths. Native Windows/Linux integration requires separate acceptance; compilation is not a substitute.
+Recorded 2026-10-14 through 2026-10-23. Earlier tests used macOS arm64; October 23 added a native Codex mailbox round trip between Windows 11 and macOS arm64. October 14 used WorkBuddy 5.8.2 and official CodeBuddy CLI 2.161.0; October 16 added an original local Claude-3p Desktop Code session with bundled Claude Code 2.1.299. WorkBuddy was 5.8.3 on October 19, when zero-model skill-maintenance checks were added. Only methods, results and scope are public: no credentials, personal contacts, real session or Hub IDs, IP addresses or private absolute paths. Other platforms, hosts and assistant combinations require separate acceptance; compilation is not a substitute.
 
 ## 2026-10-19: Managed skill synchronization, zero model calls
 
@@ -89,7 +89,7 @@ One official Desktop MCP `send_message_to_thread` returned a successful matching
 
 This separately verifies local original-chat idle startup through that official MCP, with actual pre-send idle state, one send, a real new turn and retained desktop tools, not merely a tool ACK.
 
-No repeated wake, manual forwarding or new task occurred. This standalone diagnosis added no MQ business task and was not a complete idle MQ loop. Earlier independent CLI loops covered busy return. App Server proxy idle turn/start and other platforms still needed testing.
+No repeated wake, manual forwarding or new task occurred. This standalone diagnosis added no MQ business task and was not a complete idle MQ loop. Earlier independent CLI loops covered busy return. At that time, App Server proxy idle turn/start and other platforms still needed testing.
 
 ## 2026-10-15: Original WorkBuddy single-contact query and MQ return
 
@@ -184,12 +184,24 @@ This pass covers only this macOS arm64 Claude-3p Code version, the existing idle
 
 Real session IDs, paths, nonces, usage IDs and transcript hashes remain private and are excluded from the repository and packages.
 
+## 2026-10-23: Windows Codex idle execution and return to the original macOS entry
+
+The running code was `1387677`, with Hub **0.4.0**. macOS arm64 and Windows 11 used paired, isolated lab Hubs. The user started an independent Node Client from the existing original Windows Codex chat; it passed official Desktop MCP preflight and subscribed to SSE. Its launch configuration contained the old custom `native.receive_tasks` field. The Windows assistant backed it up and removed only that key. Strict unknown-field validation remained enabled; offline regression checks covered both rejection of the old field and successful removal of that single key.
+
+After confirming that the Windows bootstrap turn had completed and the original chat had no active turn, one MQ request containing a nonce and `17+29+43` was sent. The independent Client used official **send-now** to start a new native turn in the original chat, beginning at **01:54:46.300 UTC** and completing at **02:02:23.740 UTC**. The Windows model used its own native exec tool to save the complete result JSON and invoked the lab's endpoint-fixed helper with `mail-send` to explicitly send one result, exiting with code 0. The saved JSON's nonce, answer **89** and canonical association matched the Hub records.
+
+The independent macOS Client then automatically guided that `kind=result` into the original Codex chat where the user first asked, which was busy at the time. Actual native input was received there, and official `read_thread` confirmed it was still the same active turn. `correlation_id`, `reply_to` and `root_origin` stayed associated, using **2/2 messages of the two-message budget**, without manual forwarding or selecting a native queue. Grok assisted only with evidence collection and administrative state registration after native observation; it did not send the request or result on either assistant's behalf. After confirming no new Windows active turn, it restored the lab's idle state. This trial made **0 Claude calls**; the original Windows production Hub, Client and old queue were unchanged.
+
+**The verified scope is this small synthetic task's cross-machine mailbox path: idle wake in the original Windows chat, native tool execution, an explicit result send and automatic return to the busy original macOS entry.** Windows busy-session receipt was not tested, and its busy verification flags remain false. Session state was registered from actual observations; continuous automatic state tracking and unattended recovery across the full lifecycle remain unverified. This pass does not cover other assistants' cross-machine business work. Source code permits different caller and target chats, but this trial started from the target's original chat and does not validate that alternative launch path.
+
+Real session and Hub IDs, IP addresses, the nonce, private paths and original delivery/turn evidence remain outside the repository and are excluded from public documents and packages.
+
 ## Further acceptance work
 
-- Keep separate evidence for the earlier two independent CLI busy returns, original-session single-contact work after an entry-checked continuation and one idle-start diagnosis. Test a complete original-Codex-idle MQ loop separately, retaining no-resend behavior after disconnect/timeout/uncertainty.
+- Keep separate evidence for the earlier two independent CLI busy returns, original-session single-contact work after an entry-checked continuation, one idle-start diagnosis and the October 23 cross-machine mailbox loop. Receipt of a complete business result while the original macOS entry is idle still needs separate acceptance, retaining no-resend behavior after disconnect/timeout/uncertainty.
 - Test other WeCom/desktop capabilities only under user authorization. A matching single candidate proves neither every function nor whole-address-book uniqueness. Retain local denials, remote 850003 and reauthorized success history without blind retries.
 - Verify App Server proxy connectivity/idle turn/start independently; Desktop MCP idle success is not a substitute. Native prompts, associated receipts and artifacts follow each transport's evidence.
-- Verify official launch chains separately on Windows/Linux and other host versions; do not generalize this machine's results to every platform.
+- Verify official launch chains separately on Windows/macOS hosts outside this trial's scope and on Linux; do not generalize success on these two specific computers to every platform.
 
 WorkBuddy OpenAPI `localassistant/message` remains a separate candidate requiring an app and personal OAuth; that real grant is not configured here. CLI login does not grant it, and it is not an arbitrary ordinary desktop-chat targeting interface. See [official OpenAPI](https://open.workbuddy.cn/docs/openapi).
 

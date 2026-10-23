@@ -1,6 +1,6 @@
 {
   "name": "agi-hub-endpoint",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Native Claude Code session client for the local AGI Hub.",
   "userConfig": {
     "client_config": {

@@ -12,9 +12,11 @@ Native sends always use immediate input through the official `send_message_to_th
 
 `native.transport="desktop-mcp"` calls the fixed `send_message_to_thread` tool exposed by the official server. The Client initializes MCP and checks tool arguments, then subscribes to Hub SSE before claiming results. `threadId` is fixed in private configuration. Caller identity comes only from the host-provided `CODEX_THREAD_ID`. An Envelope cannot replace the target, caller, tool, launch arguments or permissions.
 
+The ordinary desktop chat that starts the Client may differ from the destination chat: `CODEX_THREAD_ID` is the real caller, while `native.thread_id` is the fixed target and must match the Hub binding. Inherit the same Desktop host environment naturally; do not copy a pipe or forge the caller. The host restores the target chat's context and tools. Access, sub-session restrictions and actual wakeup still require validation on that host, with a strict target ACK check.
+
 The official tool has no `mode` argument. The public implementation on this machine uses a `send-now` follow-up: it guides an active turn or starts a new one when idle. On the development Mac, an independent official Node process started the server, listed actual tools and made one call, returning `isError=false` and the matching original chat ID. The result entered the original chat immediately without the user clicking a queued item.
 
-A full busy-session round trip also passed: start the Node consumer and confirm its SSE subscription, then submit a new task. WorkBuddy resumes the original CLI session by default and actively reports acceptance, execution and success. The Hub verifies the artifact and SHA-256 before generating an independent result. Node automatically claims it and uses official Desktop MCP to guide the running original Codex chat immediately. The task and both deliveries reached successful terminal states, with the correct result correlation and released resources. The return path did not rely on the model in the original chat calling a tool on its behalf. Both complete MQ round trips verified only busy-session result return on this machine. A separate idle-start diagnostic later passed on the same official Desktop MCP channel, as described below. A complete idle MQ round trip, ordinary task controls and other platforms remain unverified.
+Two complete busy-session round trips passed on 2026-10-15: start the Node consumer and confirm SSE subscription, then submit a new task. WorkBuddy resumes the original CLI session by default and actively reports acceptance, execution and success. The Hub verifies the artifact and SHA-256 before generating an independent result. Node automatically claims it and uses official Desktop MCP to guide the running original Codex chat immediately. The task and both deliveries reached successful terminal states, with the correct result correlation and released resources. The return path did not rely on the model in the original chat calling a tool on its behalf. Those two trials covered local busy-session result return at the time; a separate idle-start diagnostic followed. October 23 added a cross-machine mailbox loop with Windows idle execution and return to the original macOS entry. Their scopes are recorded separately below.
 
 ### Single idle-start diagnostic in the original chat
 
@@ -22,7 +24,13 @@ On 2026-10-15, after the preceding turn ended, an independent official Node prog
 
 The original chat actually received the message and started a new turn with a different turn ID from the previous completed turn. The official desktop `read_thread` tool remained available; execution did not move to a standalone CLI/SDK session. There was no repeated wakeup, manual forwarding or new MQ business task.
 
-This diagnostic proves that the same official MCP transport can start the idle original chat on this machine. It is not a third MQ business round trip or proof of a complete idle MQ round trip. The two complete MQ acceptance runs still cover busy-session returns. [Separate evidence](../../docs/NATIVE-VALIDATION.en.md)
+This diagnostic proves that the same official MCP transport can start the idle original chat on this machine. It is not a third MQ business round trip or proof of a complete idle MQ round trip. At that time, the two complete MQ acceptance runs covered only busy-session returns. [Separate evidence](../../docs/NATIVE-VALIDATION.en.md)
+
+### 2026-10-23: Windows idle execution and return to the original macOS entry
+
+An isolated two-Hub trial passed with Hub **0.4.0**, running code `1387677`: the independent Windows 11 Node Client used official Desktop MCP to wake the existing original Codex chat from idle. The model used native exec and the lab's endpoint-fixed helper to explicitly send a result. The independent macOS arm64 Client automatically guided it into the busy original entry chat. The nonce and `17+29+43=89` matched, using **2/2 messages** of the budget, without manual forwarding or native queue clicks.
+
+This covers only a small synthetic task. Windows busy-session receipt, continuous automatic state tracking and unattended recovery across the full lifecycle remain unverified; busy verification flags stay false. The original production Hub and old queue were unchanged, and Claude calls were 0. This trial started from the target's original chat; launching from a different caller chat remains supported by source-code evidence only. [Full results and limits](../../docs/NATIVE-VALIDATION.en.md)
 
 Desktop MCP and App Server proxy are separate entry points. The former uses the host-provided bridge environment through the official server; the latter connects to `app-server-control.sock`. The absence of a proxy control socket in this host does not make Desktop MCP unavailable.
 
@@ -47,6 +55,8 @@ The export creates a file with private permissions without printing credentials 
 | `thread_id` | Existing native desktop chat ID matching the Hub binding |
 | `timeout_seconds` | Per-request MCP timeout, default `30`, range `1`–`300` seconds |
 
+When migrating a customized older Client, export a fresh endpoint-scoped configuration and copy only the supported `native` fields listed above. The current Node Client strictly rejects the old custom `receive_tasks` field, even when `false`, with `invalid_codex_desktop_mcp_fields`. Review and back up the private configuration before removing that legacy field; do not relax unknown-field validation.
+
 Obtain `command`, `args` and `cwd` from the actual installed official plugin manifest and runtime environment; do not guess directories. The Client inherits only normal operating-system variables and an allowlist of official Node/bridge variables. It does not read desktop credentials from configuration. If the host lacks `CODEX_THREAD_ID` or `CODEX_APP_TOOLS_PIPE_PATH`, it stops before claiming messages. Do not copy those values into `client.json`, documentation or logs.
 
 Start the verified official Node directly from an entry with the official host environment. In this POSIX example, `exec` replaces the launch shell with Node, preserving the verified parent chain:
@@ -55,7 +65,7 @@ Start the verified official Node directly from an entry with the official host e
 exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
 
-On Windows, use an actual `node.exe` and local absolute paths, without `.cmd` or `.bat` wrappers as the process entry. Bridge and wakeup capabilities on Windows, Linux and other macOS hosts require separate acceptance tests. The default Hub address is `http://127.0.0.1:7331`; only numeric loopback addresses are accepted. Use the actual exported configuration.
+On Windows, use an actual `node.exe` and local absolute paths, without `.cmd` or `.bat` wrappers as the process entry. The Windows 11/macOS arm64 results above apply only to the tested hosts; bridge and wakeup capabilities on other Windows/macOS hosts and on Linux need separate acceptance. The default Hub address is `http://127.0.0.1:7331`; only numeric loopback addresses are accepted. Use the actual exported configuration.
 
 The Client rechecks the endpoint binding and MCP tools on initial startup and every Hub reconnection. It subscribes to SSE before claiming; keepalives do not trigger polling. On disconnection, it only reconnects and scans pending messages that the Hub can still deliver. Messages already `dispatching / uncertain` are not resent. The Client does not declare the session idle or handle permission prompts automatically.
 

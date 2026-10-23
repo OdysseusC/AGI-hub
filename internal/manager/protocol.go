@@ -10,6 +10,7 @@ type Endpoint struct {
 	ResultQueueWhileBusyVerified bool     `json:"result_queue_while_busy_verified,omitempty"`
 	Modes                        []string `json:"modes"`
 	Driver                       string   `json:"driver"`
+	CommunicationLanguage        string   `json:"communication_language,omitempty"`
 	PeerProtocolVersion          int      `json:"peer_protocol_version,omitempty"`
 	PeerWhileBusyVerified        bool     `json:"peer_while_busy_verified,omitempty"`
 	MailboxProtocolVersion       int      `json:"mailbox_protocol_version,omitempty"`
@@ -70,6 +71,11 @@ type Collaboration struct {
 }
 
 type Envelope struct {
+	CommunicationLanguage string `json:"communication_language,omitempty"`
+	// SourceMessageID maps a canonical LAN ID to the caller's saved retry ID.
+	// It is populated only in client-facing network responses.
+	SourceMessageID string         `json:"source_message_id,omitempty"`
+	Network         *NetworkMail   `json:"network,omitempty"`
 	Mailbox         bool           `json:"mailbox,omitempty"`
 	MailFingerprint string         `json:"mail_fingerprint,omitempty"`
 	ID              string         `json:"message_id"`
@@ -106,13 +112,14 @@ type MailSubmission struct {
 }
 
 type MailConversation struct {
-	ID           string          `json:"id"`
-	RootOrigin   OriginContext   `json:"root_origin"`
-	Participants map[string]bool `json:"participants"`
-	MaxMessages  int             `json:"max_messages"`
-	UsedMessages int             `json:"used_messages"`
-	Deadline     string          `json:"deadline"`
-	Closed       bool            `json:"closed,omitempty"`
+	Federation   *FederatedContext `json:"federation,omitempty"`
+	ID           string            `json:"id"`
+	RootOrigin   OriginContext     `json:"root_origin"`
+	Participants map[string]bool   `json:"participants"`
+	MaxMessages  int               `json:"max_messages"`
+	UsedMessages int               `json:"used_messages"`
+	Deadline     string            `json:"deadline"`
+	Closed       bool              `json:"closed,omitempty"`
 }
 
 type Task struct {

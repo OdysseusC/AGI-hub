@@ -26,7 +26,7 @@ import (
 	"agihub/internal/manager"
 )
 
-const version = "0.3.1"
+const version = "0.4.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -410,7 +410,12 @@ func serve(dir string, cfg app.Config, open bool) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	server := http.Server{Handler: (&app.Server{Broker: b, Config: cfg}).Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	appServer := &app.Server{Broker: b, Config: cfg}
+	if err = appServer.StartManagement(ctx, dir); err != nil {
+		return err
+	}
+	defer appServer.CloseManagement()
+	server := http.Server{Handler: appServer.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	errs := make(chan error, 1)
 	go func() { errs <- server.Serve(listener) }()
 	fmt.Println("AGI Hub listening on http://" + cfg.Listen + " (native session status must be verified after startup)")

@@ -12,9 +12,11 @@
 
 `native.transport="desktop-mcp"` 调用官方 server 暴露的固定工具 `send_message_to_thread`。客户端先完成 MCP 初始化、核对工具参数，再订阅 Hub SSE，随后领取结果。`threadId` 固定来自私有配置，调用者身份只来自宿主已提供的 `CODEX_THREAD_ID`；Envelope 不能替换目标、调用者、工具、启动参数或权限。
 
+启动 Client 的普通桌面聊天与接收消息的目标聊天可以不同：`CODEX_THREAD_ID` 是真实调用者，`native.thread_id` 是固定目标，后者须与 Hub 绑定一致。必须自然继承同一桌面宿主的环境，不能复制 pipe 或伪造调用者。目标聊天的上下文与工具由宿主恢复；是否可访问、子会话限制及实际唤醒仍须在该宿主验证，并严格核对目标 ACK。
+
 官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
-完整忙时闭环也已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。两轮完整 MQ 回路均只验证本机忙时结果返回。随后同一官方 Desktop MCP 通道已另行通过一次空闲启动诊断，详见下节；idle 下完整 MQ 回路、普通任务控制及其他平台仍未验收。
+2026-10-15 的两轮完整忙时闭环已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。这两轮只验证当时的本机忙时结果返回；随后单独验证了空闲启动诊断。10 月 23 日另有 Windows 空闲接手与 macOS 原入口回传的跨机邮箱闭环，范围分别记录如下。
 
 ### 单次空闲原聊天启动诊断
 
@@ -22,7 +24,13 @@
 
 原聊天实际收到消息并开始新轮次，新 turn ID 与前一个 completed turn 不同；官方桌面 `read_thread` 工具仍可调用，未换成独立 CLI/SDK 会话。没有重复唤醒、手工转发或新建 MQ 业务任务。
 
-该单次诊断证明相同官方 MCP 传输在本机能启动空闲原聊天；不能把它写成第三次 MQ 业务闭环或 idle 下完整 MQ 回路通过。两轮完整 MQ 验收仍是 busy 返回。[分段证据](../../docs/NATIVE-VALIDATION.md)
+该单次诊断证明相同官方 MCP 传输在本机能启动空闲原聊天；不能把它写成第三次 MQ 业务闭环或 idle 下完整 MQ 回路通过。当时两轮完整 MQ 验收仅覆盖 busy 返回。[分段证据](../../docs/NATIVE-VALIDATION.md)
+
+### 2026-10-23：Windows 空闲接手与 macOS 原入口回传
+
+Hub **0.4.0**、运行代码 `1387677` 的隔离双 Hub 实测通过：Windows 11 独立 Node Client 经官方 Desktop MCP 从 idle 自动唤醒既有 Codex 原聊天；模型用原生 exec 和 lab 固定身份 helper 显式发回 result。macOS arm64 独立 Client 自动将结果引导到忙碌的最初原聊天，nonce 与 `17+29+43=89` 均匹配，两封消息预算使用 **2/2**，没有手工转发或 native 队列点击。
+
+这只验证小型合成任务。Windows 忙时收件、长期自动状态跟踪和全生命周期无人值守恢复仍未验收；busy 验证标记保持 false。原生产 Hub 和旧队列未动，Claude 调用为 0。此次从目标原聊天启动，caller 与 target 不同的启动方式仍只有源码依据。[完整结果与边界](../../docs/NATIVE-VALIDATION.md)
 
 Desktop MCP 和 App Server proxy 是两个独立入口。前者由官方 server 使用宿主提供的桥接环境；后者连接 `app-server-control.sock`。当前宿主未开放 proxy 控制 socket，不代表 Desktop MCP 也不可用。
 
@@ -47,6 +55,8 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 | `thread_id` | 已有原生桌面聊天 ID，与 Hub 绑定一致 |
 | `timeout_seconds` | 单次 MCP 请求超时，默认 `30`，范围 `1` 至 `300` 秒 |
 
+迁移旧定制 Client 时，重新导出 endpoint 专属配置，只迁移上表支持的 `native` 字段。旧定制字段 `receive_tasks`（包括 `false`）会被当前 Node Client 严格拒绝，错误为 `invalid_codex_desktop_mcp_fields`；核对并备份私有配置后移除该旧字段，不放宽未知字段校验。
+
 `command`、`args`、`cwd` 必须来自实际安装的官方插件清单与运行环境，不猜目录。客户端只继承正常操作系统变量及官方 Node/桥接变量白名单，不从配置读取桌面凭据。宿主缺少 `CODEX_THREAD_ID` 或 `CODEX_APP_TOOLS_PIPE_PATH` 时，在领取消息前停止；这些变量的值不要复制到 `client.json`、文档或日志。
 
 在已具备官方宿主环境的入口中，直接启动已核实的官方 Node。POSIX 示例中的 `exec` 让 Node 替代启动 shell，保持实际验证过的父链：
@@ -55,7 +65,7 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
 
-Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。Windows、Linux 和不同 macOS 宿主的桥接与唤醒须重新验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
+Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。上述 Windows 11 与 macOS arm64 结果仅适用于实测宿主；其他 Windows/macOS 宿主及 Linux 的桥接与唤醒须分别验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
 
 首次启动与每次 Hub 重连都会重新核对 endpoint 绑定和 MCP 工具。先订阅 SSE 再领取，keepalive 不触发轮询。断线仅重建连接并扫描 Hub 仍可投递的 pending 消息；已经 `dispatching / uncertain` 的消息不会因此重新发送。客户端不自行宣称会话 idle，不自动处理权限提示。
 

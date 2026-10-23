@@ -16,6 +16,7 @@ import (
 	"strings"
 	"unicode"
 
+	"agihub/internal/language"
 	"agihub/internal/manager"
 )
 
@@ -116,6 +117,13 @@ func LoadConfig(dir string) (Config, error) {
 	seen := map[string]bool{}
 	for i := range c.Bindings {
 		b := &c.Bindings[i]
+		value, err := language.Normalize(b.Endpoint.CommunicationLanguage)
+		if err != nil {
+			return c, err
+		}
+		if b.Endpoint.CommunicationLanguage != "" {
+			b.Endpoint.CommunicationLanguage = value
+		}
 		if b.Endpoint.ID == "" || seen[b.Endpoint.ID] {
 			return c, errors.New("endpoint IDs must be nonempty and unique")
 		}

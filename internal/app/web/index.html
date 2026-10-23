@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AGI Hub · 本机管理</title>
+  <style>/* HUB_STYLES */</style>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">跳到管理内容</a>
+  <header class="app-header">
+    <a class="brand" href="#" aria-label="AGI Hub 本机管理"><span class="brand-mark" aria-hidden="true">H</span><span>AGI Hub<small>本机管理</small></span></a>
+    <div class="header-actions"><span id="connection" class="badge neutral" role="status">尚未连接</span><button id="refresh" class="quiet" type="button" hidden>刷新</button><button id="lock" class="quiet" type="button" hidden>锁定页面</button></div>
+  </header>
+  <main>
+    <section id="login" class="login-panel" aria-labelledby="login-title">
+      <span class="eyebrow">LOCAL CONTROL</span><h1 id="login-title">连接你的 Hub</h1>
+      <p>管理本机助手，并连接你信任的局域网主机。</p>
+      <form id="login-form">
+        <label for="token">本机管理密钥</label>
+        <div class="input-action"><input id="token" type="password" required autocomplete="off" spellcheck="false" placeholder="输入管理密钥"><button id="connect" type="submit" class="primary">连接 Hub</button></div>
+        <p class="hint">密钥仅用于此页面连接，刷新页面后需要重新输入。</p>
+      </form>
+    </section>
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <div id="notice" class="notice success" role="status" hidden></div>
+    <div id="workspace" hidden>
+      <section class="overview" aria-labelledby="hub-name">
+        <div class="overview-title"><div><span class="eyebrow">你的协作网络</span><h1 id="hub-name">本机 Hub</h1><p id="hub-id" class="mono muted"></p></div><span class="local-label">此电脑</span></div>
+        <div class="metrics" aria-label="本机视角的网络数量">
+          <div><strong id="count-local">0</strong><span>本机助手</span></div>
+          <div><strong id="count-paired">0</strong><span>已配对 Hub</span></div>
+          <div><strong id="count-connected">0</strong><span>直连在线</span></div>
+          <div><strong id="count-relayed">0</strong><span>经中继可达</span></div>
+          <div><strong id="count-discovered">0</strong><span>待配对发现</span></div>
+        </div>
+        <form id="settings-form">
+          <fieldset id="settings-fields">
+            <legend class="sr-only">本机网络设置</legend>
+            <div class="switches">
+              <label class="switch-item"><input id="network-enabled" type="checkbox"><span><strong>局域网连接</strong><small>允许已配对主机连接此 Hub</small></span><span id="network-status" class="badge neutral">关闭</span></label>
+              <label class="switch-item"><input id="discovery-enabled" type="checkbox"><span><strong>自动发现</strong><small>在所选网卡上公告主机身份</small></span><span id="discovery-status" class="badge neutral">关闭</span></label>
+            </div>
+            <details id="settings-details" class="settings-details">
+              <summary>名称与网络设置</summary>
+              <div class="field-grid">
+                <label>显示名称<input id="setting-name" maxlength="100" required autocomplete="off"></label>
+                <label>发现使用的网卡<select id="setting-interface"><option value="">选择网卡</option></select></label>
+                <label class="wide">局域网监听地址<input id="setting-listen" placeholder="例如 192.168.1.20:7443" spellcheck="false" autocomplete="off"><span class="hint">与仅供本机使用的管理地址分开。更改后以服务器返回的状态为准。</span></label>
+              </div>
+            </details>
+            <div class="settings-footer"><span id="settings-hint" class="hint">局域网连接与发现默认关闭。关闭发现会保留已有配对。</span><button id="save-settings" type="submit" class="secondary">保存设置</button></div>
+          </fieldset>
+        </form>
+      </section>
+      <nav class="section-nav" aria-label="管理区域"><a href="#local">本机助手</a><a href="#network">其他 Hub</a><a href="#messages">最近消息</a></nav>
+      <section id="local" class="section" aria-labelledby="local-title">
+        <div class="section-heading"><div><span class="eyebrow">01 / 本机</span><h2 id="local-title">助手会话与接入</h2></div><p>保留原生会话与工具</p></div>
+        <div id="agents" class="agent-grid"></div>
+        <p class="section-note">安装仅写入协作技能或提供宿主配置步骤。绑定、启用和原生验证分别记录；启用不代表已验证，停用也不会取消已经开始的原生任务。</p>
+        <p class="section-note">协作语言由发件助手按技能要求处理，Hub 只负责传递消息。Claude 默认英语，可改为中文或其他语言；此设置不会改变用户与主交互助手约定的答复语言。</p>
+      </section>
+      <section id="network" class="section" aria-labelledby="network-title">
+        <div class="section-heading"><div><span class="eyebrow">02 / 局域网</span><h2 id="network-title">其他 Hub</h2></div><span id="network-note" class="muted">仅显示此 Hub 已知的主机</span></div>
+        <div id="network-off" class="notice neutral-notice" hidden>局域网连接已关闭。可查看已保存的配对；开启连接后才能与其他主机通信。</div>
+        <div id="discovery-error" class="notice error" role="status" hidden></div>
+        <div class="pairing-grid">
+          <div class="panel">
+            <h3>邀请另一台电脑</h3><p class="muted">生成短期邀请，交给对方 Hub 提交配对请求，然后在本机确认。</p>
+            <button id="invite" type="button" class="secondary">生成邀请</button>
+            <div id="invitation-result" class="invitation-result" hidden>
+              <label for="invitation-output">本次邀请</label><textarea id="invitation-output" rows="3" readonly spellcheck="false"></textarea>
+              <div class="row"><span class="hint">仅向你要连接的主机分享。</span><button id="copy-invitation" class="quiet" type="button">复制</button><button id="clear-invitation" class="quiet" type="button">清除</button></div>
+            </div>
+          </div>
+          <form id="pair-form" class="panel">
+            <h3>使用邀请连接</h3>
+            <label for="pair-address">对方地址<span class="hint inline-hint">手动填写，或从发现列表选择</span></label><input id="pair-address" placeholder="例如 192.168.1.30:7443" autocomplete="off" spellcheck="false">
+            <label for="pair-invitation">对方邀请</label><textarea id="pair-invitation" rows="2" required spellcheck="false" autocomplete="off" placeholder="粘贴对方生成的邀请"></textarea>
+            <button id="pair-submit" type="submit" class="secondary">提交配对请求</button>
+          </form>
+        </div>
+        <div id="pending-group" class="network-group" hidden><h3>待确认配对 <span id="count-pending" class="count">0</span></h3><div id="pending" class="compact-list"></div></div>
+        <div class="network-group"><h3>已配对主机</h3><div id="peers" class="peer-list"></div></div>
+        <details id="discovered-group" class="network-group"><summary>已发现、未配对 <span id="discovered-label" class="count">0</span></summary><div id="discovered" class="compact-list"></div><p class="hint">发现只表示在局域网可见，尚未建立信任。</p></details>
+        <p class="section-note">网络接收确认仅表示消息已存入目的 Hub；原生助手接手和业务完成仍需各自的真实回报。文件引用保留来源电脑归属，不会自动复制文件。</p>
+      </section>
+      <section id="messages" class="section" aria-labelledby="messages-title">
+        <div class="section-heading"><div><span class="eyebrow">03 / 邮箱</span><h2 id="messages-title">消息邮箱</h2></div><span class="muted">最多 30 条 · 按消息 ID 排列</span></div>
+        <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th scope="col">消息</th><th scope="col">发件人 → 收件人</th><th scope="col">用途</th><th scope="col">投递状态</th><th scope="col">内容</th></tr></thead><tbody id="mails"></tbody></table></div><p id="mail-empty" class="empty" hidden>还没有邮箱消息。助手明确选择收件人后，消息会显示在这里。</p></div>
+        <details id="compatibility" class="compatibility"><summary>兼容任务与成果记录 <span id="count-tasks" class="count">0</span></summary><div class="table-scroll"><table><thead><tr><th scope="col">任务</th><th scope="col">接收方</th><th scope="col">执行</th><th scope="col">成果位置 / 回报</th></tr></thead><tbody id="tasks"></tbody></table></div></details>
+      </section>
+      <footer><span>AGI Hub · 定址消息管道</span><span id="updated">等待同步</span></footer>
+    </div>
+  </main>
+  <noscript><p class="notice">此管理页需要启用 JavaScript 才能连接本机 Hub。</p></noscript>
+  <script>/* HUB_SCRIPT */</script>
+</body>
+</html>

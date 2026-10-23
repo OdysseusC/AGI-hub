@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"agihub/internal/install"
+	"agihub/internal/language"
 )
 
 // Peer omits native session addresses, workspace paths, credentials and history.
@@ -20,14 +21,17 @@ type Peer struct {
 	BusyResultVerified     bool     `json:"busy_result_verified"`
 	CanSend                bool     `json:"can_send"`
 	MailboxProtocolVersion int      `json:"mailbox_protocol_version"`
+	CommunicationLanguage  string   `json:"communication_language"`
+	SendLanguage           string   `json:"send_language"`
 }
 
 type Catalog struct {
-	ProtocolVersion int    `json:"protocol_version"`
-	Version         string `json:"version"`
-	RulesVersion    string `json:"rules_version"`
-	Endpoint        string `json:"endpoint"`
-	Peers           []Peer `json:"peers"`
+	ProtocolVersion           int    `json:"protocol_version"`
+	Version                   string `json:"version"`
+	RulesVersion              string `json:"rules_version"`
+	Endpoint                  string `json:"endpoint"`
+	Peers                     []Peer `json:"peers"`
+	SelfCommunicationLanguage string `json:"self_communication_language"`
 }
 
 func (s *Server) catalog(endpoint string) (Catalog, error) {
@@ -44,7 +48,7 @@ func (s *Server) catalog(endpoint string) (Catalog, error) {
 	for _, id := range bindings[endpoint].VisiblePeers {
 		e, exists := state.Endpoints[id]
 		binding, configured := bindings[id]
-		if !exists || !configured || !e.Enabled || !binding.Endpoint.Enabled {
+		if !exists || !configured || !e.Enabled {
 			continue
 		}
 		modes := append([]string{}, e.Modes...)
@@ -55,10 +59,14 @@ func (s *Server) catalog(endpoint string) (Catalog, error) {
 		}
 		peers = append(peers, Peer{ID: id, Driver: e.Driver, Purpose: binding.Purpose, Modes: modes,
 			IdleWakeVerified: e.IdleWakeVerified, BusyResultVerified: e.ResultQueueWhileBusyVerified,
-			CanSend: allowed && self.MailboxProtocolVersion == 1 && e.MailboxProtocolVersion == 1, MailboxProtocolVersion: e.MailboxProtocolVersion})
+			CanSend: allowed && self.MailboxProtocolVersion == 1 && e.MailboxProtocolVersion == 1, MailboxProtocolVersion: e.MailboxProtocolVersion,
+			CommunicationLanguage: language.Effective(e.Driver, e.CommunicationLanguage),
+			SendLanguage:          language.Resolve(self.Driver, self.CommunicationLanguage, e.Driver, e.CommunicationLanguage)})
 	}
+	peers = append(peers, s.remoteCatalog(endpoint)...)
 	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
-	catalog := Catalog{ProtocolVersion: 1, Endpoint: endpoint, Peers: peers}
+	catalog := Catalog{ProtocolVersion: 1, Endpoint: endpoint, Peers: peers,
+		SelfCommunicationLanguage: language.Effective(self.Driver, self.CommunicationLanguage)}
 	content, _ := json.Marshal(catalog)
 	digest := sha256.Sum256(content)
 	catalog.Version = "sha256:" + hex.EncodeToString(digest[:])

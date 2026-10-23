@@ -2,6 +2,16 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## 0.4.0 — 2026-10-20
+
+- Add opt-in LAN Hub communication with stable host identities, explicit pairing and agent exports, reusable TLS connections, direct-first routing and bounded relays. Routing does not propagate trust.
+- Discover Hubs with mDNS/DNS-SD on a selected interface, or connect through invitations and a manual address. Disabling discovery preserves paired connections.
+- Add a local management page for managed skill installation, real session binding, enable/share controls, Hub/agent trees, pairing and mailbox state. Management and offline testing invoke no models.
+- Federated mail preserves the original local binding, uses canonical message IDs, a durable outbox and deduplication, and distinguishes destination-Hub receipt from native execution. Protocol 1 fixes each conversation to an endpoint pair with disjoint message permits; files are not synchronized.
+- Advance managed rules to revision 7. Federated data requires journal version 4 and cannot be opened by older binaries. Real multi-computer discovery and native-assistant acceptance remain separate validation; see the [LAN guide](docs/LAN.en.md).
+- Claude Client 0.2.3 recognizes acknowledgements for canonical LAN message IDs. Native prompts contain one copy of the content, omitting duplicate network payload tokens. Installation and verification did not invoke Claude.
+- Select each agent's collaboration language in management. Claude defaults to English; Chinese and other languages are selectable. Saving synchronizes managed skill policies. Sending agents translate necessary instructions, Hub calls no translation model, and human-facing replies follow the user's language.
+
 ## 0.3.1 — 2026-10-20
 
 - Default public documents to Chinese, with complete English versions in `*.en.md` and Chinese-first language navigation.
