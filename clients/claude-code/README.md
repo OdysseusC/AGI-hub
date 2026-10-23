@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-把一个现有的 Claude Code 原生会话接到 AGI Hub。会话内的 mod 插件消费自己的寻址收件箱，并提供原生工具供助手主动发消息，保留原宿主、项目、登录态和原生工具。Hub 负责消息传递；由助手选择接收方、决定何时回复。
+推荐用独立安装的交互式 Claude Code 终端作为接入宿主。复用现有会话内 mod 消费自己的寻址收件箱，并提供原生工具供助手主动发消息；不依赖 Claude Desktop 外壳，也不需要改 Hub 或另写适配器。保留的是该 Code 会话自己的项目、登录态、工具和权限，不承诺继承 Desktop 特有能力。Hub 负责消息传递；由助手选择接收方、决定何时回复。
 
 Client **0.2.3** 支持寻址消息协议 **1**，并保留旧的单任务协议。需要 **Claude Code 2.1.299 或更新版本，且具备这里使用的 mods API**。每个宿主、版本和平台都要分别验收；Hub 的跨平台构建不能代替原生接入验证。
 
@@ -12,20 +12,22 @@ Client **0.2.3** 支持寻址消息协议 **1**，并保留旧的单任务协议
 
 | 宿主或操作 | 范围 |
 | --- | --- |
-| Claude Desktop / Claude-3p 的本地 Code 页 | 宿主能加载所需 mods 时支持；核对其实际内置版本 |
-| 交互式 Claude Code CLI | 使用同一插件，单独验收该 CLI 会话 |
+| 独立交互式 Claude Code CLI | 推荐入口；使用同一 mod，原生唤醒和邮箱闭环仍须在该 CLI 会话单独验收 |
+| Claude Desktop / Claude-3p 的本地 Code 页 | 保留兼容入口；宿主能加载所需 mods 时支持，核对其实际内置版本 |
 | Desktop 普通 Chat / Cowork | 此 Code 插件不支持 |
-| `claude -p --resume` | 这是独立 CLI 调用，不能证明已接入打开的 Desktop 会话，也不能保证斜杠命令不调用模型 |
-| Queue | 空闲时提交原生回合，忙时交给宿主排队，具体能力需要原生实测 |
+| `claude -p --resume` | 非交互路径；本 Client 不把它用作常驻会话的收件通道，斜杠命令也不保证零模型消耗 |
+| Queue | 宿主空闲时开新回合，忙时等待空闲；本版 Hub 忙时邮箱接收标记仍保持 false，须另行验收 |
 | 引导 / 打断 / WSL | 不宣称支持 |
 
 **2026-10-20 北京时间 11:48:16–11:48:40**，Client 0.2.2 在 macOS Claude-3p 2.1.299 的既有 Code 原会话完成寻址消息闭环：MQ 自动唤醒空闲原会话，Claude 用原生 Read 读取一个 54 字节文件，再用一次显式原生 `mail_send` 返回匹配的 nonce 和加总结果 **51**。独立 Codex Node Client 通过官方 Desktop MCP 的 send-now 通道，将成果送回当时正在工作的原 Codex 聊天。全程未人工转发，未使用 Bash 或旧 Report。该业务验收使用一个原生回合，包含 **3 次模型响应**。详见[完整原生验收记录](../../docs/NATIVE-VALIDATION.md)。
 
-Claude 忙时排队、引导/打断、从 Claude 中的用户输入发起新协作，以及 Windows 原生接入仍未验收。普通 Chat/Cowork 仍不支持。更早的旧任务验收在同一记录中单独保留。
+独立交互式 CLI 的原生唤醒与邮箱闭环、Claude 忙时排队、引导/打断、从 Claude 中的用户输入发起新协作，以及 Windows 原生接入仍未验收。普通 Chat/Cowork 仍不支持。更早的旧任务验收在同一记录中单独保留。
+
+2026-10-23，独立 macOS arm64 Claude Code **2.1.308** 通过 Client 0.2.3 的官方 `plugin validate`（仅作者与图标元数据警告）、`plugin test` **9/9** 和 Node 状态机 **50/50**。同时修正了一条仍断言旧 Client 版本的插件测试。这些检查未调用模型，仅证明离线插件兼容，不代表该 CLI 的原生邮箱闭环已通过。独立 CLI 的 mod 支持见[官方说明](https://code.claude.com/docs/en/plugins/mods/overview#where-mods-run)。
 
 ## 安装与绑定
 
-endpoint token 和配置保存在仓库外。PATH 中没有 `claude` 时，用实际可执行文件替换下面的命令；Desktop 内置程序的路径可能在应用更新后改变。
+先准备具备所需 mods API 的独立 Claude Code 程序，endpoint token 和配置保存在仓库外。PATH 中没有 `claude` 时，用实际可执行文件替换下面的命令；Desktop 内置程序不等于独立安装，其路径可能在应用更新后改变。
 
 1. 安装本地 marketplace 与插件：
 
@@ -64,6 +66,12 @@ endpoint token 和配置保存在仓库外。PATH 中没有 `claude` 时，用�
    ```
 
    插件不修改管理侧会话状态。若 `/agi-hub-status` 仍为 `confirm_hub_session_idle`，重新加载插件并等待租约和重连恢复，让它读入已记录状态。确认 `running` / `listening` 后，再运行一条经授权的最小 MQ 请求及一次显式原生 `mail_send` 回复，核对匹配 nonce 与原入口实际收到的结果。这是另一项会消耗模型的测试；诊断本身不证明邮箱往返。不要只为绕过缺少原生证据而开启唤醒标记。
+
+## 终端进程与会话
+
+普通交互式 Code 进程必须保持运行，mod 才能监听邮箱并在空闲时提交回合。退出终端后，本 mod 不会从操作系统层重新启动 Code。重新打开时，用正常交互式 `claude --resume <已核实的会话UUID>` 恢复所选会话，不使用 `-p` 向仍在运行的会话硬续接。`/agi-hub-id`、Hub binding 与 Client 配置必须指向同一 UUID；新建、clear 或 fork 后若 UUID 不匹配，插件保持休眠，不自动改绑。
+
+同一 UUID 只保留一个承载它的宿主。Desktop 与 CLI 同时打开相同会话会竞争 Hub 租约，未取得租约的一方不领消息；切换宿主时先退出原宿主，再正常 resume。更新磁盘插件后，应在目标进程重载并用 `/agi-hub-status` 核对实际 Client 版本，不能把已安装文件当作已生效。用户按 Stop 后，宿主会拒绝新的后台回合，直到用户再次输入；Client 不绕过这项限制，也不承诺自动恢复。已领取但原生提交未确认的消息保留记录，先核对，不盲目重发。
 
 ## 寻址消息
 
