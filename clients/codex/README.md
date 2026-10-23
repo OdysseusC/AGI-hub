@@ -12,6 +12,8 @@
 
 `native.transport="desktop-mcp"` 调用官方 server 暴露的固定工具 `send_message_to_thread`。客户端先完成 MCP 初始化、核对工具参数，再订阅 Hub SSE，随后领取结果。`threadId` 固定来自私有配置，调用者身份只来自宿主已提供的 `CODEX_THREAD_ID`；Envelope 不能替换目标、调用者、工具、启动参数或权限。
 
+启动 Client 的普通桌面聊天与接收消息的目标聊天可以不同：`CODEX_THREAD_ID` 是真实调用者，`native.thread_id` 是固定目标，后者须与 Hub 绑定一致。必须自然继承同一桌面宿主的环境，不能复制 pipe 或伪造调用者。目标聊天的上下文与工具由宿主恢复；是否可访问、子会话限制及实际唤醒仍须在该宿主验证，并严格核对目标 ACK。
+
 官方工具没有 `mode` 参数。本机公开实现采用 `send-now` follow-up，忙时进入原生引导路径，空闲时开始新轮次。本机 macOS 已通过独立官方 Node 进程启动 server、列举真实工具并单次调用，返回 `isError=false` 和匹配的原聊天 ID；结果已即时进入原聊天，无需用户点击队列。
 
 完整忙时闭环也已实际通过：先启动 Node 消费者并确认 SSE 订阅，再提交新任务；WorkBuddy 默认恢复原 CLI 会话并主动报告接手、执行和成功，Hub 核对成果文件及 SHA-256 后生成独立结果。Node 自动领取结果，经官方 Desktop MCP 即时引导回运行中的原 Codex 聊天；任务与两段投递均为成功终态，结果关联正确、资源释放。整个返回阶段没有依赖原聊天里的模型代为调用工具。两轮完整 MQ 回路均只验证本机忙时结果返回。随后同一官方 Desktop MCP 通道已另行通过一次空闲启动诊断，详见下节；idle 下完整 MQ 回路、普通任务控制及其他平台仍未验收。
@@ -46,6 +48,8 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 | `cwd` | 该官方插件目录的绝对路径，必须是 `server.mjs` 所在目录 |
 | `thread_id` | 已有原生桌面聊天 ID，与 Hub 绑定一致 |
 | `timeout_seconds` | 单次 MCP 请求超时，默认 `30`，范围 `1` 至 `300` 秒 |
+
+迁移旧定制 Client 时，重新导出 endpoint 专属配置，只迁移上表支持的 `native` 字段。旧定制字段 `receive_tasks`（包括 `false`）会被当前 Node Client 严格拒绝，错误为 `invalid_codex_desktop_mcp_fields`；核对并备份私有配置后移除该旧字段，不放宽未知字段校验。
 
 `command`、`args`、`cwd` 必须来自实际安装的官方插件清单与运行环境，不猜目录。客户端只继承正常操作系统变量及官方 Node/桥接变量白名单，不从配置读取桌面凭据。宿主缺少 `CODEX_THREAD_ID` 或 `CODEX_APP_TOOLS_PIPE_PATH` 时，在领取消息前停止；这些变量的值不要复制到 `client.json`、文档或日志。
 

@@ -69,6 +69,25 @@ test('private config rejects duplicate keys, unsafe URL, caller overrides and mi
   assert.throws(() => validateConfig({ ...raw, native: { ...raw.native, args: [raw.native.args[0], '--interaction-client-id'] } }, environment), ConfigurationError);
 });
 
+test('legacy receive_tasks requires removing only that key while strict native validation stays enabled', t => {
+  const { raw, environment, directory } = fixture(t);
+  const filename = path.join(directory, 'legacy-client.json');
+  for (const receiveTasks of [true, false]) {
+    const legacy = { ...raw, native: { ...raw.native, receive_tasks: receiveTasks } };
+    fs.writeFileSync(filename, JSON.stringify(legacy));
+    assert.throws(() => loadConfig(filename, environment), error => error instanceof ConfigurationError && error.message === 'invalid_codex_desktop_mcp_fields');
+    const migrated = structuredClone(legacy);
+    delete migrated.native.receive_tasks;
+    assert.deepEqual(migrated, raw);
+    fs.writeFileSync(filename, JSON.stringify(migrated));
+    const accepted = loadConfig(filename, environment);
+    assert.equal(accepted.native.thread_id, target);
+    assert.equal(accepted.caller, environment.CODEX_THREAD_ID);
+    assert.notEqual(accepted.caller, accepted.native.thread_id);
+    assert.throws(() => validateConfig({ ...migrated, native: { ...migrated.native, another_legacy_flag: true } }, environment), error => error instanceof ConfigurationError && error.message === 'invalid_codex_desktop_mcp_fields');
+  }
+});
+
 test('binding, tool schema and result-only checks preserve configured native target', t => {
   const { config } = fixture(t);
   validateBinding(binding(), config); validateTool(tools());
