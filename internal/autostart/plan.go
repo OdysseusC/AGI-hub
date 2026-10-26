@@ -116,10 +116,11 @@ func writeJSON(path string, value any) error {
 }
 
 type stagedStartupJSON struct {
-	destination string
-	temporary   string
-	previous    os.FileInfo
-	previousSHA [sha256.Size]byte
+	destination       string
+	temporary         string
+	previous          os.FileInfo
+	previousSHA       [sha256.Size]byte
+	preserveTemporary bool
 }
 
 func stageJSON(path string, value any) (*stagedStartupJSON, error) {
@@ -165,7 +166,11 @@ func stageJSON(path string, value any) (*stagedStartupJSON, error) {
 	return staged, nil
 }
 
-func (s *stagedStartupJSON) cleanup() { _ = os.Remove(s.temporary) }
+func (s *stagedStartupJSON) cleanup() {
+	if !s.preserveTemporary {
+		_ = os.Remove(s.temporary)
+	}
+}
 
 func (s *stagedStartupJSON) commit() error {
 	current, err := os.Lstat(s.destination)
@@ -187,7 +192,11 @@ func (s *stagedStartupJSON) commit() error {
 			return errors.New("startup destination content changed during configuration; retry")
 		}
 	}
-	return os.Rename(s.temporary, s.destination)
+	if err := replaceStartupJSONFile(s.temporary, s.destination, s.previous != nil); err != nil {
+		s.preserveTemporary = true
+		return fmt.Errorf("replace startup JSON; staged file retained for inspection: %w", err)
+	}
+	return nil
 }
 
 func startupJSONFingerprint(path string, expected os.FileInfo) ([sha256.Size]byte, error) {
