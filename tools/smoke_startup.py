@@ -145,7 +145,7 @@ def diagnose_startup_status(binary, data, admin_token):
         try:
             result = subprocess.run(
                 [binary, "autostart", "status", "--data", str(data)],
-                capture_output=True, text=True, timeout=20, env=environment,
+                capture_output=True, text=True, timeout=20, env=environment, cwd=str(data),
             )
             diagnostic = {"returncode": result.returncode,
                           "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
