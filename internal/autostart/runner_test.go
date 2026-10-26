@@ -42,10 +42,11 @@ func helperAppend(path string) {
 }
 
 func helperWait(ready, stopped string) {
-	_ = os.WriteFile(ready, []byte("ready"), 0600)
-	fmt.Fprintln(os.Stdout, "private-child-output runner-fake-secret")
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	_ = os.WriteFile(ready, []byte("ready"), 0600)
+	fmt.Fprintln(os.Stdout, "private-child-output runner-fake-secret")
 	<-signals
 	_ = os.Remove(ready)
 	_ = os.WriteFile(stopped, []byte("stopped"), 0600)
