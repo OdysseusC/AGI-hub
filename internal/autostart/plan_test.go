@@ -54,6 +54,35 @@ func TestPlanDefaultLoadHasNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestPlanReadJSONOnlyCommitsACompleteFreshSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snapshot.json")
+	type snapshot struct {
+		Version int               `json:"version"`
+		Labels  map[string]string `json:"labels"`
+		Items   []string          `json:"items"`
+	}
+	value := snapshot{Version: 1, Labels: map[string]string{"old": "retained"}, Items: []string{"old"}}
+	before := snapshot{Version: 1, Labels: map[string]string{"old": "retained"}, Items: []string{"old"}}
+	if err := os.WriteFile(path, []byte(`{"version":2,"labels":{"partial":"must-not-leak"},"items":["partial"]} {}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := readJSON(path, &value); err == nil {
+		t.Fatal("accepted trailing data after a partially decoded snapshot")
+	}
+	if !reflect.DeepEqual(value, before) {
+		t.Fatalf("failed decode changed the caller's snapshot: %+v", value)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":3}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := readJSON(path, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value.Version != 3 || value.Labels != nil || value.Items != nil {
+		t.Fatalf("successful decode retained fields from an earlier snapshot: %+v", value)
+	}
+}
+
 func TestPlanRegistrationOnlyRecordsAndPreservesExplicitSelection(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "must-not-run")

@@ -14,3 +14,5 @@ func openStartupReadFile(path string) (*os.File, error) {
 	}
 	return os.NewFile(uintptr(fd), path), nil
 }
+
+func startupReadSharingViolation(error) bool { return false }

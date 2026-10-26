@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -48,15 +49,43 @@ func RegistrationFor(dir, binary string) Registration {
 	return Registration{ID: fmt.Sprintf("com.agihub.startup.%x", digest[:8]), Binary: binary, DataDir: dir, LogDir: filepath.Join(dir, "logs", "autostart")}
 }
 
-func readJSON(path string, value any) error {
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		err = readJSONAttempt(path, value)
-		if !errors.Is(err, errStartupJSONChanged) {
+func readJSON[T any](path string, value *T) error {
+	deadline := time.Now().Add(200 * time.Millisecond)
+	changedAttempts := 0
+	for {
+		// A failed decode may already have populated maps and slices. Never
+		// expose those partial values or merge them into a later snapshot.
+		var fresh T
+		err := readJSONAttempt(path, &fresh)
+		if err == nil {
+			*value = fresh
+			return nil
+		}
+		if errors.Is(err, errStartupJSONChanged) {
+			changedAttempts++
+			if changedAttempts < 3 {
+				continue
+			}
+			return err
+		}
+		if !startupReadSharingViolation(err) {
+			return err
+		}
+		// ReplaceFileW briefly opens its replacement without sharing. Retry
+		// only that Windows conflict; permission/path/format errors fail closed.
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return err
+		}
+		delay := 10 * time.Millisecond
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
+		if !time.Now().Before(deadline) {
 			return err
 		}
 	}
-	return err
 }
 
 func readJSONAttempt(path string, value any) error {

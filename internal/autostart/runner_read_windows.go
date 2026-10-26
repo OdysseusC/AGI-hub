@@ -1,6 +1,7 @@
 package autostart
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -20,4 +21,8 @@ func openStartupReadFile(path string) (*os.File, error) {
 		return nil, err
 	}
 	return os.NewFile(uintptr(handle), path), nil
+}
+
+func startupReadSharingViolation(err error) bool {
+	return errors.Is(err, syscall.Errno(32)) // ERROR_SHARING_VIOLATION
 }
