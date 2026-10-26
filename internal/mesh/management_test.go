@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestManagementGrantIsSeparateRevocableAndNotInheritedByPairing(t *testing.T) {
@@ -66,6 +67,49 @@ func TestManagementGrantIsSeparateRevocableAndNotInheritedByPairing(t *testing.T
 	denied()
 	if b.Snapshot().Peers[0].ManageAllowed {
 		t.Fatal("new pairing inherited old grant")
+	}
+}
+
+func TestManagementHasIndependentBoundedTLSBudget(t *testing.T) {
+	a, b := newTestService(t, t.TempDir(), nil), newTestService(t, t.TempDir(), nil)
+	var calls atomic.Int32
+	b.opts.Manage = func(ctx context.Context, _ ManagementRequest) (ManagementResponse, error) {
+		calls.Add(1)
+		timer := time.NewTimer(9 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return ManagementResponse{Status: http.StatusOK, Body: json.RawMessage(`{"ok":true}`)}, nil
+		case <-ctx.Done():
+			return ManagementResponse{}, ctx.Err()
+		}
+	}
+	enable(t, a)
+	enable(t, b)
+	pair(t, a, b)
+	if err := b.SetManagementAllowed(a.id, true); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	peer := a.disk.Peers[b.id]
+	a.mu.Unlock()
+	ordinary := a.client(peer)
+	transport := ordinary.Transport
+	if ordinary.Timeout != 7*time.Second || b.server.WriteTimeout != 8*time.Second {
+		t.Fatalf("ordinary transport budgets changed: client=%v server=%v", ordinary.Timeout, b.server.WriteTimeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	started := time.Now()
+	out, err := a.RemoteManagement(ctx, b.id, ManagementRequest{Method: http.MethodGet, Path: "/v1/manage"})
+	if err != nil || out.Status != http.StatusOK || string(out.Body) != `{"ok":true}` {
+		t.Fatalf("management callback beyond the ordinary budgets failed: %+v %v", out, err)
+	}
+	if time.Since(started) < 9*time.Second || calls.Load() != 1 {
+		t.Fatalf("delayed callback did not run exactly once: elapsed=%v calls=%d", time.Since(started), calls.Load())
+	}
+	if ordinary.Timeout != 7*time.Second || a.client(peer) != ordinary || a.client(peer).Transport != transport || b.server.WriteTimeout != 8*time.Second {
+		t.Fatal("management mutated the ordinary client, connection pool, or global server deadline")
 	}
 }
 

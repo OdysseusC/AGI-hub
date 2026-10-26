@@ -66,7 +66,11 @@ func nativePlatformController() platformController {
 			defer cancel()
 			command := exec.CommandContext(ctx, name, args...)
 			command.WaitDelay = time.Second
-			return command.CombinedOutput()
+			output, err := command.CombinedOutput()
+			if ctx.Err() != nil {
+				return output, fmt.Errorf("native login command exceeded its 15 second deadline: %w", ctx.Err())
+			}
+			return output, err
 		},
 	}
 }

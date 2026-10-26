@@ -187,7 +187,7 @@ func (s *Service) client(peer peerRecord) *http.Client {
 		}
 		return nil
 	}}
-	transport := &http.Transport{TLSClientConfig: config, DialContext: (&net.Dialer{Timeout: time.Second, KeepAlive: 15 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: 5 * time.Second, IdleConnTimeout: 30 * time.Second, MaxIdleConns: maxPeers, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 2, DisableCompression: true}
+	transport := &http.Transport{TLSClientConfig: config, DialContext: (&net.Dialer{Timeout: time.Second, KeepAlive: 15 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: managementRequestTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: maxPeers, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 2, DisableCompression: true}
 	client := &http.Client{Transport: transport, Timeout: 7 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("mesh redirects forbidden") }}
 	// Temporary failed invitations cannot create an unbounded transport cache.
 	if len(s.clients) >= maxPeers*2 {
@@ -230,7 +230,15 @@ func (s *Service) requestLimited(ctx context.Context, peer peerRecord, path stri
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := s.client(peer).Do(req)
+	client := s.client(peer)
+	if path == "/v1/manage" {
+		// Keep the same pinned TLS transport and connection pool. Ordinary
+		// mesh calls retain their seven-second total budget on the cached client.
+		managementClient := *client
+		managementClient.Timeout = managementRequestTimeout
+		client = &managementClient
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}

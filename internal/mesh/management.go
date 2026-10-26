@@ -7,10 +7,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 )
 
 const MaxManagementBody = 1 << 20
 const maxManagementFrame = 2 << 20
+const managementRequestTimeout = 60 * time.Second
 
 type ManagementError struct{ Status int }
 
@@ -137,6 +139,10 @@ func (s *Service) handleManagement(w http.ResponseWriter, r *http.Request, peerI
 	// An administrator may revoke permission while a bounded body is arriving.
 	if !s.managementAllowed(peerID) {
 		http.Error(w, "remote management permission required", http.StatusForbidden)
+		return
+	}
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(managementRequestTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "management response deadline unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	out, err := s.opts.Manage(r.Context(), in)

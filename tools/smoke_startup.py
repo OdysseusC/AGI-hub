@@ -128,6 +128,22 @@ def wait_owned_hub(captured):
             raise ctypes.WinError(ctypes.get_last_error())
 
 
+def diagnose_startup_status(binary, data, admin_token):
+    """Only the private fixture's redacted status/error, never its config."""
+    try:
+        result = subprocess.run(
+            [binary, "autostart", "status", "--data", str(data)],
+            capture_output=True, text=True, timeout=20,
+        )
+        diagnostic = {"returncode": result.returncode,
+                      "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
+    except subprocess.TimeoutExpired as failure:
+        diagnostic = {"timeout_seconds": 20,
+                      "stdout": str(failure.stdout or "")[:8192],
+                      "stderr": str(failure.stderr or "")[:8192]}
+    print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
+
+
 def run(binary):
     with tempfile.TemporaryDirectory(prefix="agi-hub-startup-smoke-") as temp:
         data = Path(temp) / "private"
@@ -192,6 +208,8 @@ def run(binary):
             # Platform status can run a bounded 15s PowerShell query on Windows;
             # keep health probes short while allowing that management budget.
             view = request("/v1/manage", timeout=20)["autostart"]
+            if view.get("runtime_active") is not True:
+                diagnose_startup_status(binary, data, config["admin_token"])
             assert view.get("runtime_active") is True, {
                 key: view.get(key) for key in ("supported", "detail", "runtime_active")
             }

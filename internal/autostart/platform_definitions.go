@@ -371,21 +371,29 @@ func splitWindowsCommandLine(commandLine string) ([]string, error) {
 func scheduledTaskQuery(id string) string {
 	script := `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$stage = 'create_service'
 try {
   $service = New-Object -ComObject 'Schedule.Service'
+  $stage = 'connect'
   $service.Connect()
-  $task = $service.GetFolder('\').GetTask('` + id + `')
+  $stage = 'get_folder'
+  $folder = $service.GetFolder('\')
+  $stage = 'get_task'
+  $task = $folder.GetTask('` + id + `')
+  $stage = 'read_xml'
   $document = New-Object System.Xml.XmlDocument
   $document.LoadXml($task.Xml)
   if ($document.FirstChild -is [System.Xml.XmlDeclaration]) { $document.FirstChild.Encoding = 'UTF-8' }
   [Console]::Out.Write($document.OuterXml)
 } catch {
+  $codes = @()
   $failure = $_.Exception
   while ($null -ne $failure) {
     if ($failure.HResult -eq -2147024894) { exit 3 }
+    $codes += $failure.HResult
     $failure = $failure.InnerException
   }
-  [Console]::Error.Write($_.Exception.Message)
+  [Console]::Error.Write('task-scheduler query failed; stage=' + $stage + '; hresults=' + ($codes -join ','))
   exit 1
 }`
 	units := utf16.Encode([]rune(script))
