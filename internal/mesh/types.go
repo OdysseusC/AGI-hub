@@ -26,7 +26,10 @@ type Options struct {
 	LocalAgents func() []Agent
 	// Receive must durably and idempotently accept by (FromHub, ID) before
 	// returning nil. A crash can replay a pending callback after restart.
-	Receive  func(context.Context, Message) error
+	Receive func(context.Context, Message) error
+	// Manage is called only for a directly paired TLS identity with a separate,
+	// explicit management grant. It never receives or returns HTTP credentials.
+	Manage   func(context.Context, ManagementRequest) (ManagementResponse, error)
 	OnChange func()
 }
 
@@ -93,12 +96,24 @@ type Candidate struct {
 }
 
 type Peer struct {
-	HubID     string  `json:"hub_id"`
-	Name      string  `json:"name"`
-	Address   string  `json:"address"`
-	Online    bool    `json:"online"`
-	Reachable bool    `json:"reachable"`
-	Agents    []Agent `json:"agents"`
+	HubID         string  `json:"hub_id"`
+	Name          string  `json:"name"`
+	Address       string  `json:"address"`
+	Online        bool    `json:"online"`
+	Reachable     bool    `json:"reachable"`
+	Agents        []Agent `json:"agents"`
+	ManageAllowed bool    `json:"management_allowed"`
+}
+
+type ManagementRequest struct {
+	Method string          `json:"method"`
+	Path   string          `json:"path"`
+	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+type ManagementResponse struct {
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body"`
 }
 
 type Route struct {

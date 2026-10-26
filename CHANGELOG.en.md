@@ -2,6 +2,16 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## 0.5.0 — 2026-10-26
+
+- Add optional user-login startup, off by default: a current-user LaunchAgent on macOS and a current-user logon task on Windows. Installation and upgrades do not enable it automatically; Linux remains CI-only for this feature. Registration and saving startup switches affect the next login without starting or stopping current processes.
+- Add `autostart status/enable/disable/register-client/remove-client/run`, a management startup switch and registered-Client checkboxes. Register absolute executables, separate arguments and working directories through the local CLI. New registrations start unselected; omitting `--clients` on `enable` preserves choices, while `--clients ''` clears them. The web interface accepts no executable commands or private configuration paths.
+- Authenticate the local Hub before starting selected consumers. Attach to an existing Hub without taking ownership. The runner's own Hub and each failed Client receive at most an initial start plus five retries after 1/2/4/8/16 seconds, retaining failure after exhaustion. No unlimited OS restart policy or redelivery of uncertain messages is introduced.
+- WorkBuddy/Grok can register their actual standalone consumer entry points. Codex/Claude retain a forced native-host requirement and report `needs_host_environment` instead of being launched directly by the Go runner. Native IPC, pipe values, sign-in credentials and model keys are not saved. Authentication, native permissions and network gates remain in force. See the [startup guide](docs/AUTOSTART.en.md).
+- Add an open-remote-management button and a separate management grant to paired-host cards. Grants default to off; pairing or agent sharing does not authorize administration. The browser stays on the current Hub's loopback page, while pinned mutually authenticated TLS connects directly to the target. The target's administrator token never enters the LAN or browser.
+- Limit remote access to state, existing-agent management and registered startup selections. Exclude remote network settings, pairing/grant operations, recursive proxies, arbitrary URLs and relays. Recheck grants for each request, including reused connections; revocation takes effect and fresh pairing does not inherit access. Remote pages use manual refresh without remote SSE. See the [LAN guide](docs/LAN.en.md).
+- Platform definitions, process substitutes, bounded retries, ownership, management authentication, two-Hub loopback TLS and web checks are offline verification without real-assistant calls. Physical-computer reboot, user login, remote management and new native-session lifecycles remain unaccepted. Earlier native round trips do not establish this version's recovery capability.
+
 ## 0.4.0 — 2026-10-26
 
 - Add opt-in LAN Hub communication with stable host identities, explicit pairing and agent exports, reusable TLS connections, direct-first routing and bounded relays. Routing does not propagate trust.

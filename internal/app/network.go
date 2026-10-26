@@ -31,7 +31,7 @@ type managementRuntime struct {
 func (s *Server) StartManagement(ctx context.Context, dir string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	m := &managementRuntime{dir: dir, ctx: ctx, cancel: cancel, done: make(chan struct{})}
-	service, err := mesh.New(mesh.Options{DataDir: filepath.Join(dir, "network"), LocalAgents: func() []mesh.Agent {
+	service, err := mesh.New(mesh.Options{DataDir: filepath.Join(dir, "network"), Manage: s.executeRemoteManagement, LocalAgents: func() []mesh.Agent {
 		out := []mesh.Agent{}
 		state := s.Broker.Snapshot()
 		for _, e := range state.Endpoints {

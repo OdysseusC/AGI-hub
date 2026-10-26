@@ -74,6 +74,23 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch r.URL.Path {
+	case "/v1/manage/autostart":
+		var in struct {
+			Enabled bool     `json:"enabled"`
+			Clients []string `json:"clients"`
+		}
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		if err := ConfigureStartup(m.dir, binary, in.Enabled, in.Clients); err != nil {
+			return nil, err
+		}
+		s.Broker.Signal()
+		return map[string]any{"ok": true, "detail": "已保存，下次用户登录时生效；当前运行和任务保持不变。"}, nil
 	case "/v1/manage/settings":
 		var in struct {
 			Name             string `json:"name"`
@@ -178,6 +195,10 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 			return nil, err
 		}
 		switch in.Action {
+		case "allow_management", "revoke_management":
+			err := m.mesh.SetManagementAllowed(in.PeerID, in.Action == "allow_management")
+			s.Broker.Signal()
+			return map[string]any{"ok": err == nil, "detail": "已更新此主机管理本机的权限；配对或消息共享本身不授予管理权限。"}, err
 		case "invite":
 			invite, err := m.mesh.Invite(5 * time.Minute)
 			return map[string]any{"ok": err == nil, "invitation": invite.Code, "expires_at": invite.ExpiresAt, "detail": "将邀请交给另一台电脑；收到请求后仍需在本机确认。"}, err
@@ -396,7 +417,7 @@ func (s *Server) managementState() (any, error) {
 			children = append(children, map[string]string{"id": a.ID, "name": a.Name, "state": a.Status,
 				"communication_language": language.Effective(a.Driver, a.CommunicationLanguage)})
 		}
-		peers = append(peers, map[string]any{"id": p.HubID, "name": p.Name, "address": p.Address, "state": status, "route": routes[p.HubID], "agents": children})
+		peers = append(peers, map[string]any{"id": p.HubID, "name": p.Name, "address": p.Address, "state": status, "route": routes[p.HubID], "agents": children, "management_allowed": p.ManageAllowed})
 	}
 	pending := []map[string]string{}
 	for _, p := range state.Pending {
@@ -419,5 +440,14 @@ func (s *Server) managementState() (any, error) {
 	return map[string]any{
 		"hub":    map[string]any{"id": state.HubID, "name": state.Name, "network_enabled": state.Config.Enabled, "discovery_enabled": discoveryEnabled, "listen": state.Config.ListenAddr, "interface": iface, "discovery_error": discoveryErr, "network_error": m.networkError},
 		"agents": agents, "network": map[string]any{"peers": peers, "pending": pending, "discovered": discovered, "interfaces": interfaces},
+		"autostart": startupView(m.dir),
 	}, nil
+}
+
+func startupView(dir string) any {
+	v, err := StartupStatus(dir)
+	if err != nil {
+		return map[string]any{"supported": false, "enabled": false, "detail": "自启动状态核对失败，请在本机检查配置和系统登录项。"}
+	}
+	return v
 }

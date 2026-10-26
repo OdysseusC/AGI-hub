@@ -30,7 +30,7 @@ func packageFixture(t *testing.T) string {
 		"clients/workbuddy/main.py": "public code", "clients/workbuddy/client.example.json": "public example", "clients/shared/report.py": "public code",
 		"clients/workbuddy/client.json": "SECRET TOKEN", "clients/workbuddy/private/secret.md": "PRIVATE CLIENT", "clients/workbuddy/__pycache__/x.pyc": "CACHE",
 		"clients/claude-code/.claude-plugin/marketplace.json": "public marketplace", "clients/claude-code/agi-hub-endpoint/hooks/hooks.json": "public hooks",
-		"tools/smoke_skill_sync.py": "public skill smoke", "tools/smoke_mailbox.py": "public mailbox smoke",
+		"tools/smoke_skill_sync.py": "public skill smoke", "tools/smoke_mailbox.py": "public mailbox smoke", "tools/smoke_startup.py": "public startup smoke",
 	}
 	for _, name := range publicDocumentFixtures() {
 		files[name] = "Chinese default document"
@@ -50,7 +50,7 @@ func packageFixture(t *testing.T) string {
 func publicDocumentFixtures() []string {
 	return []string{
 		"AGENTS.md", "CHANGELOG.md", "CONTEXT.md", "CONTRIBUTING.md", "INSTALL.md", "README.md", "START-HERE.md",
-		"docs/ADAPTERS.md", "docs/ARCHITECTURE.md", "docs/CLIENTS.md", "docs/INSTALL-FOR-ASSISTANT.md", "docs/NATIVE-VALIDATION.md", "docs/PROTOCOL.md", "docs/SKILLS.md", "docs/TEAM-ORCHESTRATION.md", "docs/adr/0001-native-coordination.md",
+		"docs/ADAPTERS.md", "docs/ARCHITECTURE.md", "docs/AUTOSTART.md", "docs/CLIENTS.md", "docs/INSTALL-FOR-ASSISTANT.md", "docs/NATIVE-VALIDATION.md", "docs/PROTOCOL.md", "docs/SKILLS.md", "docs/TEAM-ORCHESTRATION.md", "docs/adr/0001-native-coordination.md",
 		"clients/claude-code/README.md", "clients/codex/README.md", "clients/grok-routine/README.md", "clients/tests/README.md", "clients/workbuddy/README.md",
 		"tools/MAILBOX-SMOKE.md", "internal/install/skills/agi-hub-client/SKILL.md",
 	}

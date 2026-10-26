@@ -27,6 +27,7 @@ go build -o dist/agi-hub-smoke ./cmd/agi-hub
 python3 tools/smoke_client.py --hub "$PWD/dist/agi-hub-smoke"
 python3 tools/smoke_skill_sync.py --hub "$PWD/dist/agi-hub-smoke"
 python3 tools/smoke_mailbox.py --hub "$PWD/dist/agi-hub-smoke"
+python3 tools/smoke_startup.py --hub "$PWD/dist/agi-hub-smoke"
 ```
 
 The smoke binary is built for the development machine, separately from the four Windows/macOS release packages. On Windows, name it `dist/agi-hub-smoke.exe` and pass that path to the scripts. These tests use temporary private configurations and synthetic native adapters. Passing them does not prove a native application's login, idle wake or busy guidance works; those require a separate, authorized local acceptance test.

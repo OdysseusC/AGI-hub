@@ -61,6 +61,11 @@
     try { return decodeURIComponent(string(hash).replace(/^#/, "")); } catch (_) { return ""; }
   }
 
+  function remotePrefix(pathname) {
+    const match = /^\/remote\/([a-f0-9]{64})\/$/.exec(string(pathname));
+    return match ? "/remote/" + match[1] : "";
+  }
+
   function networkCounts(network = {}) {
     const peers = list(network.peers);
     return {
@@ -88,6 +93,12 @@
       if (!response.ok) {
         let detail = await response.text();
         try { detail = JSON.parse(detail).error || detail; } catch (_) { /* Plain HTTP errors are valid. */ }
+        const remoteErrors = {
+          remote_management_permission_required:"目标 Hub 尚未允许此主机管理，请先在目标电脑的已配对主机中授予管理权限。",
+          remote_management_unavailable:"目标 Hub 暂不可用。请确认两端已升级、已配对并且可直接连接。",
+          remote_management_operation_forbidden:"远端不支持此项操作，请在目标电脑本机管理页操作。",
+        };
+        detail = remoteErrors[detail] || detail;
         const error = new Error(response.status === 401 ? "管理密钥无效或已失效，请重新连接。" : (detail || "请求失败，请重试。"));
         error.status = response.status;
         throw error;
@@ -288,7 +299,7 @@
     return { node, refs, update, languageSaved() { languageDirty = false; languageInput(); } };
   }
 
-  function createPeerCard(document, peer, action) {
+  function createPeerCard(document, peer, action, options = {}) {
     const node = element(document, "details", "peer-card");
     node.dataset.peer = peer.id;
     const summary = element(document, "summary");
@@ -308,8 +319,16 @@
     }
     if (!list(peer.agents).length) body.append(element(document, "p", "hint", "此主机尚未公布共享助手，或目录仍待同步。"));
     const footer = element(document, "div", "row");
-    footer.append(element(document, "span", "hint mono", peer.address || "地址尚未同步"),
-      button(document, "断开并取消配对", () => action({ action: "disconnect", peer_id: peer.id }), "quiet danger"));
+    footer.append(element(document, "span", "hint mono", peer.address || "地址尚未同步"));
+    if (!options.remote) {
+      if (options.openRemote) {
+        const open = button(document, "打开远端管理", () => options.openRemote(peer.id), "secondary");
+        open.disabled = peer.state !== "connected";
+        footer.append(open);
+      }
+      footer.append(button(document, peer.management_allowed ? "撤销此主机管理本机" : "允许此主机管理本机", () => action({action: peer.management_allowed ? "revoke_management" : "allow_management",peer_id:peer.id}), "quiet"));
+      footer.append(button(document, "断开并取消配对", () => action({ action: "disconnect", peer_id: peer.id }), "quiet danger"));
+    }
     body.append(footer);
     node.append(summary, body);
     return node;
@@ -374,13 +393,47 @@
     let token = bootstrapToken(window.location.hash);
     window.history.replaceState(null, "", window.location.pathname);
     el("token").value = token;
-    const api = createAPI(window.fetch.bind(window), () => token);
+    const prefix = remotePrefix(window.location.pathname);
+    const remote = !!prefix;
+    const api = createAPI((path, options) => window.fetch(prefix + path, options), () => token);
     const cards = new Map();
     let controller, generation = 0, reconnectTimer, streamAttempt = 0;
-    let settingsDirty = false, authenticated = false;
+    let settingsDirty = false, startupDirty = false, authenticated = false;
     let actionInFlight = false;
     const errorBox = el("error");
     const noticeBox = el("notice");
+    if (remote) {
+      document.title = "AGI Hub · 远端管理";
+      el("computer-label").textContent = "远端电脑";
+      el("startup-scope").textContent = "目标电脑运行";
+      el("settings-form").hidden = true;
+      el("pairing-controls").hidden = true;
+      el("discovered-group").hidden = true;
+      el("network-note").textContent = "远端视图 · 手动刷新 · 网络连接与授权请在目标本机修改";
+    }
+
+    function renderStartup(startup = {}) {
+      setBadge(el("startup-status"), startup.enabled ? status("下次登录启用", "good") : status("关闭"));
+      el("startup-detail").textContent = startup.detail || "首次使用请在目标电脑登记稳定的 Hub 与 Client 启动路径。";
+      el("save-startup").disabled = !startup.supported;
+      el("startup-enabled").disabled = !startup.supported;
+      if (!startupDirty) {
+        el("startup-enabled").checked = !!startup.enabled;
+        el("startup-clients").replaceChildren();
+        for (const client of list(startup.clients)) {
+          const label = element(document, "label", "switch-item");
+          const input = element(document, "input");
+          input.type = "checkbox"; input.value = client.endpoint; input.checked = !!client.enabled;
+          input.dataset.startupClient = client.endpoint;
+          label.append(input, element(document,"span","",client.endpoint + (client.requires_host ? " · 需要原生宿主" : " · 独立 Client")));
+          el("startup-clients").append(label);
+        }
+        if (!list(startup.clients).length) el("startup-clients").append(element(document,"p","hint","尚未登记独立 Client；启用后仅恢复 Hub。"));
+      }
+      const labels = {hub_ready:"Hub 已就绪",running:"进程运行中",needs_host_environment:"等待原生宿主",needs_user:"需要处理",failed:"失败",backoff:"等待有限重试",stopped:"已停止"};
+      const observations = list(startup.runtime?.components).map(c => c.id + "：" + (labels[c.state] || c.state)).join("；");
+      el("startup-runtime").textContent = observations ? (startup.runtime_active ? "本次运行：" : "上次记录（当前未运行）：") + observations : "自启动恢复尚无运行记录。";
+    }
 
     function error(failure) {
       if (failure.name === "AbortError") return;
@@ -451,12 +504,15 @@
       const open = new Set(Array.from(peers.querySelectorAll("details[open]"), node => node.dataset.peer));
       peers.replaceChildren();
       for (const peer of list(network.peers)) {
-        const node = createPeerCard(document, peer, body => mutate("/v1/manage/network", body));
+        const node = createPeerCard(document, peer, body => mutate("/v1/manage/network", body), {remote,openRemote:id=>{
+          if (!/^[a-f0-9]{64}$/.test(id)) return;
+          window.open("/remote/" + id + "/#" + encodeURIComponent(token), "_blank", "noopener");
+        }});
         node.open = open.has(peer.id);
         peers.append(node);
       }
       if (!list(network.peers).length) peers.append(element(document, "p", "empty", "还没有已配对主机。发送邀请，或使用另一台电脑的邀请开始连接。"));
-      el("pending-group").hidden = !list(network.pending).length;
+      el("pending-group").hidden = remote || !list(network.pending).length;
       el("pending").replaceChildren();
       for (const peer of list(network.pending)) {
         el("pending").append(createPendingCard(document, peer, body => mutate("/v1/manage/network", body)));
@@ -482,6 +538,7 @@
     }
 
     function renderMessages(state) {
+      el("remote-preview").hidden = !state.remote_preview;
       const messages = recentMessages(state);
       el("mail-empty").hidden = !!messages.length;
       const previousOpen = new Set(Array.from(el("mails").querySelectorAll("details[open]"), node => node.dataset.message));
@@ -529,6 +586,7 @@
     }, ({ expected, manage, state }) => {
       if (expected !== generation) return;
       renderSettings(manage);
+      renderStartup(manage.autostart);
       renderAgents(manage.agents);
       renderNetwork(manage.network);
       renderMessages(state);
@@ -552,6 +610,7 @@
         }
         if (body.action === "pair") el("pair-invitation").value = "";
         if (path === "/v1/manage/settings") settingsDirty = false;
+        if (path === "/v1/manage/autostart") startupDirty = false;
         if (path === "/v1/manage/agent" && body.action === "language") cards.get(body.endpoint)?.languageSaved();
         notice(result, "操作已提交，当前状态见下方列表。");
         await refresh();
@@ -649,7 +708,8 @@
         el("refresh").hidden = false;
         el("lock").hidden = false;
         streamAttempt = 0;
-        stream(generation);
+        if (remote) connection("远端已连接 · 手动刷新", "good");
+        else stream(generation);
       } catch (failure) {
         if (failure.name !== "AbortError") { connection("连接失败", "bad"); error(failure); }
       } finally {
@@ -659,6 +719,12 @@
     }
 
     el("login-form").addEventListener("submit", connect);
+    el("startup-form").addEventListener("input", () => { startupDirty = true; });
+    el("startup-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const clients = Array.from(el("startup-clients").querySelectorAll("input[data-startup-client]")).filter(input => input.checked).map(input => input.value);
+      return mutate("/v1/manage/autostart", {enabled:el("startup-enabled").checked,clients});
+    });
     el("lock").addEventListener("click", () => lock());
     el("refresh").addEventListener("click", async () => {
       el("refresh").disabled = true;
@@ -713,5 +779,5 @@
   }
 
   return { start, installationStatus, sessionStatus, agentStatus, networkCounts, recentMessages, createAPI,
-    createEventDecoder, createRefreshQueue, createAgentCard, createPeerCard, createPendingCard, renderActionNotice, retryDelay, bootstrapToken };
+    createEventDecoder, createRefreshQueue, createAgentCard, createPeerCard, createPendingCard, renderActionNotice, retryDelay, bootstrapToken, remotePrefix };
 });

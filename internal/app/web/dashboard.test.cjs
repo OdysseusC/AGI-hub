@@ -38,6 +38,26 @@ const fixtureAgent = changes => ({
   actions: ["install", "enable", "share", "language"], ...changes,
 });
 
+test("remote management uses only an exact qualified local proxy path", () => {
+  const id = "a".repeat(64);
+  assert.equal(ui.remotePrefix("/remote/" + id + "/"), "/remote/" + id);
+  for (const path of ["/", "/remote/not-a-hub/", "/remote/"+id+"/remote/other/", "https://other.invalid/", "/remote/"+id+"/?url=other"]) assert.equal(ui.remotePrefix(path), "");
+});
+
+test("remote page cannot grant management or recursively open another Hub", async () => {
+  const peer = {id:"a".repeat(64),state:"connected",agents:[],management_allowed:false};
+  const calls = [];
+  const local = ui.createPeerCard(document,peer,body=>calls.push(body),{openRemote:id=>calls.push(id)});
+  assert.ok(text(local).includes("允许此主机管理本机"));
+  const allow = descendants(local).find(n=>n.tagName==="BUTTON"&&n.textContent==="允许此主机管理本机");
+  await allow.trigger("click");
+  assert.deepEqual(calls[0],{action:"allow_management",peer_id:peer.id});
+  const remote = ui.createPeerCard(document,peer,()=>{}, {remote:true,openRemote:()=>{throw Error("recursive");}});
+  assert.equal(descendants(remote).filter(n=>n.tagName==="BUTTON").length,0);
+  const relay=ui.createPeerCard(document,{...peer,state:"relayed"},()=>{},{openRemote:()=>{}});
+  assert.equal(descendants(relay).find(n=>n.textContent==="打开远端管理").disabled,true);
+});
+
 test("installation and runtime states never imply native validation", () => {
   assert.equal(typeof ui.installationStatus, "function");
   assert.equal(ui.installationStatus("installed").label, "文件已安装");

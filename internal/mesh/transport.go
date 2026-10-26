@@ -201,6 +201,10 @@ func (s *Service) client(peer peerRecord) *http.Client {
 	return client
 }
 func (s *Service) request(ctx context.Context, peer peerRecord, path string, input, output any) error {
+	return s.requestLimited(ctx, peer, path, input, output, maxFrame)
+}
+
+func (s *Service) requestLimited(ctx context.Context, peer peerRecord, path string, input, output any, limit int) error {
 	var body io.Reader
 	method := http.MethodGet
 	if input != nil {
@@ -208,7 +212,7 @@ func (s *Service) request(ctx context.Context, peer peerRecord, path string, inp
 		if err != nil {
 			return err
 		}
-		if len(data) > maxFrame {
+		if len(data) > limit {
 			return errors.New("mesh frame exceeds limit")
 		}
 		body = bytes.NewReader(data)
@@ -231,11 +235,11 @@ func (s *Service) request(ctx context.Context, peer peerRecord, path string, inp
 		return err
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxFrame+1))
+	data, err := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > maxFrame {
+	if len(data) > limit {
 		return errors.New("mesh response exceeds limit")
 	}
 	if res.StatusCode != http.StatusOK {
@@ -315,6 +319,8 @@ func (s *Service) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/v1/manage":
+		s.handleManagement(w, r, id)
 	case "/v1/directory":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)

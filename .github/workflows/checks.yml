@@ -82,6 +82,12 @@ jobs:
           node --test clients/codex/test_desktop_mcp_client.mjs
           node --test clients/claude-code/tests/client.test.mjs
           node --test internal/app/web/dashboard.test.cjs
+      - name: Startup process smoke without OS login registration
+        run: |
+          startup_binary="$RUNNER_TEMP/agi-hub-startup-smoke"
+          if [ "$RUNNER_OS" = Windows ]; then startup_binary="${startup_binary}.exe"; fi
+          go build -o "$startup_binary" ./cmd/agi-hub
+          python tools/smoke_startup.py --hub "$startup_binary"
 
   portable:
     name: portable packages and offline smokes
@@ -110,6 +116,7 @@ jobs:
           python tools/smoke_client.py --hub "$RUNNER_TEMP/agi-hub-smoke"
           python tools/smoke_skill_sync.py --hub "$RUNNER_TEMP/agi-hub-smoke"
           python tools/smoke_mailbox.py --hub "$RUNNER_TEMP/agi-hub-smoke"
+          python tools/smoke_startup.py --hub "$RUNNER_TEMP/agi-hub-smoke"
       - name: Verify versioned release notes
         run: |
           version=$("$RUNNER_TEMP/agi-hub-smoke" --version | cut -d ' ' -f 3)

@@ -26,7 +26,7 @@ import (
 	"agihub/internal/manager"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -36,8 +36,11 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "autostart" {
+		return runAutostart(args[1:])
+	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Printf("AGI Hub %s\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.\n", version)
+		fmt.Printf("AGI Hub %s\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery, autostart\nUse <command> --help for options.\n", version)
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
