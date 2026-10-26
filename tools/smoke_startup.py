@@ -130,18 +130,31 @@ def wait_owned_hub(captured):
 
 def diagnose_startup_status(binary, data, admin_token):
     """Only the private fixture's redacted status/error, never its config."""
-    try:
-        result = subprocess.run(
-            [binary, "autostart", "status", "--data", str(data)],
-            capture_output=True, text=True, timeout=20,
-        )
-        diagnostic = {"returncode": result.returncode,
-                      "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
-    except subprocess.TimeoutExpired as failure:
-        diagnostic = {"timeout_seconds": 20,
-                      "stdout": str(failure.stdout or "")[:8192],
-                      "stderr": str(failure.stderr or "")[:8192]}
-    print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
+    variants = [("current_environment", None)]
+    if os.name == "nt":
+        # Match runtimeEnvironment(nil), then vary only named OS prerequisites.
+        # Never print the values or copy any model keys into these subprocesses.
+        allowed = {"PATH", "HOME", "USER", "USERNAME", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "SYSTEMROOT", "WINDIR", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "SYSTEMDRIVE", "PATHEXT"}
+        trimmed = {key: value for key, value in os.environ.items() if key.upper() in allowed}
+        modules = {**trimmed, **{key: value for key, value in os.environ.items() if key.upper() == "PSMODULEPATH"}}
+        locations = {"COMSPEC", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432", "OS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "NUMBER_OF_PROCESSORS"}
+        os_locations = {**trimmed, **{key: value for key, value in os.environ.items() if key.upper() in locations}}
+        variants.extend([("runner_environment", trimmed), ("runner_plus_psmodulepath", modules), ("runner_plus_os_locations", os_locations)])
+    for name, environment in variants:
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                [binary, "autostart", "status", "--data", str(data)],
+                capture_output=True, text=True, timeout=20, env=environment,
+            )
+            diagnostic = {"returncode": result.returncode,
+                          "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
+        except subprocess.TimeoutExpired as failure:
+            diagnostic = {"timeout_seconds": 20,
+                          "stdout": str(failure.stdout or "")[:8192],
+                          "stderr": str(failure.stderr or "")[:8192]}
+        diagnostic.update(variant=name, elapsed_seconds=round(time.monotonic() - started, 3))
+        print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
 
 
 def run(binary):
@@ -208,10 +221,13 @@ def run(binary):
             # Platform status can run a bounded 15s PowerShell query on Windows;
             # keep health probes short while allowing that management budget.
             view = request("/v1/manage", timeout=20)["autostart"]
-            if view.get("runtime_active") is not True:
+            if view.get("runtime_active") is not True or view.get("platform_status") == "unknown":
                 diagnose_startup_status(binary, data, config["admin_token"])
             assert view.get("runtime_active") is True, {
                 key: view.get(key) for key in ("supported", "detail", "runtime_active")
+            }
+            assert view.get("platform_status") == "checked", {
+                key: view.get(key) for key in ("supported", "platform_status", "platform_error", "platform_error_stage", "runtime_active")
             }
             assert all("command" not in c and "environment" not in c for c in view["clients"])
             stop_runner()

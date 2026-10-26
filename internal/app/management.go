@@ -447,7 +447,7 @@ func (s *Server) managementState() (any, error) {
 func startupView(dir string) any {
 	v, err := StartupStatus(dir)
 	if err != nil {
-		return map[string]any{"supported": false, "enabled": false, "detail": "自启动状态核对失败，请在本机检查配置和系统登录项。"}
+		return map[string]any{"supported": false, "enabled": nil, "platform_status": "unknown", "detail": "自启动状态核对失败，请在本机检查配置和系统登录项。"}
 	}
 	return v
 }

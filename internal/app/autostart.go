@@ -10,6 +10,10 @@ import (
 // StartupStatus deliberately omits executable arguments, environment and native
 // credentials. Process state and actual mailbox readiness remain separate.
 func StartupStatus(dir string) (map[string]any, error) {
+	return startupStatusWithPlatform(dir, autostart.PlatformStatus)
+}
+
+func startupStatusWithPlatform(dir string, query func(autostart.Registration) (autostart.PlatformState, error)) (map[string]any, error) {
 	p, err := autostart.Load(dir)
 	if err != nil {
 		return nil, err
@@ -18,12 +22,11 @@ func StartupStatus(dir string) (map[string]any, error) {
 	if binary == "" {
 		binary, _ = os.Executable()
 	}
-	platform, err := autostart.PlatformStatus(autostart.RegistrationFor(dir, binary))
-	if err != nil {
-		return nil, err
-	}
+	platform, platformErr := query(autostart.RegistrationFor(dir, binary))
 	detail := "尚未配置系统登录项，默认关闭。"
-	if !platform.Supported {
+	if platformErr != nil {
+		detail = "系统登录项状态查询失败，请在本机核对；当前运行状态独立记录。"
+	} else if !platform.Supported {
 		detail = "当前系统不支持原生登录自启动；Windows 和 macOS 分别使用任务计划与 launchd。"
 	} else if platform.Installed {
 		if p.Enabled && platform.Enabled {
@@ -50,7 +53,22 @@ func StartupStatus(dir string) (map[string]any, error) {
 		}
 		clients = append(clients, map[string]any{"endpoint": c.Endpoint, "enabled": c.Enabled, "requires_host": c.RequiresHost, "state": state, "detail": detail})
 	}
-	return map[string]any{"supported": platform.Supported, "installed": platform.Installed, "enabled": p.Enabled && platform.Enabled, "configured_enabled": p.Enabled, "mechanism": platform.Mechanism, "detail": detail, "clients": clients, "runtime": run, "runtime_active": active, "applies": "next_user_login"}, nil
+	status := map[string]any{"supported": platform.Supported, "installed": platform.Installed, "enabled": p.Enabled && platform.Enabled, "configured_enabled": p.Enabled, "mechanism": platform.Mechanism, "detail": detail, "clients": clients, "runtime": run, "runtime_active": active, "applies": "next_user_login", "platform_status": "checked"}
+	if platformErr != nil {
+		status["platform_status"] = "unknown"
+		status["platform_error"] = "query_failed"
+		status["installed"], status["enabled"] = nil, nil
+		var native *autostart.PlatformQueryError
+		if errors.As(platformErr, &native) {
+			if native.Code == "timeout" {
+				status["platform_error"] = "timeout"
+			}
+			if native.Stage != "" {
+				status["platform_error_stage"] = native.Stage
+			}
+		}
+	}
+	return status, nil
 }
 
 // RegisterStartupClient is a local CLI operation, never a remote HTTP command.

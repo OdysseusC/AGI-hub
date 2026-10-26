@@ -372,15 +372,20 @@ func scheduledTaskQuery(id string) string {
 	script := `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $stage = 'create_service'
+[Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
 try {
   $service = New-Object -ComObject 'Schedule.Service'
   $stage = 'connect'
+  [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
   $service.Connect()
   $stage = 'get_folder'
+  [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
   $folder = $service.GetFolder('\')
   $stage = 'get_task'
+  [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
   $task = $folder.GetTask('` + id + `')
   $stage = 'read_xml'
+  [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
   $document = New-Object System.Xml.XmlDocument
   $document.LoadXml($task.Xml)
   if ($document.FirstChild -is [System.Xml.XmlDeclaration]) { $document.FirstChild.Encoding = 'UTF-8' }

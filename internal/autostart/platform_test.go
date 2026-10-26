@@ -2,6 +2,7 @@ package autostart
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/xml"
@@ -151,6 +152,22 @@ type platformExitError int
 
 func (e platformExitError) Error() string { return "native command failed" }
 func (e platformExitError) ExitCode() int { return int(e) }
+
+func TestPlatformQueryFailureRetainsCapabilityAndSafeStage(t *testing.T) {
+	p := platformController{osName: "windows", run: func(string, ...string) ([]byte, error) {
+		return []byte("[agihub-startup-stage:create_service]\n[agihub-startup-stage:connect]\n"), context.DeadlineExceeded
+	}}
+	state, err := p.status(windowsRegistrationForTest())
+	var failure *PlatformQueryError
+	if !state.Supported || state.Mechanism != "task-scheduler" || !errors.As(err, &failure) || failure.Code != "timeout" || failure.Stage != "connect" || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("native query failure lost safe capability or stage: %+v %v", state, err)
+	}
+	for _, output := range []string{"arbitrary private text", "[agihub-startup-stage:private-value]", "[agihub-startup-stage:connect"} {
+		if stage := scheduledTaskFailureStage([]byte(output)); stage != "" {
+			t.Fatalf("untrusted native output became a public stage: %q", stage)
+		}
+	}
+}
 
 func windowsRegistrationForTest() Registration {
 	return Registration{

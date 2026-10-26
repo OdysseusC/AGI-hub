@@ -413,12 +413,12 @@
     }
 
     function renderStartup(startup = {}) {
-      setBadge(el("startup-status"), startup.enabled ? status("下次登录启用", "good") : status("关闭"));
+      setBadge(el("startup-status"), startup.platform_status === "unknown" ? status("系统登录项待核实", "warn") : startup.enabled ? status("下次登录启用", "good") : status("关闭"));
       el("startup-detail").textContent = startup.detail || "首次使用请在目标电脑登记稳定的 Hub 与 Client 启动路径。";
       el("save-startup").disabled = !startup.supported;
       el("startup-enabled").disabled = !startup.supported;
       if (!startupDirty) {
-        el("startup-enabled").checked = !!startup.enabled;
+        el("startup-enabled").checked = !!(startup.configured_enabled ?? startup.enabled);
         el("startup-clients").replaceChildren();
         for (const client of list(startup.clients)) {
           const label = element(document, "label", "switch-item");

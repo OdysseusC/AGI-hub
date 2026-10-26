@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -35,6 +36,18 @@ type PlatformState struct {
 }
 
 var ErrUnsupportedPlatform = errors.New("optional login startup is unsupported on this platform")
+
+// PlatformQueryError exposes only a fixed error category and a known native
+// query stage to status APIs. The wrapped error remains available to local CLI
+// diagnostics, which must not be returned verbatim to a remote management view.
+type PlatformQueryError struct {
+	Code  string
+	Stage string
+	Err   error
+}
+
+func (e *PlatformQueryError) Error() string { return e.Err.Error() }
+func (e *PlatformQueryError) Unwrap() error { return e.Err }
 
 const platformOwner = "agihub-autostart:v1"
 
@@ -66,7 +79,14 @@ func nativePlatformController() platformController {
 			defer cancel()
 			command := exec.CommandContext(ctx, name, args...)
 			command.WaitDelay = time.Second
-			output, err := command.CombinedOutput()
+			var stderr bytes.Buffer
+			command.Stderr = &stderr
+			output, err := command.Output()
+			// Query stages go to stderr. They are useful on failure but must
+			// never be mixed into a successfully exported XML definition.
+			if err != nil || ctx.Err() != nil {
+				output = append(output, stderr.Bytes()...)
+			}
 			if ctx.Err() != nil {
 				return output, fmt.Errorf("native login command exceeded its 15 second deadline: %w", ctx.Err())
 			}
@@ -284,7 +304,11 @@ func (p platformController) readDefinition(r Registration) ([]byte, bool, error)
 			if errors.As(err, &exitErr) && exitErr.ExitCode() == 3 {
 				return nil, false, nil
 			}
-			return nil, false, fmt.Errorf("query login scheduled task: %w%s", err, commandOutput(out))
+			code := "query_failed"
+			if errors.Is(err, context.DeadlineExceeded) {
+				code = "timeout"
+			}
+			return nil, false, &PlatformQueryError{Code: code, Stage: scheduledTaskFailureStage(out), Err: fmt.Errorf("query login scheduled task: %w%s", err, commandOutput(out))}
 		}
 		return bytes.TrimPrefix(out, []byte{0xef, 0xbb, 0xbf}), true, nil
 	}
@@ -307,6 +331,23 @@ func (p platformController) readDefinition(r Registration) ([]byte, bool, error)
 		return nil, true, fmt.Errorf("read login LaunchAgent definition: %w", err)
 	}
 	return definition, true, nil
+}
+
+func scheduledTaskFailureStage(output []byte) string {
+	const prefix = "[agihub-startup-stage:"
+	text := string(output)
+	index := strings.LastIndex(text, prefix)
+	if index < 0 {
+		return ""
+	}
+	stage, _, found := strings.Cut(text[index+len(prefix):], "]")
+	if found {
+		switch stage {
+		case "create_service", "connect", "get_folder", "get_task", "read_xml":
+			return stage
+		}
+	}
+	return ""
 }
 
 func atomicPrivateDefinition(path string, definition []byte) error {

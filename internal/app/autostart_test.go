@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"agihub/internal/autostart"
 )
@@ -47,6 +48,68 @@ func TestRegisterStartupClientRequiresKnownEndpointAndNativeHost(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(dir, "startup.json"))
 	if string(after) != string(before) {
 		t.Fatal("rejected endpoint changed the startup plan")
+	}
+}
+
+func TestStartupStatusKeepsRealRuntimeWhenPlatformQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := autostart.Plan{Version: 1, Enabled: true, Binary: binary, Clients: []autostart.Client{}}
+	if err := autostart.Save(dir, plan); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- autostart.Run(ctx, dir, plan, autostart.RunOptions{Probe: func(context.Context) error { return nil }})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("fixture foreground runner did not stop")
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state, err := autostart.ReadRuntime(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(state.Components) == 1 && state.Components[0].State == "hub_ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("foreground runner did not establish its fake authenticated Hub")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for _, test := range []struct {
+		name, wantCode string
+		failure        error
+	}{
+		{"failed", "query_failed", errors.New("private-native-error-must-not-leak")},
+		{"timeout", "timeout", &autostart.PlatformQueryError{Code: "timeout", Stage: "create_service", Err: errors.New("private-native-error-must-not-leak")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status, err := startupStatusWithPlatform(dir, func(autostart.Registration) (autostart.PlatformState, error) {
+				return autostart.PlatformState{Supported: true, Mechanism: "task-scheduler"}, test.failure
+			})
+			if err != nil || status["runtime_active"] != true || status["supported"] != true || status["platform_status"] != "unknown" || status["platform_error"] != test.wantCode || status["enabled"] != nil || status["installed"] != nil || status["configured_enabled"] != true {
+				t.Fatalf("platform query hid or misreported process state: %+v %v", status, err)
+			}
+			encoded, _ := json.Marshal(status)
+			if strings.Contains(string(encoded), "private-native-error-must-not-leak") {
+				t.Fatal("remote status exposed raw native diagnostic output")
+			}
+		})
 	}
 }
 
