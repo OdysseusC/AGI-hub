@@ -367,14 +367,16 @@ func splitWindowsCommandLine(commandLine string) ([]string, error) {
 // Query through the native Task Scheduler COM API so missing tasks can be
 // distinguished by HRESULT rather than localized schtasks error messages.
 // The fixed, validated ID is the only interpolated value, and the encoded
-// script never reads or stores a password.
+// script never reads or stores a password. Use .NET methods rather than cmdlets:
+// discovering New-Object can scan ambient modules when the login runner omits
+// PowerShell's module-analysis cache environment setting.
 func scheduledTaskQuery(id string) string {
 	script := `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $stage = 'create_service'
 [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
 try {
-  $service = New-Object -ComObject 'Schedule.Service'
+  $service = [Activator]::CreateInstance([type]::GetTypeFromProgID('Schedule.Service', $true))
   $stage = 'connect'
   [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
   $service.Connect()
@@ -386,7 +388,7 @@ try {
   $task = $folder.GetTask('` + id + `')
   $stage = 'read_xml'
   [Console]::Error.WriteLine('[agihub-startup-stage:' + $stage + ']')
-  $document = New-Object System.Xml.XmlDocument
+  $document = [System.Xml.XmlDocument]::new()
   $document.LoadXml($task.Xml)
   if ($document.FirstChild -is [System.Xml.XmlDeclaration]) { $document.FirstChild.Encoding = 'UTF-8' }
   [Console]::Out.Write($document.OuterXml)

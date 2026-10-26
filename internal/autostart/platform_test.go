@@ -399,6 +399,9 @@ func TestPlatformTaskQueryUsesEncodedNativeXMLAndExplicitMissingExitCode(t *test
 			t.Fatalf("query script missing %q: %s", required, script)
 		}
 	}
+	if strings.Contains(script, "New-Object") || strings.Contains(script, "Import-Module") {
+		t.Fatal("native task query depends on ambient PowerShell cmdlet/module discovery")
+	}
 	if strings.Contains(script, "-2147216625") {
 		t.Fatal("account-information errors must not be classified as a missing task")
 	}

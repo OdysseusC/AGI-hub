@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Exercise real startup processes in temporary data; no OS login items or models."""
 import argparse
-import base64
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -131,91 +129,28 @@ def wait_owned_hub(captured):
 
 
 def diagnose_startup_status(binary, data, admin_token):
-    """Only the private fixture's redacted status/error, never its config."""
-    variants = [("current_environment", None)]
-    if os.name == "nt":
-        # Match runtimeEnvironment(nil), then vary only named OS prerequisites.
-        # Never print the values or copy any model keys into these subprocesses.
-        allowed = {"PATH", "HOME", "USER", "USERNAME", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "SYSTEMROOT", "WINDIR", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "SYSTEMDRIVE", "PATHEXT"}
-        trimmed = {key: value for key, value in os.environ.items() if key.upper() in allowed}
-        cache = {key: value for key, value in os.environ.items() if key.upper() == "PSMODULEANALYSISCACHEPATH"}
-        locations = {"COMSPEC", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432", "OS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "NUMBER_OF_PROCESSORS"}
-        identity = {"COMPUTERNAME", "USERDOMAIN", "USERDNSDOMAIN", "LOGONSERVER", "SESSIONNAME", "USERDOMAIN_ROAMINGPROFILE", "PUBLIC", "ALLUSERSPROFILE", "PROGRAMDATA"}
-        identity_environment = {**trimmed, **{key: value for key, value in os.environ.items() if key.upper() in identity}}
-        all_support = {**trimmed, **{key: value for key, value in os.environ.items() if key.upper() in identity | locations | {"PSMODULEPATH", "PSMODULEANALYSISCACHEPATH"}}}
-        variants.append(("runner_environment", trimmed))
-        if cache:
-            variants.append(("runner_plus_module_analysis_cache", {**trimmed, **cache}))
-        print(json.dumps({"startup_diagnostic_cache_variable_present": bool(cache)}), flush=True)
-        variants.extend([("runner_plus_identity", identity_environment), ("runner_plus_all_os_support", all_support)])
-    for name, environment in variants:
-        started = time.monotonic()
+    """Only the private fixture's redacted status summary, never its config."""
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [binary, "autostart", "status", "--data", str(data)],
+            capture_output=True, text=True, timeout=20, cwd=str(data),
+        )
+        diagnostic = {"returncode": result.returncode, "stderr": result.stderr[:4096]}
         try:
-            result = subprocess.run(
-                [binary, "autostart", "status", "--data", str(data)],
-                capture_output=True, text=True, timeout=20, env=environment, cwd=str(data),
-            )
-            diagnostic = {"returncode": result.returncode,
-                          "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
-        except subprocess.TimeoutExpired as failure:
-            diagnostic = {"timeout_seconds": 20,
-                          "stdout": str(failure.stdout or "")[:8192],
-                          "stderr": str(failure.stderr or "")[:8192]}
-        diagnostic.update(variant=name, elapsed_seconds=round(time.monotonic() - started, 3))
-        print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
-    if os.name == "nt":
-        # Same strict environment and cwd, with no cmdlet discovery/autoloading.
-        # This control only looks up our private fixture's unregistered task.
-        task_id = "com.agihub.startup." + hashlib.sha256(str(data).encode("utf-8")).hexdigest()[:16]
-        script = r"""$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$stage = 'xml_document'
-try {
-  [Console]::Error.WriteLine('[pure-net-com-stage:' + $stage + ']')
-  $document = [System.Xml.XmlDocument]::new()
-  $document.LoadXml('<Task/>')
-  $stage = 'lookup_service_type'
-  [Console]::Error.WriteLine('[pure-net-com-stage:' + $stage + ']')
-  $serviceType = [type]::GetTypeFromProgID('Schedule.Service', $true)
-  $stage = 'create_service'
-  [Console]::Error.WriteLine('[pure-net-com-stage:' + $stage + ']')
-  $service = [Activator]::CreateInstance($serviceType)
-  $stage = 'connect'
-  [Console]::Error.WriteLine('[pure-net-com-stage:' + $stage + ']')
-  $service.Connect()
-  $stage = 'get_task'
-  [Console]::Error.WriteLine('[pure-net-com-stage:' + $stage + ']')
-  $task = $service.GetFolder('\').GetTask('TASK_ID')
-  $document.LoadXml($task.Xml)
-  [Console]::Out.Write('result=present;xml_valid=true')
-  exit 0
-} catch {
-  $failure = $_.Exception
-  while ($null -ne $failure) {
-    if ($failure.HResult -eq -2147024894) {
-      [Console]::Out.Write('result=missing;xml_constructor_valid=true')
-      exit 3
-    }
-    [Console]::Error.WriteLine('stage=' + $stage + ';hresult=' + $failure.HResult)
-    $failure = $failure.InnerException
-  }
-  exit 1
-}""".replace("TASK_ID", task_id)
-        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        started = time.monotonic()
-        try:
-            result = subprocess.run(
-                ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-                capture_output=True, text=True, timeout=20, env=trimmed, cwd=str(data),
-            )
-            diagnostic = {"returncode": result.returncode,
-                          "stdout": result.stdout[:8192], "stderr": result.stderr[:8192]}
-        except subprocess.TimeoutExpired as failure:
-            diagnostic = {"timeout_seconds": 20,
-                          "stdout": str(failure.stdout or "")[:8192],
-                          "stderr": str(failure.stderr or "")[:8192]}
-        diagnostic.update(variant="strict_environment_pure_dotnet_com", elapsed_seconds=round(time.monotonic() - started, 3))
-        print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
+            status = json.loads(result.stdout)
+            diagnostic["status"] = {key: status.get(key) for key in (
+                "supported", "installed", "enabled", "platform_status",
+                "platform_error", "platform_error_stage", "runtime_active",
+            )}
+        except (ValueError, AttributeError):
+            diagnostic["stdout"] = result.stdout[:4096]
+    except subprocess.TimeoutExpired as failure:
+        diagnostic = {"timeout_seconds": 20,
+                      "stdout": str(failure.stdout or "")[:4096],
+                      "stderr": str(failure.stderr or "")[:4096]}
+    diagnostic["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    print(json.dumps({"startup_status_diagnostic": diagnostic}).replace(admin_token, "[redacted]"), flush=True)
 
 
 def run(binary):
