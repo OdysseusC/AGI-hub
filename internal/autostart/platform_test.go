@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -50,7 +51,7 @@ func TestPlatformLaunchAgentLifecycleIsDefinitionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("definition permissions = %o", info.Mode().Perm())
 	}
 	definition, err := os.ReadFile(path)
@@ -186,7 +187,10 @@ func TestPlatformScheduledTaskLifecycleIsCurrentUserDefinitionOnly(t *testing.T)
 				t.Fatalf("unexpected create arguments: %v", args)
 			}
 			info, err := os.Stat(args[4])
-			if err != nil || info.Mode().Perm() != 0600 {
+			if err != nil {
+				t.Fatalf("temporary definition is unavailable: %v", err)
+			}
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 				t.Fatalf("temporary definition mode: %v, %v", info, err)
 			}
 			definition, err = os.ReadFile(args[4])

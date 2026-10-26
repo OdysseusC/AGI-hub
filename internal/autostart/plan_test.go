@@ -436,6 +436,49 @@ func TestPlanStagedCommitRefusesReplacedDestination(t *testing.T) {
 	}
 }
 
+func TestPlanStagedCommitRefusesInPlaceContentChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "startup.json")
+	original := []byte(`{"version":1,"enabled":false,"clients":[]}`)
+	replacement := []byte(`{"version":1,"enabled":true ,"clients":[]}`)
+	if len(original) != len(replacement) {
+		t.Fatal("regression fixture must keep the same file size")
+	}
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := stageJSON(path, Plan{Version: 1, Binary: os.Args[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer staged.cleanup()
+	// WriteFile truncates the existing file in place. Restore its mtime as well:
+	// neither inode identity, length nor modification time can detect this edit.
+	if err := os.WriteFile(path, replacement, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("regression fixture must retain file identity, size and modification time")
+	}
+	if err := staged.commit(); err == nil {
+		t.Fatal("overwrote an in-place configuration content change")
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, replacement) {
+		t.Fatalf("in-place replacement was not preserved: %q, %v", got, err)
+	}
+}
+
 func TestPlanRejectsOversizeUnknownAndTrailingJSON(t *testing.T) {
 	dir := t.TempDir()
 	for _, document := range []string{

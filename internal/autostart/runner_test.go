@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -101,7 +103,7 @@ func testClient(t *testing.T, endpoint string, args ...string) Client {
 	return Client{Endpoint: endpoint, Enabled: true, Command: os.Args[0], Args: append([]string{"startup-test-client"}, args...), Cwd: t.TempDir()}
 }
 
-func waitRuntimeState(t *testing.T, dir string, predicate func(RuntimeState) bool) RuntimeState {
+func waitRuntimeState(t *testing.T, dir string, done <-chan error, predicate func(RuntimeState) bool) RuntimeState {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
@@ -111,6 +113,11 @@ func waitRuntimeState(t *testing.T, dir string, predicate func(RuntimeState) boo
 		}
 		if predicate(state) {
 			return state
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("startup runner exited before reaching the expected state: error=%v state=%+v", err, state)
+		default:
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -153,6 +160,13 @@ func startTestRunner(t *testing.T, dir string, plan Plan, options RunOptions) (c
 		cancel()
 		select {
 		case <-finished:
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("startup runner returned an unexpected error: %v", err)
+				}
+			default:
+			}
 		case <-time.After(8 * time.Second):
 			t.Error("startup runner did not stop")
 		}
@@ -227,7 +241,7 @@ func TestRunAttachesExistingHubAndKeepsKernelLock(t *testing.T) {
 	plan := testPlan()
 	plan.Binary = filepath.Join(dir, "binary-that-must-never-run")
 	cancel, done := startTestRunner(t, dir, plan, RunOptions{Probe: probe})
-	waitRuntimeState(t, dir, func(s RuntimeState) bool { return hasComponent(s, "hub", "hub_ready", 0) })
+	waitRuntimeState(t, dir, done, func(s RuntimeState) bool { return hasComponent(s, "hub", "hub_ready", 0) })
 	if active, err := RuntimeActive(dir); !active || err != nil {
 		t.Fatalf("running foreground owner was inactive: %v %v", active, err)
 	}
@@ -293,7 +307,7 @@ func TestRunStopsOwnedProcessesAndStripsHostSecrets(t *testing.T) {
 		return ErrHubUnavailable
 	}
 	cancel, done := startTestRunner(t, dir, plan, RunOptions{Probe: probe})
-	waitRuntimeState(t, dir, func(s RuntimeState) bool {
+	waitRuntimeState(t, dir, done, func(s RuntimeState) bool {
 		return hasComponent(s, "client:standalone", "running", 1) && hasComponent(s, "hub", "hub_ready", 1)
 	})
 	waitHelperFile(t, clientReady)
@@ -317,7 +331,9 @@ func TestRunStopsOwnedProcessesAndStripsHostSecrets(t *testing.T) {
 	for _, name := range []string{"startup-state.json", filepath.Join("logs", "autostart", "runner.log")} {
 		path := filepath.Join(dir, name)
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0600 {
+		// Windows maps writable POSIX mode bits to 0666; those bits do not
+		// represent its ACL. Keep all file-content and lifecycle checks there.
+		if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 			t.Fatalf("private startup file permissions: %s %v %v", path, info, err)
 		}
 		content, _ := os.ReadFile(path)
@@ -356,11 +372,11 @@ func TestRunClientGatesAndDisabledClients(t *testing.T) {
 	disabled.Enabled = false
 	plan.Clients = []Client{host, denied, disabled}
 	var gates atomic.Int32
-	_, _ = startTestRunner(t, dir, plan, RunOptions{
+	_, done := startTestRunner(t, dir, plan, RunOptions{
 		Probe:      func(context.Context) error { return nil },
 		ClientGate: func(Client) error { gates.Add(1); return errors.New("needs approval runner-fake-secret") },
 	})
-	waitRuntimeState(t, dir, func(s RuntimeState) bool {
+	waitRuntimeState(t, dir, done, func(s RuntimeState) bool {
 		return hasComponent(s, "client:host", "needs_host_environment", 0) && hasComponent(s, "client:denied", "needs_user", 0)
 	})
 	if gates.Load() != 1 {
@@ -368,6 +384,46 @@ func TestRunClientGatesAndDisabledClients(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("gated Client was executed")
+	}
+}
+
+func TestRunConcurrentRuntimeReadersDoNotInterruptTransitions(t *testing.T) {
+	dir := t.TempDir()
+	plan := testPlan()
+	for i := 0; i < 32; i++ {
+		plan.Clients = append(plan.Clients, Client{Endpoint: fmt.Sprintf("host-%02d", i), Enabled: true, RequiresHost: true})
+	}
+	readerCtx, stopReaders := context.WithCancel(context.Background())
+	var readers sync.WaitGroup
+	readErrors := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for readerCtx.Err() == nil {
+				if _, err := ReadRuntime(dir); err != nil {
+					readErrors <- err
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+	t.Cleanup(func() { stopReaders(); readers.Wait() })
+	cancel, done := startTestRunner(t, dir, plan, RunOptions{Probe: func(context.Context) error { return nil }})
+	waitRuntimeState(t, dir, done, func(state RuntimeState) bool {
+		return len(state.Components) == 33 && hasComponent(state, "client:host-31", "needs_host_environment", 0)
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("concurrent UI-style runtime readers interrupted the runner: %v", err)
+	}
+	stopReaders()
+	readers.Wait()
+	select {
+	case err := <-readErrors:
+		t.Fatalf("concurrent runtime reader failed: %v", err)
+	default:
 	}
 }
 
@@ -379,7 +435,7 @@ func TestRunClientFailuresRetryBoundedlyAndCheckGateAgain(t *testing.T) {
 			plan := testPlan()
 			plan.Clients = []Client{testClient(t, "retry", "fail", countPath)}
 			var gates atomic.Int32
-			_, _ = startTestRunner(t, dir, plan, RunOptions{
+			_, done := startTestRunner(t, dir, plan, RunOptions{
 				Probe: func(context.Context) error { return nil },
 				ClientGate: func(Client) error {
 					if gates.Add(1) > 1 && denyRetry {
@@ -392,7 +448,7 @@ func TestRunClientFailuresRetryBoundedlyAndCheckGateAgain(t *testing.T) {
 			if denyRetry {
 				wantAttempts, wantState = 1, "needs_user"
 			}
-			waitRuntimeState(t, dir, func(s RuntimeState) bool { return hasComponent(s, "client:retry", wantState, wantAttempts) })
+			waitRuntimeState(t, dir, done, func(s RuntimeState) bool { return hasComponent(s, "client:retry", wantState, wantAttempts) })
 			count, _ := os.ReadFile(countPath)
 			if got := strings.Count(string(count), "started"); got != wantAttempts {
 				t.Fatalf("Client attempts %d, want %d", got, wantAttempts)
@@ -409,8 +465,8 @@ func TestRunSuccessfulClientIsNotRestarted(t *testing.T) {
 	countPath := filepath.Join(dir, "client-count")
 	plan := testPlan()
 	plan.Clients = []Client{testClient(t, "once", "success", countPath)}
-	_, _ = startTestRunner(t, dir, plan, RunOptions{Probe: func(context.Context) error { return nil }})
-	waitRuntimeState(t, dir, func(s RuntimeState) bool { return hasComponent(s, "client:once", "stopped", 1) })
+	_, done := startTestRunner(t, dir, plan, RunOptions{Probe: func(context.Context) error { return nil }})
+	waitRuntimeState(t, dir, done, func(s RuntimeState) bool { return hasComponent(s, "client:once", "stopped", 1) })
 	time.Sleep(50 * time.Millisecond)
 	count, _ := os.ReadFile(countPath)
 	if strings.Count(string(count), "started") != 1 {

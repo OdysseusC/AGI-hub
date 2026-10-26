@@ -67,7 +67,7 @@ func readJSONAttempt(path string, value any) error {
 	if !info.Mode().IsRegular() || info.Size() > maxStartupJSONBytes {
 		return errors.New("startup file must be a regular file under 1 MiB")
 	}
-	file, err := os.Open(path)
+	file, err := openStartupReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -119,6 +119,7 @@ type stagedStartupJSON struct {
 	destination string
 	temporary   string
 	previous    os.FileInfo
+	previousSHA [sha256.Size]byte
 }
 
 func stageJSON(path string, value any) (*stagedStartupJSON, error) {
@@ -127,6 +128,13 @@ func stageJSON(path string, value any) (*stagedStartupJSON, error) {
 		return nil, errors.New("startup destination must be a regular file")
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, err
+	}
+	var previousSHA [sha256.Size]byte
+	if previous != nil {
+		previousSHA, err = startupJSONFingerprint(path, previous)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -142,7 +150,7 @@ func stageJSON(path string, value any) (*stagedStartupJSON, error) {
 	if err != nil {
 		return nil, err
 	}
-	staged := &stagedStartupJSON{destination: path, temporary: f.Name(), previous: previous}
+	staged := &stagedStartupJSON{destination: path, temporary: f.Name(), previous: previous, previousSHA: previousSHA}
 	if err = f.Chmod(0600); err == nil {
 		_, err = f.Write(append(b, '\n'))
 	}
@@ -167,7 +175,56 @@ func (s *stagedStartupJSON) commit() error {
 	if (s.previous == nil && err == nil) || (s.previous != nil && (err != nil || !current.Mode().IsRegular() || !os.SameFile(s.previous, current))) {
 		return errors.New("startup destination changed during configuration; retry")
 	}
+	if s.previous != nil {
+		currentSHA, err := startupJSONFingerprint(s.destination, s.previous)
+		if err != nil {
+			return err
+		}
+		// Inode numbers may be reused after unlink/recreate, and an editor can
+		// change bytes without replacing the inode. Identity is not a content
+		// version, even when file size and modification time also match.
+		if currentSHA != s.previousSHA {
+			return errors.New("startup destination content changed during configuration; retry")
+		}
+	}
 	return os.Rename(s.temporary, s.destination)
+}
+
+func startupJSONFingerprint(path string, expected os.FileInfo) ([sha256.Size]byte, error) {
+	var fingerprint [sha256.Size]byte
+	file, err := openStartupReadFile(path)
+	if err != nil {
+		return fingerprint, err
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil {
+		return fingerprint, err
+	}
+	if !before.Mode().IsRegular() || !os.SameFile(expected, before) || expected.Size() != before.Size() || !expected.ModTime().Equal(before.ModTime()) {
+		return fingerprint, errors.New("startup destination changed during configuration; retry")
+	}
+	digest := sha256.New()
+	size, err := io.Copy(digest, io.LimitReader(file, maxStartupJSONBytes+1))
+	if err != nil {
+		return fingerprint, err
+	}
+	if size > maxStartupJSONBytes {
+		return fingerprint, errors.New("startup destination must remain under 1 MiB")
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return fingerprint, err
+	}
+	current, err := os.Lstat(path)
+	if err != nil {
+		return fingerprint, err
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(before, current) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		return fingerprint, errors.New("startup destination changed while reading its contents; retry")
+	}
+	copy(fingerprint[:], digest.Sum(nil))
+	return fingerprint, nil
 }
 
 func Load(dir string) (Plan, error) {
