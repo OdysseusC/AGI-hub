@@ -23,7 +23,7 @@ const (
 	// SkillRevision must increase whenever the released embedded rules change.
 	// It prevents an older installed CLI from replacing newer approved rules.
 	// This release counter is independent of manifest and registry schemas.
-	SkillRevision = 5
+	SkillRevision = 7
 
 	skillName    = "agi-hub-client"
 	manifestName = ".agi-hub-manifest.json"
@@ -158,7 +158,11 @@ func installSkillMode(options Options, source func() ([]byte, error), allowCreat
 	if err != nil {
 		return "", err
 	}
-	files := map[string][]byte{"SKILL.md": skill, "installation.json": append(metadata, '\n')}
+	policy, err := communicationPolicy(options)
+	if err != nil {
+		return "", err
+	}
+	files := map[string][]byte{"SKILL.md": skill, "installation.json": append(metadata, '\n'), policyName: policy}
 
 	info, err := os.Lstat(folder)
 	if errors.Is(err, os.ErrNotExist) {
@@ -180,6 +184,9 @@ func installSkillMode(options Options, source func() ([]byte, error), allowCreat
 	if err != nil {
 		return "", err
 	}
+	if err := checkNewManagedFiles(folder, previous, files); err != nil {
+		return "", err
+	}
 	unchanged := true
 	for name, content := range files {
 		if previous.Files[name] != checksum(content) {
@@ -195,6 +202,9 @@ func installSkillMode(options Options, source func() ([]byte, error), allowCreat
 		return "", err
 	}
 	if _, err := verifyOwned(folder); err != nil {
+		return "", err
+	}
+	if err := checkNewManagedFiles(folder, previous, files); err != nil {
 		return "", err
 	}
 	for _, name := range sortedNames(files) {
@@ -359,11 +369,13 @@ func verifyOwned(folder string) (manifest, error) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return m, errors.New("invalid trailing ownership manifest data")
 	}
-	if m.Owner != owner || m.Version != 1 || len(m.Files) != 2 || m.Files["SKILL.md"] == "" || m.Files["installation.json"] == "" {
+	legacy := m.Version == 1 && len(m.Files) == 2
+	current := m.Version == 2 && len(m.Files) == 3 && m.Files[policyName] != ""
+	if m.Owner != owner || (!legacy && !current) || m.Files["SKILL.md"] == "" || m.Files["installation.json"] == "" {
 		return m, errors.New("skill is not owned by this installer or uses an unsupported ownership manifest")
 	}
 	for name, expected := range m.Files {
-		if name != "SKILL.md" && name != "installation.json" {
+		if name != "SKILL.md" && name != "installation.json" && !(current && name == policyName) {
 			return m, errors.New("ownership manifest includes an unmanaged path")
 		}
 		data, err := readRegularFile(filepath.Join(folder, name))
@@ -375,6 +387,23 @@ func verifyOwned(folder string) (manifest, error) {
 		}
 	}
 	return m, nil
+}
+
+// A new installer-owned filename cannot silently take ownership of a file the
+// user placed beside an older installation.
+func checkNewManagedFiles(folder string, previous manifest, files map[string][]byte) error {
+	for name := range files {
+		if _, managed := previous.Files[name]; managed {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(folder, name)); !errors.Is(err, os.ErrNotExist) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("refuse to overwrite unmanaged file: %s", name)
+		}
+	}
+	return nil
 }
 
 func readRegularFile(path string) ([]byte, error) {
@@ -389,7 +418,7 @@ func readRegularFile(path string) ([]byte, error) {
 }
 
 func encodeManifest(files map[string][]byte) ([]byte, error) {
-	m := manifest{Owner: owner, Version: 1, Files: make(map[string]string, len(files))}
+	m := manifest{Owner: owner, Version: 2, Files: make(map[string]string, len(files))}
 	for name, content := range files {
 		m.Files[name] = checksum(content)
 	}

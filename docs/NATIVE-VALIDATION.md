@@ -1,8 +1,8 @@
 [简体中文](NATIVE-VALIDATION.md) | [English](NATIVE-VALIDATION.en.md)
 
-# 本机原生接入记录
+# 原生接入验收记录
 
-记录日期：2026-10-14 至 2026-10-20，环境为 macOS arm64。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话 ID 或私有绝对路径。Windows 与 Linux 的本仓库原生接入另行验收，构建通过不能替代实测。
+记录日期：2026-10-14 至 2026-10-23。早期环境为 macOS arm64；10 月 23 日新增 Windows 11 与 macOS arm64 的 Codex 原生跨机邮箱闭环。10 月 14 日记录的版本为 WorkBuddy 5.8.2、官方 CodeBuddy CLI 2.161.0；10 月 16 日新增 Claude-3p Desktop 本地 Code 会话，内置 Claude Code 2.1.299。10 月 19 日 WorkBuddy 为 5.8.3，新增无模型技能维护核查。这里只保留方法、结果与支持范围，不保存凭据、个人联系人、真实会话或 Hub ID、IP、私有绝对路径。其他平台、宿主和助手组合须分别验收，构建通过不能替代实测。
 
 ## 2026-10-19：受管技能同步，无模型调用
 
@@ -79,7 +79,7 @@ Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--
 
 两轮使用不同的任务专属 hubrun 标识，对应四条 task/result 消息均为 delivered；两份成果的当前内容与 Core 记录的 SHA-256 均匹配，资源锁已清空。第二轮交付的成果修正了回传顺序：先由执行助手提交完成 Report，再由 Hub 核验并生成 result，随后由 Codex Client 消费并通过 Desktop MCP 返回原聊天；修订后的成果也已自动返回。
 
-因此本机两轮完整 MQ 忙时返回已通过。这两条工作流的执行端是固定独立 CLI 协调会话，不能把这两次验收报告交付写成原 WorkBuddy 会话的联系人获取证据。原会话后续的真实联系人查询与入口核对后的一次显式续接另见下文。相同 Codex Desktop MCP 的单次空闲启动也单独记录；idle 下完整 MQ 回路、WorkBuddy 完整桌面工具注入继承及其他平台仍未验收。
+因此本机两轮完整 MQ 忙时返回已通过。这两条工作流的执行端是固定独立 CLI 协调会话，不能把这两次验收报告交付写成原 WorkBuddy 会话的联系人获取证据。原会话后续的真实联系人查询与入口核对后的一次显式续接另见下文。相同 Codex Desktop MCP 的单次空闲启动也单独记录；当时 idle 下完整 MQ 回路、WorkBuddy 完整桌面工具注入继承及其他平台尚未验收。
 
 
 ## 2026-10-15：同一 Desktop MCP 的单次空闲启动
@@ -90,7 +90,7 @@ Client 用配置指定的既有会话 ID、工作目录、配置目录执行 `--
 
 因此本机同一官方 MCP 传输的空闲原聊天启动已单独实测通过，证据包括发送前的真实空闲状态、单次发送、新轮次实际启动和已核实桌面工具仍可用，不只是一条工具 ACK。
 
-这次没有重复唤醒、手工转发或新建任务。它是一次独立诊断，本身没有新增 MQ 业务任务，也不是 idle 下完整 MQ 回路。此前两轮独立 CLI 闭环验证的是 busy 返回；App Server proxy 的空闲 turn/start 和其他平台仍尚未实测。
+这次没有重复唤醒、手工转发或新建任务。它是一次独立诊断，本身没有新增 MQ 业务任务，也不是 idle 下完整 MQ 回路。此前两轮独立 CLI 闭环验证的是 busy 返回；当时 App Server proxy 的空闲 turn/start 和其他平台尚未实测。
 
 ## 2026-10-15：原 WorkBuddy 会话的单联系人查询与 MQ 回传
 
@@ -185,12 +185,24 @@ Desktop 界面还出现过服务商健康检查的 `ERR_CONNECTION_CLOSED` 横�
 
 真实会话 ID、路径、nonce、usage ID 和 transcript 哈希留在私有记录中，不进入仓库或安装包。
 
+## 2026-10-23：Windows Codex 空闲接手与 macOS 原入口回传
+
+运行代码为 `1387677`，Hub 为 **0.4.0**。macOS arm64 与 Windows 11 使用互相配对的隔离 lab Hub。用户在 Windows 既有 Codex 原聊天中启动独立 Node Client，经官方 Desktop MCP 预检并订阅 SSE。启动配置误带旧定制字段 `native.receive_tasks`；Windows 助手备份后仅删除该键，严格未知字段校验未放宽，离线回归同时覆盖拒绝旧字段与单键迁移成功。
+
+确认 Windows bootstrap 回合已完成、原聊天没有 active turn 后，发送唯一一封包含 nonce 和 `17+29+43` 的 MQ request。独立 Client 经官方 **send-now** 自动启动原聊天的新原生回合：UTC **01:54:46.300** 开始，**02:02:23.740** 完成。Windows 模型使用自身原生 exec 工具保存完整结果 JSON，并调用 lab 固定身份 helper 的 `mail-send`，明确发送一封 result，退出码为 0；磁盘 JSON 的 nonce、结果 **89** 与 canonical 关联均与 Hub 记录一致。
+
+macOS 独立 Client 随后自动将该 `kind=result` 引导进入用户最初输入的、当时忙碌的原 Codex 聊天，入口已实际收到原生输入，官方 `read_thread` 确认仍为同一活跃轮次。`correlation_id`、`reply_to` 和 `root_origin` 保持关联，**两封消息预算使用 2/2**，没有手工转发或点击 native 队列。Grok 仅协助取证和原生观察后的行政状态登记，未代发 request/result；确认 Windows 没有新 active turn 后恢复 lab 的 idle 状态。本次 Claude 调用数为 **0**，Windows 原生产 Hub、Client 和旧队列未修改。
+
+**已通过的范围是这一小型合成任务的跨机邮箱链路：Windows 原聊天空闲接手、原生工具执行、显式发结果，以及自动回到忙碌的 macOS 原入口。** Windows 忙时收件没有验收，其 busy 验证标记仍为 false；状态来自实际观察后的登记，长期自动状态跟踪及全生命周期无人值守恢复未验收。其他助手的跨机业务不随此次通过。源码允许 caller 与 target 不同，但本轮从目标原聊天启动，不能作为替代启动路径的实测证据。
+
+真实会话与 Hub ID、IP、nonce、私有路径及原始投递和回合证据保存在仓库外，不进入公开文档或安装包。
+
 ## 后续验收
 
-- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断的分别记录。Codex 原入口空闲时的完整 MQ 回路须另行验收；继续核对断线、超时和投递不确定时不重发。
+- 保留此前两轮独立 CLI 的 MQ 忙时返回、原 WorkBuddy 会话由入口核对并显式续接一次后的单联系人业务、单次空闲启动诊断，以及 10 月 23 日跨机邮箱闭环的分别记录。macOS 原入口空闲时接收完整业务结果仍须另行验收；继续核对断线、超时和投递不确定时不重发。
 - 其他企微业务与桌面工具分别按用户授权验收，不从单联系人候选匹配推导全部能力或全通讯录唯一。保留本地拒绝、远端 850003 和重新授权后成功的历史，不盲目重试。
 - App Server proxy 的连接与空闲 turn/start 单独验收，不能用 Desktop MCP 已通过的空闲启动替代；权限提示、关联回执和成果核对仍遵循各自通道的记录。
-- 在 Windows、Linux 和其他宿主版本上单独验收官方启动链，不把本机成功推广为全平台支持。
+- 在本次已验证范围以外的 Windows/macOS 宿主及 Linux 上单独验收官方启动链，不把指定两台电脑的成功推广为全平台支持。
 
 WorkBuddy OpenAPI 的 `localassistant/message` 仍是独立候选，需第三方应用与本人 OAuth，当前未配置这条真实授权路径。CLI 正式登录不自动授予 OpenAPI 权限；它也不是普通桌面任意聊天的定位接口。[官方 OpenAPI](https://open.workbuddy.cn/docs/openapi)
 

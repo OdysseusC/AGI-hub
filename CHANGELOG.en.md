@@ -2,6 +2,20 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## 0.4.0 — 2026-10-26
+
+- Add opt-in LAN Hub communication with stable host identities, explicit pairing and agent exports, reusable TLS connections, direct-first routing and bounded relays. Routing does not propagate trust.
+- Discover Hubs with mDNS/DNS-SD on a selected interface, or connect through invitations and a manual address. Disabling discovery preserves paired connections.
+- Add a local management page for managed skill installation, real session binding, enable/share controls, Hub/agent trees, pairing and mailbox state. Management and offline testing invoke no models.
+- Federated mail preserves the original local binding, uses canonical message IDs, a durable outbox and deduplication, and distinguishes destination-Hub receipt from native execution. Protocol 1 fixes each conversation to an endpoint pair with disjoint message permits; files are not synchronized.
+- Use receiver-local directory leases and signed persistent revisions so replayed old directories cannot renew their lease. Invitation expiry is checked by its issuer, without manual clock alignment between computers. Internal mesh/discovery protocol advances to 2, requiring both paired Hubs to update; mailbox protocol remains 1.
+- Advance managed rules to revision 7. The first cross-host message upgrades the journal to version 4, which older binaries cannot read. Back up complete private data before upgrading; rollback requires a matching binary and backup. See the [LAN guide](docs/LAN.en.md).
+- Claude Client 0.2.3 recognizes acknowledgements for canonical LAN message IDs. Native prompts contain one copy of the content, omitting duplicate network payload tokens. Installation and verification did not invoke Claude.
+- Select each agent's collaboration language in management. Claude defaults to English; Chinese and other languages are selectable. Saving synchronizes managed skill policies. Sending agents translate necessary instructions, Hub calls no translation model, and human-facing replies follow the user's language.
+- On October 23, isolated macOS arm64 and Windows 11 Hubs completed a native cross-host Codex round trip: a request from the original Mac chat automatically woke the idle original Windows chat, which executed the task and explicitly returned a result into the busy original Mac entry. The synthetic result, nonce and message correlation matched, using 2/2 messages without manual forwarding, queue clicks or Claude calls. See the [native acceptance record](docs/NATIVE-VALIDATION.en.md).
+- Recommend independent interactive Claude Code as the integration host. Code 2.1.308 on macOS arm64 passed plugin validation, 9/9 host plugin tests and 50/50 Node state-machine tests without model calls. Native mailbox acceptance in the independent CLI still awaits sign-in and testing.
+- This version still requires manual Hub and Client startup; optional autostart is planned for the next version. Windows busy reception, real multi-computer discovery, sleep recovery, long-running automatic state tracking and unattended recovery remain unaccepted. Other assistants' cross-host business tools are outside this Codex test's scope.
+
 ## 0.3.1 — 2026-10-20
 
 - Default public documents to Chinese, with complete English versions in `*.en.md` and Chinese-first language navigation.

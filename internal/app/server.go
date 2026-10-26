@@ -17,10 +17,11 @@ import (
 )
 
 type Server struct {
-	Broker  *manager.Broker
-	Config  Config
-	leaseMu sync.Mutex
-	leases  map[string]clientLease
+	Broker     *manager.Broker
+	Config     Config
+	leaseMu    sync.Mutex
+	leases     map[string]clientLease
+	management *managementRuntime
 }
 
 func (s *Server) Handler() http.Handler {
@@ -95,6 +96,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var result any = map[string]bool{"ok": true}
 	var err error
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/v1/manage"):
+		result, err = s.manage(w, r)
 	case mailRoute(r.URL.Path):
 		result, err = s.mail(w, r, endpoint)
 	case r.URL.Path == "/v1/skill-release" && r.Method == http.MethodGet:
@@ -205,7 +208,7 @@ func outstandingMessages(snapshot manager.Snapshot, endpoint string) []manager.E
 	messages := []manager.Envelope{}
 	for _, envelope := range snapshot.Messages {
 		if envelope.Recipient == endpoint && (envelope.Delivery == "dispatching" || envelope.Delivery == "uncertain") {
-			messages = append(messages, envelope)
+			messages = append(messages, clientEnvelope(envelope))
 		}
 	}
 	sort.Slice(messages, func(i, j int) bool { return messages[i].ID < messages[j].ID })

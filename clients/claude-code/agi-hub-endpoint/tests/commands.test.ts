@@ -8,7 +8,7 @@ test('session ID command returns the native session ID without reading configura
 
 test('status before session.start is dormant and contains no credentials', async ($) => {
   const answer = await $.command.run({ command: 'agi-hub-status', args: '' });
-  expect(JSON.parse(answer.text)).toEqual({ client_version: '0.2.2', state: 'dormant', code: 'not_started' });
+  expect(JSON.parse(answer.text)).toEqual({ client_version: '0.2.3', state: 'dormant', code: 'not_started' });
 });
 
 test('a report before session.start fails without running another tool', async ($) => {

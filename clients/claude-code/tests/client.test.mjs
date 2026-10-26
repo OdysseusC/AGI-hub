@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EndpointClient } from '../agi-hub-endpoint/hooks/lib/client.js';
 import { absolutePath, byteLength, clientConfigPath, parseAddress, parseJSON, scopeKey, tokenFingerprint, validateBinding, validateConfig } from '../agi-hub-endpoint/hooks/lib/config.js';
-import { nativeMarkerShape, notification, reportToolResult, validateEnvelope } from '../agi-hub-endpoint/hooks/lib/protocol.js';
+import { nativeMarkerShape, notification, reportToolResult, validateEnvelope, validateMail } from '../agi-hub-endpoint/hooks/lib/protocol.js';
 
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const config = (sid = 'session-a') => ({ base_url: 'http://127.0.0.1:7331', endpoint: 'claude', endpoint_token: 'test-only-scoped-token', native: { transport: 'mod', session_id: sid, long_poll_ms: 25000, max_prompt_bytes: 1048576 } });
@@ -42,6 +42,30 @@ const receipts = state => state.calls.filter(call => call.url.includes('/v1/deli
 const reports = state => state.calls.filter(call => call.url.includes('/v1/report?')).map(call => call.body);
 const mail = (id = 'mail-one', kind = 'request') => ({ message_id: id, mailbox: true, task_id: '', recipient: 'claude', sender: 'codex', delivery: 'dispatching', mode: 'queue', kind, correlation_id: 'original-correlation', root_origin: { endpoint: 'codex', device_id: 'local', session_id: 'original-human-chat', request_ref: 'human-input' }, content: 'One authorized mailbox check.' });
 const mailReceipts = state => state.calls.filter(call => call.url.includes('/v1/mail/delivery?')).map(call => call.body);
+
+test('notification separates live collaboration language from human output and preserves source text once', () => {
+  for (const source of [mail(), envelope(), envelope('result-test', 'result')]) {
+    const value = { ...source, communication_language: 'en', content: 'Translate the instructions. Original quotation: 中文原件保留。' };
+    const text = notification(value, '[fixed-marker]');
+    for (const expected of ['communication-policy.md', 'peers.send_language', 'original materials', 'one concise version', 'human in their requested or original input language']) assert.ok(text.includes(expected), expected);
+    assert.equal(text.split('中文原件保留。').length - 1, 1);
+    assert.ok(text.includes('"communication_language":"en"'));
+    assert.equal(value.content, 'Translate the instructions. Original quotation: 中文原件保留。');
+  }
+});
+
+test('mail accepts full qualified LAN addresses while retaining local recipient bounds', () => {
+  const input = recipient => ({ id: 'saved-send-id', recipient, kind: 'request', content: 'One authorized request.' });
+  const remote = input('a'.repeat(64) + '/' + 'b'.repeat(100));
+  assert.equal(validateMail(remote), remote);
+  assert.doesNotThrow(() => validateMail(input('b'.repeat(128))));
+  for (const recipient of [
+    'b'.repeat(129),
+    'a'.repeat(64) + '/' + 'b'.repeat(101),
+    'z'.repeat(64) + '/' + 'b'.repeat(100),
+    'a'.repeat(64) + '/' + 'b'.repeat(99) + '/',
+  ]) assert.throws(() => validateMail(input(recipient)), /mail_recipient_required/);
+});
 
 test('configuration reads only the actual plugin identity and respects explicit activation options', () => {
   const settings = { pluginConfigs: {
@@ -489,6 +513,114 @@ test('native mailbox send fixes identity, freezes caller ID and saves payload be
   assert.equal((await client.mailSend({ ...input, endpoint: 'codex' })).code, 'unsupported_mail_fields');
   assert.equal(state.calls.filter(call => call.url.includes('/v1/mail/send?')).length, 1);
   assert.ok(!JSON.stringify(first).includes('test-only-scoped-token'));
+});
+
+const lanRecipient = 'a'.repeat(64) + '/codex';
+const lanMessageID = 'lan-' + 'b'.repeat(64);
+const lanCorrelationID = 'lan-' + 'c'.repeat(64);
+const lanSendAck = body => ({
+  mailbox: true, source_message_id: body.id, message_id: lanMessageID, sender: 'claude',
+  recipient: body.recipient, kind: body.kind, content: body.content,
+  correlation_id: !body.correlation_id || body.correlation_id === body.id ? lanMessageID : body.correlation_id,
+  root_origin: { endpoint: 'claude', session_id: 'session-a' }, delivery: 'network_pending',
+});
+async function outboundHarness(ack = lanSendAck) {
+  const h = harness({ mailbox: true }); await h.start(); const fetch = h.port.fetch;
+  h.port.fetch = async (url, init) => {
+    if (!url.includes('/v1/mail/send?')) return fetch(url, init);
+    const body = JSON.parse(init.body); h.state.calls.push({ url, init: clone(init), body });
+    assert.ok([...h.state.saved.values()].some(value => value.state === 'sending' && value.payload?.id === body.id));
+    return { status: 200, text: JSON.stringify(ack(body)) };
+  };
+  return h;
+}
+
+test('LAN send accepts canonical IDs while preserving the original submission and minimal sent journal', async () => {
+  for (const correlation of [undefined, 'saved-lan-root', lanCorrelationID]) {
+    const { client, state } = await outboundHarness();
+    const input = { id: 'saved-lan-root', recipient: lanRecipient, kind: 'request', content: 'An authorized remote check', origin_ref: 'human-input',
+      ...(correlation === undefined ? {} : { correlation_id: correlation }) };
+    const result = await client.mailSend(input);
+    assert.equal(result.ok, true, `LAN acknowledgment rejected for correlation ${correlation}`);
+    assert.deepEqual(result.message, {
+      message_id: lanMessageID, correlation_id: correlation === lanCorrelationID ? lanCorrelationID : lanMessageID,
+      sender: 'claude', recipient: lanRecipient, kind: 'request',
+      root_origin: { endpoint: 'claude', session_id: 'session-a' }, delivery: 'network_pending',
+    });
+    const saved = state.saved.get(client.prefix + 'send:' + encodeURIComponent(input.id));
+    assert.equal(saved.state, 'sent'); assert.deepEqual(saved.payload, input);
+    assert.deepEqual(saved.message, result.message);
+    assert.deepEqual(await client.mailSend(input), result);
+    assert.equal(state.calls.filter(call => call.url.includes('/v1/mail/send?')).length, 1);
+    assert.equal(state.prompts.length, 0);
+  }
+});
+
+test('LAN acknowledgments reject missing or wrong source IDs and malformed canonical message IDs', async () => {
+  const changes = [
+    { source_message_id: undefined }, { source_message_id: 'another-original-id' },
+    { message_id: 'plain-message-id' }, { message_id: 'lan-' + 'b'.repeat(63) },
+    { message_id: 'lan-' + 'B'.repeat(64) }, { message_id: 'lan-' + 'g'.repeat(64) },
+    { message_id: 'lan-' + 'b'.repeat(65) },
+  ];
+  for (const change of changes) {
+    const { client, state } = await outboundHarness(body => ({ ...lanSendAck(body), ...change }));
+    const input = { id: 'original-lan-id', recipient: lanRecipient, kind: 'request', content: 'An authorized remote check', origin_ref: 'human-input' };
+    const result = await client.mailSend(input);
+    assert.equal(result.code, 'mail_send_ack_unconfirmed', JSON.stringify(change));
+    assert.equal(result.message_id, input.id);
+    assert.equal(state.saved.get(client.prefix + 'send:' + input.id).state, 'uncertain');
+    assert.equal((await client.mailSend(input)).code, 'mail_send_unconfirmed_reconcile');
+    assert.equal(state.calls.filter(call => call.url.includes('/v1/mail/send?')).length, 1);
+  }
+});
+
+test('LAN acknowledgment correlation must match the existing conversation or canonical new-root ID', async () => {
+  for (const correlation of [undefined, 'saved-lan-root', lanCorrelationID]) {
+    const { client } = await outboundHarness(body => ({
+      ...lanSendAck(body), correlation_id: correlation === lanCorrelationID ? lanMessageID : 'saved-lan-root',
+    }));
+    const input = { id: 'saved-lan-root', recipient: lanRecipient, kind: 'request', content: 'Check', origin_ref: 'human-input',
+      ...(correlation === undefined ? {} : { correlation_id: correlation }) };
+    assert.equal((await client.mailSend(input)).code, 'mail_send_ack_unconfirmed');
+  }
+});
+
+test('LAN acknowledgment still checks mailbox, sender, recipient, kind, body and root origin', async () => {
+  for (const change of [
+    { mailbox: false }, { sender: 'codex' }, { recipient: 'd'.repeat(64) + '/codex' },
+    { kind: 'reply' }, { content: 'Changed' }, { root_origin: null },
+  ]) {
+    const { client } = await outboundHarness(body => ({ ...lanSendAck(body), ...change }));
+    const input = { id: 'check-lan-fields', recipient: lanRecipient, kind: 'request', content: 'Check', origin_ref: 'human-input' };
+    assert.equal((await client.mailSend(input)).code, 'mail_send_ack_unconfirmed', JSON.stringify(change));
+  }
+});
+
+test('ordinary local acknowledgments cannot use canonical LAN IDs or relax correlation checks', async () => {
+  const input = { id: 'saved-local-root', recipient: 'codex', kind: 'request', content: 'Check', origin_ref: 'human-input' };
+  for (const change of [
+    { message_id: lanMessageID, correlation_id: lanMessageID },
+    { message_id: input.id, correlation_id: lanMessageID },
+    { message_id: lanMessageID, correlation_id: input.id },
+  ]) {
+    const { client } = await outboundHarness(body => ({ ...lanSendAck(body), ...change }));
+    assert.equal((await client.mailSend(input)).code, 'mail_send_ack_unconfirmed');
+  }
+  for (const recipient of ['a'.repeat(63) + '/codex', 'A'.repeat(64) + '/codex', 'a'.repeat(64) + '/codex/other', 'a'.repeat(64) + '/']) {
+    const { client } = await outboundHarness();
+    assert.equal((await client.mailSend({ ...input, recipient })).code, 'mail_send_ack_unconfirmed');
+  }
+});
+
+test('a rejected LAN acknowledgment remains uncertain across restart without another HTTP send', async () => {
+  const first = await outboundHarness(body => ({ ...lanSendAck(body), source_message_id: 'wrong-source' }));
+  const input = { id: 'saved-lan-reply', recipient: lanRecipient, kind: 'reply', content: 'Checked', correlation_id: lanCorrelationID };
+  assert.equal((await first.client.mailSend(input)).code, 'mail_send_ack_unconfirmed');
+  const second = harness({ mailbox: true, saved: first.state.saved }); await second.start();
+  assert.equal((await second.client.mailSend(input)).code, 'mail_send_unconfirmed_reconcile');
+  assert.equal(second.state.calls.some(call => call.url.includes('/v1/mail/send?')), false);
+  assert.equal(second.state.prompts.length, 0);
 });
 
 test('outbound uncertainty survives restart and does not automatically resend the saved ID', async () => {
