@@ -224,6 +224,12 @@ func (b *Broker) Register(endpoint Endpoint) error {
 	if strings.TrimSpace(endpoint.ID) == "" || strings.TrimSpace(endpoint.DeviceID) == "" || strings.TrimSpace(endpoint.Driver) == "" {
 		return errors.New("endpoint ID, device, and driver are required")
 	}
+	if old, exists := b.state.Endpoints[endpoint.ID]; exists && (old.DeviceID != endpoint.DeviceID || old.SessionID != endpoint.SessionID || old.Driver != endpoint.Driver) {
+		endpoint.MailboxNativeQueueVerified = false
+	}
+	if endpoint.MailboxNativeQueueVerified && (endpoint.MailboxProtocolVersion != 1 || len(endpoint.Modes) != 1 || endpoint.Modes[0] != "queue" || endpoint.SessionID == "") {
+		return errors.New("native queue verification requires a bound mailbox protocol 1 queue endpoint")
+	}
 	if endpoint.MailboxProtocolVersion < 0 || endpoint.MailboxProtocolVersion > 1 || endpoint.MailboxWhileBusyVerified && endpoint.MailboxProtocolVersion != 1 {
 		return errors.New("mailbox protocol must be 0 or 1; mailbox busy guidance requires protocol 1")
 	}
@@ -605,7 +611,21 @@ func (b *Broker) Delivery(messageID, outcome, detail string) error {
 	return b.commit(next)
 }
 
+// ErrNativeSessionBindingMismatch rejects observations from disabled, unbound,
+// or replaced native sessions without changing any session state.
+var ErrNativeSessionBindingMismatch = errors.New("native session binding mismatch")
+
 func (b *Broker) SetSession(endpoint, state, runID string) error {
+	return b.setSession(endpoint, state, runID, nil)
+}
+
+// ObserveSession compares the observed native session with the current binding
+// in the same critical section that records its state. It grants no capability.
+func (b *Broker) ObserveSession(endpoint, nativeSession, state, runID string) error {
+	return b.setSession(endpoint, state, runID, &nativeSession)
+}
+
+func (b *Broker) setSession(endpoint, state, runID string, nativeSession *string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.writable(); err != nil {
@@ -616,7 +636,11 @@ func (b *Broker) SetSession(endpoint, state, runID string) error {
 			return err
 		}
 	}
-	if _, ok := b.state.Endpoints[endpoint]; !ok {
+	binding, ok := b.state.Endpoints[endpoint]
+	if nativeSession != nil && (!ok || !binding.Enabled || *nativeSession == "" || binding.SessionID == "" || binding.SessionID != *nativeSession) {
+		return ErrNativeSessionBindingMismatch
+	}
+	if !ok {
 		return errors.New("endpoint is not registered")
 	}
 	if state != "unknown" && state != "idle" && state != "busy" && state != "needs_user" {
@@ -634,6 +658,9 @@ func (b *Broker) SetSession(endpoint, state, runID string) error {
 				return errors.New("unfinished managed run must be reconciled by an execution report")
 			}
 		}
+	}
+	if current, exists := b.state.Sessions[endpoint]; exists && current.State == state && current.RunID == runID {
+		return nil
 	}
 	next := cloneSnapshot(b.state)
 	next.Sessions[endpoint] = Session{State: state, RunID: runID}

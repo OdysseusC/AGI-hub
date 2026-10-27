@@ -108,14 +108,20 @@ func (s *Server) withClientLease(r *http.Request, endpoint string, mutation func
 	if err := r.Context().Err(); err != nil {
 		return err
 	}
-	binding, ok := s.Broker.Snapshot().Endpoints[endpoint]
-	if !ok || binding.Driver != "claude-code" && r.Header.Get("X-AGI-Hub-Lease") == "" {
-		return mutation()
-	}
 	s.leaseMu.Lock()
 	defer s.leaseMu.Unlock()
 	if err := r.Context().Err(); err != nil {
 		return err
+	}
+	// Read after taking the same lock used by native rebind/disable operations.
+	binding, ok := s.Broker.Snapshot().Endpoints[endpoint]
+	if nativeSession := r.Header.Get("X-AGI-Hub-Native-Session"); nativeSession != "" {
+		if !ok || !binding.Enabled || binding.SessionID == "" || binding.SessionID != nativeSession {
+			return &requestError{http.StatusConflict, "native_session_binding_mismatch"}
+		}
+	}
+	if !ok || binding.Driver != "claude-code" && r.Header.Get("X-AGI-Hub-Lease") == "" {
+		return mutation()
 	}
 	lease := s.leases[endpoint]
 	if !binding.Enabled || lease.id == "" || r.Header.Get("X-AGI-Hub-Lease") != lease.id || !time.Now().Before(lease.expiresAt) || lease.binding != fingerprint(binding) {

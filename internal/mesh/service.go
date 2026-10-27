@@ -55,11 +55,12 @@ type inboxRecord struct {
 	Expired  bool          `json:"expired,omitempty"`
 }
 type diskState struct {
-	Config  Config                   `json:"config"`
-	Peers   map[string]peerRecord    `json:"peers"`
-	Pending map[string]pendingRecord `json:"pending"`
-	Outbox  map[string]outboxRecord  `json:"outbox"`
-	Inbox   map[string]inboxRecord   `json:"inbox"`
+	Config     Config                   `json:"config"`
+	Peers      map[string]peerRecord    `json:"peers"`
+	Pending    map[string]pendingRecord `json:"pending"`
+	Outbox     map[string]outboxRecord  `json:"outbox"`
+	Inbox      map[string]inboxRecord   `json:"inbox"`
+	Management map[string]bool          `json:"management,omitempty"`
 }
 type retryState struct {
 	Failures int
@@ -91,6 +92,7 @@ type Service struct {
 	candidates    []Candidate
 	clients       map[string]*http.Client
 	retry         map[string]retryState
+	transportView string // Last notified peer/directory/route semantics; never persisted.
 	address       string
 	server        *http.Server
 	listener      net.Listener
@@ -162,6 +164,9 @@ func New(opts Options) (*Service, error) {
 	}
 	if s.disk.Inbox == nil {
 		s.disk.Inbox = map[string]inboxRecord{}
+	}
+	if s.disk.Management == nil {
+		s.disk.Management = map[string]bool{}
 	}
 	// Version 1 stored the issuer's timestamp as the requester's deadline.
 	// It cannot be reinterpreted as a bounded local pending request on upgrade.
@@ -248,6 +253,9 @@ func (s *Service) persistLocked() error {
 	return atomicJSON(filepath.Join(s.opts.DataDir, "state.json"), s.disk)
 }
 func (s *Service) changed() {
+	s.mu.Lock()
+	s.transportView = s.transportViewLocked()
+	s.mu.Unlock()
 	if s.opts.OnChange != nil {
 		s.opts.OnChange()
 	}
@@ -495,7 +503,7 @@ func (s *Service) Snapshot() State {
 		if ad, ok := s.ads[id]; ok && s.adLeases[id].After(now) {
 			agents = append(agents, ad.Agents...)
 		}
-		state.Peers = append(state.Peers, Peer{HubID: id, Name: p.Name, Address: p.Address, Online: s.isOnlineLocked(id), Reachable: len(path) > 0, Agents: agents})
+		state.Peers = append(state.Peers, Peer{HubID: id, Name: p.Name, Address: p.Address, Online: s.isOnlineLocked(id), Reachable: len(path) > 0, Agents: agents, ManageAllowed: s.disk.Management[id]})
 		if len(path) > 0 {
 			state.Routes = append(state.Routes, Route{HubID: id, Path: path, ExpiresAt: expiry})
 		}
@@ -559,11 +567,16 @@ func (s *Service) Disconnect(id string) error {
 		}
 	}
 	delete(s.disk.Peers, id)
+	managementAllowed := s.disk.Management[id]
+	delete(s.disk.Management, id)
 	delete(s.online, id)
 	delete(s.ads, id)
 	delete(s.retry, id)
 	if err := s.persistLocked(); err != nil {
 		s.disk.Peers[id] = peer
+		if managementAllowed {
+			s.disk.Management[id] = true
+		}
 		for requestID, record := range pending {
 			s.disk.Pending[requestID] = record
 		}

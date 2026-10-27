@@ -27,6 +27,7 @@ go build -o dist/agi-hub-smoke ./cmd/agi-hub
 python3 tools/smoke_client.py --hub "$PWD/dist/agi-hub-smoke"
 python3 tools/smoke_skill_sync.py --hub "$PWD/dist/agi-hub-smoke"
 python3 tools/smoke_mailbox.py --hub "$PWD/dist/agi-hub-smoke"
+python3 tools/smoke_startup.py --hub "$PWD/dist/agi-hub-smoke"
 ```
 
 冒烟测试程序按开发电脑的平台构建，与四个 Windows/macOS 正式安装包分开。Windows 上将其命名为 `dist/agi-hub-smoke.exe`，并把该路径传给脚本。测试使用临时私有配置和模拟原生适配器。通过测试不证明原生应用的登录、空闲唤醒或忙时引导可用；这些需要单独且经授权的本机验收。

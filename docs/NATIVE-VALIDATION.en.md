@@ -196,6 +196,12 @@ The independent macOS Client then automatically guided that `kind=result` into t
 
 Real session and Hub IDs, IP addresses, the nonce, private paths and original delivery/turn evidence remain outside the repository and are excluded from public documents and packages.
 
+## 2026-10-27: real-state reconstruction after a Hub restart
+
+At 07:12 UTC, an isolated loopback Hub and empty mailbox tested Node Client `0.3.1` while the original local Codex Desktop chat remained active. On first connection, `unknown` became `busy` with the actual in-progress turn ID confirmed by native `read_thread`. Restarting only that test Hub reset state to `unknown`; the Client automatically reconnected and reconstructed the same real state. Initial drain, the initial SSE event and the first state broadcast caused three metadata reads per connection, then stabilized. Six total reads formed no feedback loop.
+
+The test attempted no native send, submitted no business message and changed no wake-verification flags. Additional model calls and Claude calls were both zero. The existing main Hub, business Clients and C's configuration stayed unchanged; test processes were cleaned up. This proves only **state reconstruction after a Hub restart while the native Client already runs**. It does not verify OS restart, automatic host startup, continuous busy-to-idle notifications or C's Windows GUI acceptance. Native turn IDs, private configuration and original evidence remain outside the repository.
+
 ## Further acceptance work
 
 - Keep separate evidence for the earlier two independent CLI busy returns, original-session single-contact work after an entry-checked continuation, one idle-start diagnosis and the October 23 cross-machine mailbox loop. Receipt of a complete business result while the original macOS entry is idle still needs separate acceptance, retaining no-resend behavior after disconnect/timeout/uncertainty.

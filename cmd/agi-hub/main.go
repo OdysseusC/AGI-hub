@@ -26,7 +26,7 @@ import (
 	"agihub/internal/manager"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -36,8 +36,11 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "autostart" {
+		return runAutostart(args[1:])
+	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Printf("AGI Hub %s\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery\nUse <command> --help for options.\n", version)
+		fmt.Printf("AGI Hub %s\nCommands: init, serve, doctor, status, submit, report, mail-send, mail-state, mail-cancel, session, native-queue, leader, dashboard, install-skill, sync-skills, skills-status, peers, skill-rules, client-config, inbox, delivery, autostart\nUse <command> --help for options.\n", version)
 		return nil
 	}
 	if args[0] == "--version" || args[0] == "version" {
@@ -56,6 +59,9 @@ func run(args []string) error {
 	mode := fs.String("mode", "queue", "queue, steer, or interrupt")
 	target := fs.String("target-run", "", "active native run ID for steer/interrupt")
 	state := fs.String("state", "", "verified native session state")
+	nativeSession := fs.String("native-session", "", "current native binding for an explicit native queue decision")
+	nativeQueueVerified := fs.Bool("verified", false, "explicitly record or revoke native queue verification")
+	nativeQueueEvidence := fs.String("evidence-ref", "", "short opaque reference to administrator-accepted native evidence")
 	file := fs.String("file", "", "JSON file (report defaults to stdin)")
 	resource := fs.String("resource", "", "shared workspace/desktop resource ID")
 	requireArtifact := fs.Bool("require-artifact", false, "require a verified artifact before success")
@@ -97,6 +103,17 @@ func run(args []string) error {
 		return fmt.Errorf("load config (run init first): %w", err)
 	}
 	switch args[0] {
+	case "native-queue":
+		explicit := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "verified" {
+				explicit = true
+			}
+		})
+		if *endpoint == "" || *nativeSession == "" || *nativeQueueEvidence == "" || !explicit {
+			return errors.New("native-queue requires --endpoint, --native-session, --evidence-ref and explicit --verified=true|false after actual native acceptance")
+		}
+		return request(cfg, "POST", "/v1/manage/native-queue", "", map[string]any{"endpoint": *endpoint, "native_session_id": *nativeSession, "verified": *nativeQueueVerified, "evidence_ref": *nativeQueueEvidence})
 	case "mail-send":
 		if *endpoint == "" {
 			return errors.New("mail-send requires --endpoint")

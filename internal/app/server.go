@@ -81,14 +81,23 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	if r.URL.Path == "/" && r.Method == http.MethodGet {
+	remotePage := false
+	if strings.HasPrefix(r.URL.Path, "/remote/") && strings.HasSuffix(r.URL.Path, "/") {
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/remote/"), "/")
+		remotePage = validRemoteHubID(id)
+	}
+	if (r.URL.Path == "/" || remotePage) && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
 		_, _ = io.WriteString(w, dashboard)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/remote/") {
+		s.remoteManagement(w, r)
+		return
+	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills" && !mailRoute(r.URL.Path)
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/endpoint/session" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills" && !mailRoute(r.URL.Path)
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -96,6 +105,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var result any = map[string]bool{"ok": true}
 	var err error
 	switch {
+	case r.URL.Path == "/v1/health" && r.Method == http.MethodGet:
+		result = map[string]any{"service": "agi-hub", "ready": true, "device_id": s.Config.DeviceID}
 	case strings.HasPrefix(r.URL.Path, "/v1/manage"):
 		result, err = s.manage(w, r)
 	case mailRoute(r.URL.Path):
@@ -129,6 +140,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}}
 	case r.URL.Path == "/v1/client-lease" && r.Method == http.MethodPost:
 		result, err = s.changeClientLease(w, r, endpoint)
+	case r.URL.Path == "/v1/endpoint/session" && r.Method == http.MethodPost:
+		err = s.observeEndpointSession(w, r, endpoint)
 	case r.URL.Path == "/v1/state" && r.Method == http.MethodGet:
 		result = s.Broker.Snapshot()
 	case r.URL.Path == "/v1/tasks" && r.Method == http.MethodPost:

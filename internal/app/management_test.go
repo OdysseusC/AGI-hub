@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -78,6 +79,97 @@ func TestManagementRejectsArbitraryActionsAndSharesOnlyEnabledMailboxes(t *testi
 		if w.Code == 200 {
 			t.Fatal("accepted unsupported or unsafe action", body)
 		}
+	}
+}
+
+func TestGrokConfigurationGuideIsSpecificAndDoesNotInstallOrChangeState(t *testing.T) {
+	s := networkFixture(t, "grok-manual-guide")
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	privateClientPath := filepath.Join(home, "grok-client.json")
+	privateClient := []byte(`{"endpoint":"grok","endpoint_token":"private-credential-marker","native":{"url":"private-webhook-marker","headers":{"Authorization":"private-header-marker"},"routine_id":"private-routine-marker"}}`)
+	if err := os.WriteFile(privateClientPath, privateClient, 0600); err != nil {
+		t.Fatal(err)
+	}
+	readGrokState := func() map[string]any {
+		t.Helper()
+		w := managementCall(t, s, "/v1/manage", "", s.Config.AdminToken)
+		var result struct {
+			Agents []map[string]any `json:"agents"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+			t.Fatalf("cannot read Grok management state: %d %s", w.Code, w.Body.String())
+		}
+		for _, agent := range result.Agents {
+			if agent["id"] == "grok" {
+				return agent
+			}
+		}
+		t.Fatal("Grok card is missing")
+		return nil
+	}
+	beforeGrok := readGrokState()
+	beforeSnapshot := s.Broker.Snapshot()
+	beforeFiles := map[string][]byte{}
+	for _, path := range []string{filepath.Join(s.management.dir, "config.json"), filepath.Join(s.management.dir, "state.jsonl"), privateClientPath} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		beforeFiles[path] = body
+	}
+	registry := filepath.Join(s.management.dir, "skill-installations.json")
+	if _, err := os.Stat(registry); !os.IsNotExist(err) {
+		t.Fatalf("unexpected installation registry before viewing the guide: %v", err)
+	}
+	w := managementCall(t, s, "/v1/manage/agent", `{"endpoint":"grok","action":"install"}`, s.Config.AdminToken)
+	var result struct {
+		OK     bool     `json:"ok"`
+		Detail string   `json:"detail"`
+		Steps  []string `json:"steps"`
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &result) != nil || !result.OK {
+		t.Fatalf("Grok guide request failed: %d %s", w.Code, w.Body.String())
+	}
+	if len(result.Steps) != 4 {
+		t.Fatalf("expected concrete Grok setup steps, got %v", result.Steps)
+	}
+	guide := result.Detail + "\n" + strings.Join(result.Steps, "\n")
+	for _, required := range []string{"官方 Routine webhook", "client-config", "--data", "--endpoint", "--file", "clients/grok-routine/README.md", "clients/grok-routine/client.example.json", "native.url", "native.body", "native.headers", "native.routine_id", "session_id", "grok-routine", "external", "clients/grok-routine/main.py", "--config", "py -3", "0.1", "0.2.0", "实际升级", "支持 queue 邮箱 V1", "Task/Report", "mailbox_protocol_version=1", "固定身份 producer helper", "协作技能", "主动回信", "待验收", "steer", "interrupt", "未执行安装", "不代表原生已连接", "不贴聊天", "仓库"} {
+		if !strings.Contains(guide, required) {
+			t.Errorf("Grok guide omits %q", required)
+		}
+	}
+	if strings.Contains(guide, "不支持邮箱协议 V1") || strings.Contains(guide, "仅支持 queue 的旧 Task/Report") {
+		t.Error("Grok guide still tells mailbox-capable Clients to use legacy tasks only")
+	}
+	if !strings.Contains(guide, "保存并启用") || strings.Index(guide, "保存并启用") > strings.Index(guide, "运行 python3") {
+		t.Error("guide must enable the binding before starting the Client, which rejects disabled endpoints")
+	}
+	for _, secret := range []string{s.Config.AdminToken, EndpointToken(s.Config.AdminToken, "grok"), "private-credential-marker", "private-webhook-marker", "private-header-marker", "private-routine-marker"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Fatal("configuration guide exposed a private credential or binding value")
+		}
+	}
+	afterGrok := readGrokState()
+	if beforeGrok["installation_state"] != "not_installed" || !reflect.DeepEqual(beforeGrok, afterGrok) {
+		t.Fatalf("viewing a manual guide changed installation or connection state: before=%v after=%v", beforeGrok, afterGrok)
+	}
+	if !reflect.DeepEqual(beforeSnapshot, s.Broker.Snapshot()) {
+		t.Fatal("viewing a manual guide changed bindings, sessions, messages, or task records")
+	}
+	for path, before := range beforeFiles {
+		after, err := os.ReadFile(path)
+		if err != nil || string(before) != string(after) {
+			t.Fatalf("viewing a manual guide changed private configuration or records at %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(registry); !os.IsNotExist(err) {
+		t.Fatalf("viewing a manual guide created an installation registry: %v", err)
 	}
 }
 
@@ -172,7 +264,7 @@ func TestManagementEnablesOnlyImplementedMailboxProtocols(t *testing.T) {
 		want       int
 	}{
 		{"codex", "codex", 1}, {"workbuddy", "workbuddy", 1}, {"claude", "claude-code", 1},
-		{"grok", "grok-routine", 0}, {"codex", "custom-driver", 0},
+		{"grok", "grok-routine", 1}, {"codex", "custom-driver", 0},
 	} {
 		t.Run(test.driver, func(t *testing.T) {
 			s := networkFixture(t, "protocol-"+test.driver)
@@ -207,8 +299,51 @@ func TestManagementEnablesOnlyImplementedMailboxProtocols(t *testing.T) {
 					t.Fatal("unsupported protocol persisted", binding.Endpoint)
 				}
 			}
-			if e := s.Broker.Snapshot().Endpoints[test.id]; !e.Enabled || e.MailboxProtocolVersion != test.want {
+			e := s.Broker.Snapshot().Endpoints[test.id]
+			if !e.Enabled || e.MailboxProtocolVersion != test.want {
 				t.Fatal("wrong active protocol", e)
+			}
+			if e.IdleWakeVerified || e.ResultQueueWhileBusyVerified || e.MailboxWhileBusyVerified || e.PeerWhileBusyVerified {
+				t.Fatal("binding a new session asserted unverified native capabilities", e)
+			}
+			if test.driver == "grok-routine" {
+				var enabled struct {
+					Detail string `json:"detail"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &enabled); err != nil {
+					t.Fatal(err)
+				}
+				for _, required := range []string{"0.1", "0.2.0", "升级", "未验证"} {
+					if !strings.Contains(enabled.Detail, required) {
+						t.Errorf("Grok binding confirmation omits actual Client upgrade requirement %q: %s", required, enabled.Detail)
+					}
+				}
+				if !reflect.DeepEqual(e.Modes, []string{"queue"}) {
+					t.Fatal("Grok binding expanded native sending modes", e.Modes)
+				}
+				state := managementCall(t, s, "/v1/manage", "", s.Config.AdminToken)
+				var managed struct {
+					Agents []struct {
+						ID           string `json:"id"`
+						State        string `json:"state"`
+						Installation string `json:"installation_state"`
+					} `json:"agents"`
+				}
+				if state.Code != http.StatusOK || json.Unmarshal(state.Body.Bytes(), &managed) != nil {
+					t.Fatalf("cannot check Grok after binding: %d %s", state.Code, state.Body.String())
+				}
+				found := false
+				for _, agent := range managed.Agents {
+					if agent.ID == test.id {
+						found = true
+						if agent.State != "bound" || agent.Installation != "not_installed" {
+							t.Fatalf("binding claimed Grok was connected or installed: %+v", agent)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("Grok is missing after binding")
+				}
 			}
 		})
 	}

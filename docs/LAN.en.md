@@ -35,6 +35,29 @@ Transport uses TLS 1.3 with pinned peer keys and reuses long-lived connections t
 
 A relay supplies transport only. The destination verifies the original message signature and checks pairing and local sharing permissions. A trusting B and B trusting C does not make A trust C. A and C must establish their own direct pairing first; later, they can use B as a relay when their direct link is unavailable.
 
+## Hub availability and native wakeup
+
+The local management page refreshes network state through Hub SSE. Changes to paired-host availability, effective agent directories or selected routes notify subscribers. Renewing the same live directory's lease, signature or revision, or reordering agents, no longer repeatedly triggers refreshes. A connection failure that makes a peer offline also notifies once. Discovery candidates, configuration and business delivery retain their own events; an SSE change is not necessarily an online transition.
+
+Sharing a LAN does not authorize communication. Discovery, pairing, exports and native integration are separate. Availability events generate no business mail and do not broadcast model wakes. `connected` establishes a network path, not user login, Client recovery or a new native turn.
+
+A reboot trial can start with one authorized request carrying a stable ID, deadline and reply budget. After preparing startup, the target assistant performs one normal reboot. On recovery it explicitly sends a `reply/result` using its fixed-identity helper, including the trial nonce and actual boot/native-turn evidence. The original entry Client then consumes its own mailbox and uses its verified native channel to wake or steer the original chat. A `status` is recorded without a model wake by default. The Hub does not generate these replies.
+
+## Open another computer's management page
+
+**0.5.0** adds a separate remote-management grant, off by default. Pairing establishes Hub identity trust, and sharing agents permits the corresponding collaboration; neither grants administrative access. To manage computer B from computer A, both must run a version supporting this feature and currently have direct connectivity.
+
+1. In **B's local management page**, find paired Hub A and choose “允许此主机管理本机” (allow this host to manage this computer). This permits A to manage B only; it does not also permit B to manage A or authorize another host.
+2. In **A's local management page**, find directly connected B and choose “打开远端管理” (open remote management). The new page remains at A's loopback address, for example `http://127.0.0.1:7331/remote/<B-Hub-ID>/`, while displaying B's state.
+3. The page continues using A's local administrator authentication. Do not copy B's administrator token to A or enter it in the page. A's Hub uses the existing mutually authenticated TLS connection with pinned peer keys. B's administrator token is used only for an internal call on B, never in the LAN request, browser or response.
+4. Choose “撤销此主机管理本机” (revoke this host's management access) on B's local page to revoke permission. Every subsequent request rechecks permission, including on reused connections. Disconnecting also deletes the grant; pairing again defaults to no grant. Revocation does not roll back a management operation already executing.
+
+The remote page can inspect state, install managed skills for existing agents, bind/enable/disable/share them, change their collaboration language, and select the target's [optional login startup](AUTOSTART.en.md) and already registered Clients. Executable paths and arguments require registration through the target's local CLI. The remote interface does not read arbitrary private configuration files or accept arbitrary URLs, target endpoints or file paths as proxy destinations.
+
+This first version excludes remote network settings, invitations, pairing and management grants; change those on the target computer itself. Other Hubs in the remote directory are view-only: the page cannot open a third Hub recursively. Administrative requests never use relays. The open button is available only for a direct online peer, not a relayed route. B still rejects requests without its separate grant.
+
+The remote page fetches state when opened and after a submitted operation. Other updates use its refresh button; there is no remote SSE connection or added polling timer. After a lost connection or uncertain response, refresh and reconcile actual state before retrying an administrative operation.
+
 ## Federated mailbox
 
 Use the existing fixed-identity helper, `mail-send --file <absolute-path>`, with the full recipient address returned by the directory:
@@ -78,26 +101,28 @@ Hub neither translates nor detects prose language and invokes no additional mode
 
 ## Management APIs and installation states
 
-These endpoints are available only on the local loopback management listener and require existing administrator authentication and Host/Origin checks. They are not exposed on the LAN listener.
+These are local loopback management entry points requiring existing administrator authentication and Host/Origin checks. The LAN listener does not expose these HTTP APIs directly. Separately authorized remote management uses only a fixed TLS RPC and the allowed operations listed below.
 
 | Endpoint | Input or result |
 | --- | --- |
-| `GET /v1/manage` | Local identity, controls, interfaces, agents, candidates, paired hosts and pending requests; excludes private keys and endpoint tokens |
+| `GET /v1/manage` | Local identity, controls, interfaces, agents, candidates, paired hosts, pending requests and startup summary; excludes private keys, endpoint tokens and Client launch arguments |
 | `POST /v1/manage/settings` | `name`, `network_enabled`, `discovery_enabled`, `listen`, `interface` |
 | `POST /v1/manage/agent` | `endpoint`, `action`; `enable` may take a real `session_id`, while `language` requires `communication_language`; other actions are `install`, `disable`, `share`, `unshare` |
-| `POST /v1/manage/network` | `action`: `invite`, `pair`, `accept` or `disconnect`; `pair` takes `invitation` and optional `address`; `accept` uses the pending request ID in `peer_id`, while `disconnect` uses the Hub ID |
+| `POST /v1/manage/network` | `action`: `invite`, `pair`, `accept`, `disconnect`, `allow_management` or `revoke_management`; `pair` takes `invitation` and optional `address`; `accept` uses the pending request ID in `peer_id`, while other host operations use the Hub ID. Management grants can be changed only on the target's local interface |
+| `POST /v1/manage/autostart` | `enabled` and the registered endpoint array `clients`; changes the next login only, accepting no launch commands and starting/stopping no current processes |
+| `/remote/<Hub ID>/v1/...` | After local administrator authentication, a fixed TLS RPC accesses the specified directly paired Hub. Only GET `/v1/manage`, `/v1/state` and POST `/v1/manage/agent`, `/v1/manage/autostart` are allowed; request and response bodies are each limited to 1 MiB |
 
-Ordinary page updates use local SSE and do not wake models. An invalid interface, startup socket failure or runtime transport error disables discovery and exposes the error. A missing discovery adapter after restart does not make the existing local mailbox unavailable.
+Ordinary local-page updates use SSE without waking models; remote management uses manual refresh. An invalid interface, startup socket failure or runtime transport error disables discovery and exposes the error. A missing discovery adapter after restart does not make the existing local mailbox unavailable.
 
 The install button invokes the repository's fixed managed-skill installer for Codex, WorkBuddy and Claude. It does not install or validate every native Client, Claude plugin or Grok Routine. Complete independent Client setup, private configuration and real session binding using the [Client documentation](CLIENTS.en.md). Files installed, session bound, Client connected and native capability verified are distinct states. Installation, discovery, pairing, health checks and routing call no models. Disabling an endpoint does not cancel native work already running.
 
 ## Data and verification scope
 
-The data directory gains `network/identity.json`, `network/state.json` and `discovery.json`, holding the private host identity, network state and discovery preferences. Do not copy identity files, invitation proofs or private configuration into public documentation, repositories or logs. Preserve the identity file to retain the same Hub ID after restarting.
+The data directory's `network/identity.json`, `network/state.json` and `discovery.json` hold the private host identity, network state and discovery preferences. Remote-management grants are stored separately in local network state and are not propagated through invitations, directories or routes. Do not copy identity files, invitation proofs or private configuration into public documentation, repositories or logs. Preserve the identity file to retain the same Hub ID after restarting.
 
 The first federated message upgrades the snapshot version in the local append-only `state.jsonl` journal to **4**. Older programs cannot safely interpret these fields. Back up the complete data directory before upgrading; a rollback requires matching software and a complete compatible backup. Do not point an older executable blindly at the upgraded directory.
 
-This version upgrades the internal mesh wire protocol to **2**, requiring both Mac and Windows peers to update together; the mailbox protocol remains **1**.
+The internal mesh wire protocol remains **2**, introduced in 0.4.0; the mailbox protocol remains **1**. Remote management requires both peers to support the management RPC added in 0.5.0. Older pairing and mailbox support does not imply support for this operation.
 
 Offline tests use temporary directories, simulated native Clients and injected discovery sockets. They cover parsing, expiry, lifecycle, pairing, directories, durable messages, replay, loop prevention and management operations. Development checks include:
 
@@ -106,4 +131,6 @@ go test ./internal/discovery ./internal/mesh ./internal/manager ./internal/app
 node --test internal/app/web/dashboard.test.cjs
 ```
 
-These tests do not activate real LAN discovery or call models. Two physical computers, different interfaces, firewalls, multicast policies, sleep recovery and native assistant execution need separate validation in an authorized target environment. Existing local native acceptance does not automatically establish cross-computer acceptance.
+These tests do not activate real LAN discovery or call models. Remote management in 0.5.0 passed temporary-directory and loopback TLS tests for denied access, granted access, revocation, fresh pairing without inherited grants, no relaying and no token leakage. Real multi-computer remote management remains unaccepted. Actual interfaces, firewalls, multicast policies, sleep recovery, login startup and new native-assistant lifecycles require separate authorized validation. Existing local native or cross-computer mailbox acceptance does not cover these features automatically.
+
+Remote mail and legacy tasks show bounded previews of the latest 30 entries, with long bodies and artifact references truncated. Complete records stay on the target computer; a growing history does not require copying it all to the browser.

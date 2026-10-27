@@ -4,7 +4,7 @@
 
 `test_clients.py` 保留公共传输、事件消费和跨助手兼容检查。共享的本地假 HTTP、消息和 binding 夹具位于 `support.py`，不依赖任何具体助手实现。
 
-各助手的专项测试与实现一起维护：`clients/codex/test_adapter.py`、`clients/workbuddy/test_adapter.py`、`clients/grok-routine/test_adapter.py`。这些文件也能直接单独运行，命令见对应助手 README。
+各助手的专项测试与实现一起维护：`clients/codex/test_adapter.py`、`clients/workbuddy/test_adapter.py`、`clients/grok-routine/test_adapter.py`。独立离线维护测试另在 `clients/grok-routine/test_recovery.py`，真实 Hub 与本地原生替身的重启回归在 `test_restart_recovery.py`；它们也由下方命令运行。这些文件也能直接单独运行，命令见对应助手 README。
 
 在仓库根目录统一运行：
 

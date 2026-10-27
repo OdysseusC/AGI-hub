@@ -187,7 +187,7 @@ func (s *Service) client(peer peerRecord) *http.Client {
 		}
 		return nil
 	}}
-	transport := &http.Transport{TLSClientConfig: config, DialContext: (&net.Dialer{Timeout: time.Second, KeepAlive: 15 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: 5 * time.Second, IdleConnTimeout: 30 * time.Second, MaxIdleConns: maxPeers, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 2, DisableCompression: true}
+	transport := &http.Transport{TLSClientConfig: config, DialContext: (&net.Dialer{Timeout: time.Second, KeepAlive: 15 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: managementRequestTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: maxPeers, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 2, DisableCompression: true}
 	client := &http.Client{Transport: transport, Timeout: 7 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("mesh redirects forbidden") }}
 	// Temporary failed invitations cannot create an unbounded transport cache.
 	if len(s.clients) >= maxPeers*2 {
@@ -201,6 +201,10 @@ func (s *Service) client(peer peerRecord) *http.Client {
 	return client
 }
 func (s *Service) request(ctx context.Context, peer peerRecord, path string, input, output any) error {
+	return s.requestLimited(ctx, peer, path, input, output, maxFrame)
+}
+
+func (s *Service) requestLimited(ctx context.Context, peer peerRecord, path string, input, output any, limit int) error {
 	var body io.Reader
 	method := http.MethodGet
 	if input != nil {
@@ -208,7 +212,7 @@ func (s *Service) request(ctx context.Context, peer peerRecord, path string, inp
 		if err != nil {
 			return err
 		}
-		if len(data) > maxFrame {
+		if len(data) > limit {
 			return errors.New("mesh frame exceeds limit")
 		}
 		body = bytes.NewReader(data)
@@ -226,16 +230,24 @@ func (s *Service) request(ctx context.Context, peer peerRecord, path string, inp
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := s.client(peer).Do(req)
+	client := s.client(peer)
+	if path == "/v1/manage" {
+		// Keep the same pinned TLS transport and connection pool. Ordinary
+		// mesh calls retain their seven-second total budget on the cached client.
+		managementClient := *client
+		managementClient.Timeout = managementRequestTimeout
+		client = &managementClient
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxFrame+1))
+	data, err := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > maxFrame {
+	if len(data) > limit {
 		return errors.New("mesh response exceeds limit")
 	}
 	if res.StatusCode != http.StatusOK {
@@ -315,6 +327,8 @@ func (s *Service) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/v1/manage":
+		s.handleManagement(w, r, id)
 	case "/v1/directory":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -485,7 +499,52 @@ launch:
 	s.flush(ctx)
 }
 
+// transportViewLocked excludes signed revisions and lease timestamps: renewing
+// the same live directory is not a user-visible topology change. Keep the last
+// notified view across I/O so a request outliving the online TTL still reports
+// its offline edge. All refresh workers compare/advance it under the same lock.
+func (s *Service) transportViewLocked() string {
+	type peerView struct {
+		ID, Name, Address string
+		Online            bool
+		Agents            []Agent
+		Route             []string
+	}
+	peers := make([]peerView, 0, len(s.disk.Peers))
+	now := s.now()
+	for id, peer := range s.disk.Peers {
+		agents := []Agent{}
+		if ad, ok := s.ads[id]; ok && s.adLeases[id].After(now) {
+			agents = append(agents, ad.Agents...)
+		}
+		sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+		path, _ := s.routeLocked(id, nil)
+		peers = append(peers, peerView{id, peer.Name, peer.Address, s.isOnlineLocked(id), agents, append([]string{}, path...)})
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
+	data, _ := json.Marshal(peers)
+	return string(data)
+}
+
+func (s *Service) rememberTransportViewLocked() {
+	if s.transportView == "" {
+		s.transportView = s.transportViewLocked()
+	}
+}
+
+func (s *Service) transportChangedLocked() bool {
+	view := s.transportViewLocked()
+	if view == s.transportView {
+		return false
+	}
+	s.transportView = view
+	return true
+}
+
 func (s *Service) refresh(ctx context.Context, p peerRecord) {
+	s.mu.Lock()
+	s.rememberTransportViewLocked()
+	s.mu.Unlock()
 	var directory directoryFrame
 	err := s.request(ctx, p, "/v1/directory", nil, &directory)
 	if err == nil && directory.Version != Version {
@@ -528,7 +587,11 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 		}
 		backoff.Next = s.now().Add(delay)
 		s.retry[p.HubID] = backoff
+		notify := s.transportChangedLocked()
 		s.mu.Unlock()
+		if notify {
+			s.changed()
+		}
 		return
 	}
 	if previous.Address != p.Address {
@@ -541,9 +604,12 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 	}
 	s.online[p.HubID] = s.now().Add(4 * time.Second)
 	s.retry[p.HubID] = retryState{Next: s.now().Add(time.Second)}
+	s.acceptDirectoryFromLocked(p.HubID, directory)
+	notify := s.transportChangedLocked()
 	s.mu.Unlock()
-	s.acceptDirectoryFrom(p.HubID, directory)
-	s.changed()
+	if notify {
+		s.changed()
+	}
 }
 
 func (s *Service) sortedPeers() []peerRecord {

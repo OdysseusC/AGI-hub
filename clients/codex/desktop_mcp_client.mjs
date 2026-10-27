@@ -14,6 +14,7 @@ export const MAX_BYTES = 1 << 20;
 export const MAX_FRAME_BYTES = 4 << 20;
 export const PROTOCOL_VERSION = '2025-11-25';
 const TOOL = 'send_message_to_thread';
+const READ_TOOL = 'read_thread';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const cleanString = value => typeof value === 'string' && value.length > 0 && value.trim() === value && !/[\x00-\x1f\x7f]/.test(value);
 export class ConfigurationError extends Error {}
@@ -193,6 +194,32 @@ export function validateTool(result) {
   if (!object(schema) || schema.type !== 'object' || !Array.isArray(schema.required) || schema.required.length !== 2 || !schema.required.includes('threadId') || !schema.required.includes('prompt') || !object(schema.properties) || schema.properties.threadId?.type !== 'string' || schema.properties.prompt?.type !== 'string') throw new McpError('desktop_mcp_tool_schema_unverified');
 }
 
+function supportsSessionObservation(result) {
+  const matches = result.tools.filter(tool => object(tool) && tool.name === READ_TOOL);
+  if (matches.length === 0) return false;
+  const schema = matches[0].inputSchema;
+  if (matches.length !== 1 || !object(schema) || schema.type !== 'object' || !Array.isArray(schema.required)
+    || schema.required.length !== 1 || schema.required[0] !== 'threadId' || !object(schema.properties)
+    || schema.properties.threadId?.type !== 'string' || schema.properties.includeOutputs?.type !== 'boolean'
+    || !['number', 'integer'].includes(schema.properties.turnLimit?.type)
+    || !['number', 'integer'].includes(schema.properties.maxOutputCharsPerItem?.type)) throw new McpError('desktop_mcp_read_thread_schema_unverified');
+  return true;
+}
+
+function sessionSnapshot(result, threadId) {
+  if (result?.isError !== false || !Array.isArray(result.content) || result.content.length !== 1
+    || result.content[0]?.type !== 'text' || typeof result.content[0].text !== 'string') throw new McpError('desktop_mcp_session_observation_unconfirmed');
+  const value = parseJSON(result.content[0].text);
+  const thread = value?.thread, turn = value?.turns?.[0];
+  if (value?.schemaVersion !== 1 || !object(thread) || thread.id !== threadId || thread.kind !== 'codex' || thread.hostId !== 'local'
+    || !object(thread.status) || !Array.isArray(value.turns) || value.turns.length !== 1
+    || !object(turn) || !cleanString(turn.id) || turn.id === thread.id || Buffer.byteLength(turn.id) > 128
+    || thread.status.activeFlags !== undefined && (!Array.isArray(thread.status.activeFlags) || thread.status.activeFlags.length !== 0)) throw new McpError('desktop_mcp_session_observation_unconfirmed');
+  if (thread.status.type === 'active' && Array.isArray(thread.status.activeFlags) && turn.status === 'inProgress') return { state: 'busy', run_id: turn.id };
+  if (thread.status.type === 'idle' && ['completed', 'interrupted', 'failed'].includes(turn.status)) return { state: 'idle', run_id: '' };
+  throw new McpError('desktop_mcp_session_observation_unconfirmed');
+}
+
 export class MCPConnection {
   constructor(native, environment, { spawnProcess = spawn } = {}) {
     this.native = native; this.environment = environment; this.spawnProcess = spawnProcess;
@@ -282,12 +309,26 @@ export class DesktopMcpAdapter {
     try {
       const initialized = await this.rpc.call('initialize', {
         protocolVersion: PROTOCOL_VERSION, capabilities: {},
-        clientInfo: { name: 'agi-hub', title: 'AGI Hub', version: '0.3.0' },
+        clientInfo: { name: 'agi-hub', title: 'AGI Hub', version: '0.3.1' },
       });
       if (initialized.protocolVersion !== PROTOCOL_VERSION || !object(initialized.capabilities?.tools) || initialized.serverInfo?.name !== 'codex-app-tools') throw new McpError('desktop_mcp_handshake_unverified');
       this.rpc.notify('notifications/initialized');
-      validateTool(await this.rpc.call('tools/list', {})); this.ready = true;
+      const listed = await this.rpc.call('tools/list', {});
+      validateTool(listed); this.canObserveSession = supportsSessionObservation(listed); this.ready = true;
     } catch (error) { this.close(); throw error; }
+  }
+  async observeSession() {
+    await this.preflight();
+    if (!this.canObserveSession) throw new McpError('desktop_mcp_session_observation_unavailable');
+    try {
+      const result = await this.rpc.call('tools/call', {
+        name: READ_TOOL,
+        arguments: { threadId: this.config.native.thread_id, turnLimit: 1, includeOutputs: false, maxOutputCharsPerItem: 1 },
+        _meta: { threadId: this.config.caller, callId: 'agi-hub-' + randomUUID() },
+      });
+      // Only these two metadata fields escape the parser; never return/log turns.
+      return sessionSnapshot(result, this.config.native.thread_id);
+    } catch { this.close(); throw new McpError('desktop_mcp_session_observation_unconfirmed'); }
   }
   async deliver(envelope) {
     let attempted = false;
@@ -310,13 +351,14 @@ export class DesktopMcpAdapter {
       return { outcome: 'failed', detail: 'Codex Desktop MCP preflight or result validation failed; no native input was attempted' };
     }
   }
-  close() { this.ready = false; this.rpc?.close(); this.rpc = null; }
+  close() { this.ready = false; this.canObserveSession = false; this.rpc?.close(); this.rpc = null; }
 }
 
 export class HubAPI {
   constructor(config, { signal } = {}) {
     this.endpoint = config.endpoint; this.address = config.address ?? parseAddress(config.base_url); this.signal = signal;
-    this.headers = { Authorization: 'Bearer ' + config.endpoint_token, Host: this.address.authority, Origin: this.address.origin, Connection: 'close' };
+    this.headers = { Authorization: 'Bearer ' + config.endpoint_token, Host: this.address.authority, Origin: this.address.origin, Connection: 'close',
+      'X-AGI-Hub-Native-Session': config.native.thread_id };
   }
   path(name) { return '/v1/' + name + '?' + new URLSearchParams({ endpoint: this.endpoint }); }
   open(method, name, body, extra = {}, timeout = 30000) {
@@ -356,6 +398,7 @@ export class HubAPI {
   }
   get(name) { return this.jsonRequest('GET', name); }
   post(name, payload) { return this.jsonRequest('POST', name, payload); }
+  setSession(snapshot) { return this.jsonRequest('POST', 'endpoint/session', snapshot); }
   async subscribe() {
     const { request, response } = await this.open('GET', 'events', undefined, { Accept: 'text/event-stream' }, 45000);
     if (response.statusCode !== 200 || response.headers['content-type']?.split(';')[0] !== 'text/event-stream') {
@@ -390,33 +433,41 @@ const defaultStatus = (state, code) => console.log(JSON.stringify({ state, code 
 export async function drain(api, adapter, { status = defaultStatus } = {}) {
   const mailbox = api.mailbox === true;
   const inbox = mailbox ? 'mail/inbox' : 'inbox', deliveryPath = mailbox ? 'mail/delivery' : 'delivery';
-  while (true) {
-    // A closed native helper must be repaired and verified before another claim.
-    await adapter.preflight();
-    let envelope;
-    try { envelope = await api.post(inbox); }
-    catch (error) {
-      if (error instanceof HubError && error.status === 422) { status('error', 'inbox_rejected_waiting_for_event'); return; }
-      throw error;
-    }
-    if (envelope === null) return;
-    const kinds = mailbox ? ['request', 'reply', 'status', 'result'] : ['task', 'control', 'result'];
-    if (!object(envelope) || !cleanString(envelope.message_id) || envelope.recipient !== api.endpoint || envelope.delivery !== 'dispatching' || !kinds.includes(envelope.kind) || mailbox && (envelope.mailbox !== true || envelope.task_id) || !mailbox && envelope.mailbox === true) throw new HubError('invalid_claimed_envelope');
-    let delivery;
-    try { delivery = mailbox && envelope.kind === 'status' ? { outcome: 'delivered', detail: 'addressed status recorded without native input or a model wake' } : await adapter.deliver(envelope); }
-    catch { delivery = { outcome: 'uncertain', detail: 'native client interrupted after claim; reconcile before retrying' }; }
-    if (!['delivered', 'failed', 'uncertain'].includes(delivery?.outcome)) delivery = { outcome: 'uncertain', detail: 'native adapter returned invalid evidence; reconcile before retrying' };
-    try { await api.post(deliveryPath, { message_id: envelope.message_id, outcome: delivery.outcome, detail: delivery.detail }); }
-    catch { throw new HubError('delivery_receipt_unconfirmed_reconcile_in_hub'); }
+  let snapshot;
+  try { snapshot = await adapter.observeSession(); }
+  catch (error) {
+    await api.setSession({ state: 'unknown', run_id: '' });
+    throw error instanceof McpError ? error : new McpError('desktop_mcp_session_observation_unconfirmed');
   }
+  // Always perform CAS, even for the same observation: a different native
+  // binding may now own this endpoint. The Hub atomically skips same-value writes.
+  await api.setSession(snapshot);
+  let envelope;
+  try { envelope = await api.post(inbox); }
+  catch (error) {
+    if (error instanceof HubError && error.status === 422) { status('error', 'inbox_rejected_waiting_for_event'); return; }
+    throw error;
+  }
+  if (envelope === null) return;
+  const kinds = mailbox ? ['request', 'reply', 'status', 'result'] : ['task', 'control', 'result'];
+  if (!object(envelope) || !cleanString(envelope.message_id) || envelope.recipient !== api.endpoint || envelope.delivery !== 'dispatching' || !kinds.includes(envelope.kind) || mailbox && (envelope.mailbox !== true || envelope.task_id) || !mailbox && envelope.mailbox === true) throw new HubError('invalid_claimed_envelope');
+  let delivery;
+  try { delivery = mailbox && envelope.kind === 'status' ? { outcome: 'delivered', detail: 'addressed status recorded without native input or a model wake' } : await adapter.deliver(envelope); }
+  catch { delivery = { outcome: 'uncertain', detail: 'native client interrupted after claim; reconcile before retrying' }; }
+  if (!['delivered', 'failed', 'uncertain'].includes(delivery?.outcome)) delivery = { outcome: 'uncertain', detail: 'native adapter returned invalid evidence; reconcile before retrying' };
+  try { await api.post(deliveryPath, { message_id: envelope.message_id, outcome: delivery.outcome, detail: delivery.detail }); }
+  catch { throw new HubError('delivery_receipt_unconfirmed_reconcile_in_hub'); }
+  // Every receipt wakes the already subscribed stream. Re-observe before
+  // another claim, including after a silent status acknowledgement.
 }
 
 export async function consume(config, { signal, status = defaultStatus, api = new HubAPI(config, { signal }), adapter = new DesktopMcpAdapter(config), sleep = milliseconds => delay(milliseconds, undefined, { signal }) } = {}) {
   let backoff = 1000, announced = false;
   while (!signal?.aborted) {
-    const connectedAt = Date.now(); let events;
+    const connectedAt = Date.now(); let events, bindingVerified = false;
     try {
       const registered = await api.get('endpoint'); validateBinding(registered, config);
+      bindingVerified = true;
       api.mailbox = registered.endpoint.mailbox_protocol_version === 1;
       await adapter.preflight(); // tools/list must succeed before subscribing/claiming.
       events = await api.subscribe();
@@ -425,7 +476,13 @@ export async function consume(config, { signal, status = defaultStatus, api = ne
       for await (const _ of events.changes()) await drain(api, adapter, { status });
     } catch (error) {
       if (signal?.aborted) return 0;
-      if (error instanceof ConfigurationError || error instanceof McpError) { status('error', error.message); return 2; }
+      if (error instanceof ConfigurationError || error instanceof McpError) {
+        if (bindingVerified) {
+          try { await api.setSession({ state: 'unknown', run_id: '' }); }
+          catch { status('error', 'native_session_reset_unconfirmed'); }
+        }
+        status('error', error.message); return 2;
+      }
       if (!(error instanceof HubError)) { status('error', 'client_stopped_preserve_claim_and_reconcile'); return 1; }
       status('error', error.code);
       if ([401, 403, 404].includes(error.status) || ['delivery_receipt_unconfirmed_reconcile_in_hub', 'invalid_claimed_envelope'].includes(error.code)) return 1;

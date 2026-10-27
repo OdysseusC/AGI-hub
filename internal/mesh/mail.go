@@ -204,6 +204,7 @@ func boundedError(err error) string {
 
 func (s *Service) forward(ctx context.Context, frame relayFrame) (signedAck, error) {
 	s.mu.Lock()
+	s.rememberTransportViewLocked()
 	path, _ := s.routeLocked(frame.Envelope.ToHub, frame.Path)
 	if len(path) < 2 {
 		s.mu.Unlock()
@@ -219,7 +220,11 @@ func (s *Service) forward(ctx context.Context, frame relayFrame) (signedAck, err
 	if err != nil {
 		s.mu.Lock()
 		delete(s.online, peer.HubID)
+		notify := s.transportChangedLocked()
 		s.mu.Unlock()
+		if notify {
+			s.changed()
+		}
 	}
 	return ack, err
 }

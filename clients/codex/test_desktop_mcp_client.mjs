@@ -54,6 +54,195 @@ class FakeRPC {
   close() { this.closed = true; }
 }
 
+const stateTools = () => ({ tools: [...tools().tools, { name: 'read_thread', inputSchema: {
+  type: 'object', required: ['threadId'], properties: { threadId: { type: 'string' },
+    turnLimit: { type: 'number' }, includeOutputs: { type: 'boolean' }, maxOutputCharsPerItem: { type: 'number' } },
+} }] });
+const observedThread = (state = 'idle', turnStatus = 'completed') => ({ isError: false, content: [{ type: 'text', text: JSON.stringify({
+  schemaVersion: 1, thread: { id: target, kind: 'codex', hostId: 'local', status: { type: state, ...(state === 'active' ? { activeFlags: [] } : {}) } },
+  turns: [{ id: 'native-turn-test', status: turnStatus, messages: ['PRIVATE CHAT MUST NOT LEAVE THE OBSERVER'] }],
+}) }] });
+
+test('native session observation reads only the bound thread and retains a real busy turn ID', async t => {
+  const { config } = fixture(t); config.caller = target;
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread('active', 'inProgress')]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  assert.deepEqual(await adapter.observeSession(), { state: 'busy', run_id: 'native-turn-test' });
+  const read = rpc.calls.at(-1).params;
+  assert.equal(read.name, 'read_thread');
+  assert.deepEqual(read.arguments, { threadId: target, turnLimit: 1, includeOutputs: false, maxOutputCharsPerItem: 1 });
+  assert.equal(read._meta.threadId, target);
+  assert.ok(!rpc.calls.some(call => call.params?.name === 'wait_threads'));
+  adapter.close();
+});
+
+test('drain restores an unknown Hub session before claim and ends after one native input', async t => {
+  const { config } = fixture(t), sequence = [], snapshots = [];
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread(), acknowledgement()]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const api = { endpoint: config.endpoint,
+    async setSession(snapshot) { sequence.push('session'); snapshots.push(snapshot); },
+    async post(name) { sequence.push(name); return name === 'inbox' ? envelope() : { ok: true }; },
+  };
+  await drain(api, adapter);
+  assert.deepEqual(sequence, ['session', 'inbox', 'delivery']);
+  assert.deepEqual(snapshots, [{ state: 'idle', run_id: '' }]);
+  assert.deepEqual(rpc.calls.filter(call => call.method === 'tools/call').map(call => call.params.name), ['read_thread', 'send_message_to_thread']);
+  assert.ok(!JSON.stringify(snapshots).includes('PRIVATE'));
+  adapter.close();
+});
+
+test('the next receipt event re-observes a newly active turn before another claim', async t => {
+  const { config } = fixture(t), snapshots = []; let claims = 0;
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread(), acknowledgement(), observedThread('active', 'inProgress')]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const api = { endpoint: config.endpoint, async setSession(snapshot) { snapshots.push(snapshot); },
+    async post(name) { return name === 'inbox' && ++claims === 1 ? envelope() : name === 'inbox' ? null : { ok: true }; } };
+  await drain(api, adapter); // Initial connection.
+  await drain(api, adapter); // Actual receipt event from the subscribed stream.
+  assert.deepEqual(snapshots, [{ state: 'idle', run_id: '' }, { state: 'busy', run_id: 'native-turn-test' }]);
+  assert.deepEqual(rpc.calls.filter(call => call.method === 'tools/call').map(call => call.params.name), ['read_thread', 'send_message_to_thread', 'read_thread']);
+  assert.equal(claims, 2); adapter.close();
+});
+
+test('send-only old hosts explicitly fail closed and clear stale idle without claiming', async t => {
+  const { config } = fixture(t), snapshots = [];
+  const rpc = new FakeRPC([initialize(), tools()]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const api = { endpoint: config.endpoint, async setSession(snapshot) { snapshots.push(snapshot); }, async post() { assert.fail('unsupported host claimed inbox'); } };
+  await assert.rejects(drain(api, adapter), /desktop_mcp_session_observation_unavailable/);
+  assert.deepEqual(snapshots, [{ state: 'unknown', run_id: '' }]);
+  assert.ok(!rpc.calls.some(call => call.method === 'tools/call'));
+  adapter.close();
+});
+
+test('unchanged native state still checks the current binding before every claim', async () => {
+  let bound = true, claims = 0, writes = 0;
+  const api = { endpoint: 'codex-test', async setSession() { writes++; if (!bound) throw new HubError('native_session_binding_mismatch', 409); },
+    async post() { assert.ok(bound, 'rebound endpoint was claimed using cached old native state'); claims++; return null; } };
+  const adapter = { async observeSession() { return { state: 'idle', run_id: '' }; }, async preflight() {} };
+  await drain(api, adapter);
+  bound = false;
+  await assert.rejects(drain(api, adapter), error => error instanceof HubError && error.status === 409);
+  assert.equal(claims, 1); assert.equal(writes, 2);
+});
+
+test('wrong, unsupported or incomplete native metadata clears stale idle and never claims', async t => {
+  const { config } = fixture(t);
+  const changes = [
+    value => { value.thread.id = 'another-thread'; }, value => { value.thread.kind = 'chatgpt'; },
+    value => { value.thread.hostId = 'remote'; }, value => { value.schemaVersion = 2; },
+    value => { value.thread.status.type = 'notLoaded'; }, value => { value.thread.status.type = 'systemError'; },
+    value => { value.thread.status.type = 'active'; value.thread.status.activeFlags = []; },
+    value => { value.turns[0].status = 'inProgress'; }, value => { value.turns[0].id = ''; },
+    value => { value.turns[0].id = value.thread.id; },
+    value => { value.turns = []; }, value => { value.turns.push(value.turns[0]); },
+    value => { value.thread.status.activeFlags = ['waitingOnApproval']; },
+  ];
+  const replies = changes.map(change => { const reply = observedThread(); const value = JSON.parse(reply.content[0].text); change(value); reply.content[0].text = JSON.stringify(value); return reply; });
+  replies.push(new McpError('PRIVATE native failure'), { isError: true, content: [{ type: 'text', text: 'PRIVATE ERROR' }] },
+    { isError: false, content: [{ type: 'text', text: 'not JSON' }] });
+  for (const reply of replies) {
+    const rpc = new FakeRPC([initialize(), stateTools(), reply]);
+    const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc }), snapshots = [];
+    const api = { endpoint: config.endpoint, async setSession(snapshot) { snapshots.push(snapshot); }, async post() { assert.fail('unverified observation claimed inbox'); } };
+    await assert.rejects(drain(api, adapter), error => error instanceof McpError && error.message === 'desktop_mcp_session_observation_unconfirmed');
+    assert.deepEqual(snapshots, [{ state: 'unknown', run_id: '' }]);
+    adapter.close();
+  }
+});
+
+test('native disconnect invalidates a previous idle observation before any further claim', async t => {
+  const { config } = fixture(t), snapshots = []; let claims = 0;
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread(), new McpError('desktop_mcp_closed')]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const api = { endpoint: config.endpoint, async setSession(snapshot) { snapshots.push(snapshot); }, async post() { claims++; return null; } };
+  await drain(api, adapter);
+  await assert.rejects(drain(api, adapter), /session_observation_unconfirmed/);
+  assert.deepEqual(snapshots, [{ state: 'idle', run_id: '' }, { state: 'unknown', run_id: '' }]);
+  assert.equal(claims, 1); adapter.close();
+});
+
+test('unconfirmed session publication never permits inbox claim', async () => {
+  for (const error of [new HubError('hub_request_unconfirmed'), new HubError('binding_changed', 409), new HubError('old_hub', 404)]) {
+    const api = { async setSession() { throw error; }, async post() { assert.fail('unconfirmed state claimed inbox'); } };
+    const adapter = { async observeSession() { return { state: 'idle', run_id: '' }; } };
+    await assert.rejects(drain(api, adapter), candidate => candidate === error);
+  }
+});
+
+test('Hub reconnection republishes the same native snapshot after restart resets unknown', async t => {
+  const { config } = fixture(t), controller = new AbortController(), snapshots = [];
+  let connections = 0, claims = 0, reads = 0, hubSession = { state: 'unknown' };
+  const api = { endpoint: config.endpoint,
+    async get() { if (connections === 1) hubSession = { state: 'unknown' }; return { ...binding(), session: hubSession }; },
+    async setSession(snapshot) { snapshots.push(snapshot); hubSession = snapshot; },
+    async post() { assert.equal(hubSession.state, 'idle'); claims++; return null; },
+    async subscribe() { const generation = ++connections; return { close() {}, async *changes() {
+      if (generation === 1) throw new HubError('event_stream_disconnected');
+      controller.abort();
+    } }; },
+  };
+  const adapter = { async preflight() {}, async observeSession() { reads++; return { state: 'idle', run_id: '' }; }, close() {} };
+  assert.equal(await consume(config, { api, adapter, signal: controller.signal, status() {}, sleep: async () => {} }), 0);
+  assert.deepEqual(snapshots, [{ state: 'idle', run_id: '' }, { state: 'idle', run_id: '' }]);
+  assert.equal(reads, 2); assert.equal(claims, 2);
+});
+
+test('read tool schema is verified before any metadata call or claim', async t => {
+  const { config } = fixture(t);
+  for (const change of [value => { value.tools[1].inputSchema.required.push('hostId'); },
+    value => { value.tools[1].inputSchema.properties.includeOutputs.type = 'string'; },
+    value => { value.tools.push(value.tools[1]); }]) {
+    const listed = stateTools(); change(listed);
+    const rpc = new FakeRPC([initialize(), listed]), snapshots = [];
+    const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+    const api = { async setSession(snapshot) { snapshots.push(snapshot); }, async post() { assert.fail('unverified read tool claimed inbox'); } };
+    await assert.rejects(drain(api, adapter), /read_thread_schema_unverified/);
+    assert.deepEqual(snapshots, [{ state: 'unknown', run_id: '' }]);
+    assert.ok(!rpc.calls.some(call => call.method === 'tools/call'));
+    adapter.close();
+  }
+});
+
+test('initial stream and session change produce three observations, then quiet Hub emits no periodic reads', { timeout: 2000 }, async t => {
+  const { config } = fixture(t), controller = new AbortController();
+  let stream, hubSession = { state: 'unknown', run_id: '' }, commits = 0, publications = 0, claims = 0, quiet = false;
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread(), observedThread(), observedThread()]);
+  const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const server = http.createServer((request, response) => {
+    const route = new URL(request.url, 'http://fixture').pathname;
+    assert.equal(request.headers['x-agi-hub-native-session'], target);
+    const parts = []; request.on('data', part => parts.push(part)); request.on('end', () => {
+      if (route === '/v1/events') {
+        stream = response; response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        response.write('event: change\ndata: {}\n\n'); response.flushHeaders(); return;
+      }
+      response.setHeader('Content-Type', 'application/json');
+      if (route === '/v1/endpoint') response.end(JSON.stringify({ ...binding(), session: hubSession }));
+      else if (route === '/v1/endpoint/session') {
+        const snapshot = JSON.parse(Buffer.concat(parts)); publications++;
+        assert.deepEqual(Object.keys(snapshot).sort(), ['run_id', 'state']);
+        const changed = JSON.stringify(snapshot) !== JSON.stringify(hubSession);
+        hubSession = snapshot; response.end('{"ok":true}');
+        if (changed) { commits++; stream.write('event: change\ndata: {}\n\n'); }
+      } else if (route === '/v1/inbox') {
+        claims++; response.end('null');
+        if (claims === 3) {
+          stream.write(': keepalive\n\n');
+          setTimeout(() => { quiet = rpc.calls.filter(call => call.params?.name === 'read_thread').length === 3 && claims === 3; controller.abort(); }, 40);
+        }
+      } else assert.fail('unexpected route ' + route);
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { controller.abort(); stream?.destroy(); server.closeAllConnections(); server.close(); });
+  config.base_url = 'http://127.0.0.1:' + server.address().port; config.address = parseAddress(config.base_url);
+  assert.equal(await consume(config, { adapter, signal: controller.signal, status() {} }), 0);
+  assert.equal(commits, 1); assert.equal(publications, 3); assert.equal(claims, 3); assert.equal(quiet, true);
+  assert.ok(!rpc.calls.some(call => call.params?.name === 'wait_threads' || call.params?.name === 'send_message_to_thread'));
+});
+
 test('private config rejects duplicate keys, unsafe URL, caller overrides and missing host context', t => {
   const { raw, environment, directory } = fixture(t);
   for (const url of ['http://localhost:7331', 'http://127.1:7331', 'http://0177.0.0.1:7331', 'http://192.168.1.1:7331', 'http://secret@127.0.0.1:7331', 'http://127.0.0.1:7331/v1', 'http://127.0.0.1:7331?secret=x']) assert.throws(() => parseAddress(url), ConfigurationError);
@@ -146,10 +335,13 @@ test('mail inbox drain records status silently, acknowledges native input and ne
   const { config } = fixture(t); const calls = [];
   const message = { ...envelope(), kind: 'request', mailbox: true, task_id: '', root_origin: { endpoint: 'human-entry' } };
   const pending = [{ ...message, kind: 'status' }, message, null]; let nativeInputs = 0;
-  const api = { endpoint: config.endpoint, mailbox: true, async post(name) { calls.push(name); return name === 'mail/inbox' ? pending.shift() : { ok: true }; } };
-  const adapter = { async preflight() {}, async deliver() { nativeInputs++; return { outcome: 'delivered', detail: 'input acknowledged' }; } };
+  const api = { endpoint: config.endpoint, mailbox: true, async setSession() {}, async post(name) { calls.push(name); return name === 'mail/inbox' ? pending.shift() : { ok: true }; } };
+  const adapter = { async observeSession() { return { state: 'idle', run_id: '' }; }, async preflight() {}, async deliver() { nativeInputs++; return { outcome: 'delivered', detail: 'input acknowledged' }; } };
   await drain(api, adapter, { status() {} });
-  assert.deepEqual(calls, ['mail/inbox', 'mail/delivery', 'mail/inbox', 'mail/delivery', 'mail/inbox']);
+  assert.deepEqual(calls, ['mail/inbox', 'mail/delivery']);
+  assert.equal(nativeInputs, 0);
+  await drain(api, adapter, { status() {} });
+  assert.deepEqual(calls, ['mail/inbox', 'mail/delivery', 'mail/inbox', 'mail/delivery']);
   assert.equal(nativeInputs, 1);
   assert.ok(!calls.some(name => ['report', 'mail/send', 'peer/settled'].includes(name)));
 });
@@ -210,12 +402,14 @@ test('HTTP/SSE subscribes before inbox, passes scope headers and keepalive does 
   const server = http.createServer((request, response) => {
     const name = new URL(request.url, 'http://fixture').pathname.split('/').pop(); sequence.push(name);
     assert.equal(request.headers.authorization, 'Bearer scope-test'); assert.equal(request.headers.host, config.address.authority); assert.equal(request.headers.origin, config.address.origin);
+    assert.equal(request.headers['x-agi-hub-native-session'], target);
     assert.equal(new URL(request.url, 'http://fixture').searchParams.get('endpoint'), 'codex-test');
     const parts = []; request.on('data', part => parts.push(part)); request.on('end', () => {
       if (name === 'events') { stream = response; response.writeHead(200, { 'Content-Type': 'text/event-stream' }); response.flushHeaders(); return; }
       response.setHeader('Content-Type', 'application/json');
       if (name === 'endpoint') response.end(JSON.stringify(binding()));
-      else if (name === 'delivery') { receipts.push(JSON.parse(Buffer.concat(parts))); response.end('{"ok":true}'); }
+      else if (name === 'session') { response.end('{"ok":true}'); }
+      else if (name === 'delivery') { receipts.push(JSON.parse(Buffer.concat(parts))); response.end('{"ok":true}'); stream.write('event: change\ndata: {}\n\n'); }
       else if (name === 'inbox') {
         inbox++; response.end(JSON.stringify(inbox === 1 ? envelope() : null));
         if (inbox === 2) {
@@ -228,17 +422,18 @@ test('HTTP/SSE subscribes before inbox, passes scope headers and keepalive does 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => { stream?.destroy(); server.closeAllConnections(); server.close(); });
   config.base_url = 'http://127.0.0.1:' + server.address().port; config.address = parseAddress(config.base_url);
-  const rpc = new FakeRPC(); const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
+  const rpc = new FakeRPC([initialize(), stateTools(), observedThread(), acknowledgement(), observedThread(), observedThread()]); const adapter = new DesktopMcpAdapter(config, { connectionFactory: () => rpc });
   const code = await consume(config, { signal: controller.signal, status() {}, adapter });
-  assert.equal(code, 0); assert.deepEqual(sequence.slice(0, 4), ['endpoint', 'events', 'inbox', 'delivery']);
+  assert.equal(code, 0); assert.deepEqual(sequence.slice(0, 5), ['endpoint', 'events', 'session', 'inbox', 'delivery']);
   assert.equal(keepaliveChecked, true); assert.equal(inbox, 3); assert.equal(receipts.length, 1); assert.equal(receipts[0].outcome, 'delivered');
-  assert.equal(rpc.calls.filter(call => call.method === 'tools/call').length, 1);
+  assert.equal(rpc.calls.filter(call => call.params?.name === 'send_message_to_thread').length, 1);
+  assert.equal(rpc.calls.filter(call => call.params?.name === 'read_thread').length, 3);
 });
 
 test('receipt failure stops after one native attempt and discovery failure claims nothing', async t => {
   const { config } = fixture(t); let attempted = 0, posts = 0;
-  const api = { endpoint: config.endpoint, async post(name) { posts++; if (name === 'inbox') return envelope(); throw new HubError('offline'); } };
-  const adapter = { async preflight() {}, async deliver() { attempted++; return { outcome: 'uncertain', detail: 'fixed diagnostic' }; } };
+  const api = { endpoint: config.endpoint, async setSession() {}, async post(name) { posts++; if (name === 'inbox') return envelope(); throw new HubError('offline'); } };
+  const adapter = { async observeSession() { return { state: 'idle', run_id: '' }; }, async preflight() {}, async deliver() { attempted++; return { outcome: 'uncertain', detail: 'fixed diagnostic' }; } };
   await assert.rejects(drain(api, adapter), /delivery_receipt_unconfirmed/); assert.equal(attempted, 1); assert.equal(posts, 2);
   let claimed = false;
   const offline = { async preflight() { throw new McpError('desktop_mcp_closed'); }, close() {} };

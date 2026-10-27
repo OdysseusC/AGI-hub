@@ -15,6 +15,7 @@ Start from Codex, WorkBuddy or any assistant added later. There is no new chat s
 - [Architecture](docs/ARCHITECTURE.en.md) · [Message protocol](docs/PROTOCOL.en.md)
 - [Skill updates](docs/SKILLS.en.md) · [Assistant Clients](docs/CLIENTS.en.md)
 - [LAN Hubs and local management](docs/LAN.en.md)
+- [Optional user-login startup](docs/AUTOSTART.en.md)
 - [Native acceptance tests and support limits](docs/NATIVE-VALIDATION.en.md)
 
 ## How it works
@@ -44,8 +45,12 @@ The Hub does not create task trees, DAGs, team plans or central intelligent rout
 | Lower model usage | Status records do not wake a model; the directory is read on demand, without copying full histories or repeated acknowledgements |
 | Skill maintenance | Sync only registered managed locations, respecting user edits and uninstall choices and preventing version downgrades |
 | Local status page | Inspect mailbox delivery and history without making it a new work entry point |
+| Optional login startup | Off by default; restore the Hub and selected standalone Clients at the next user login while preserving Codex/Claude native-host gates |
+| Remote management | With a separate grant from a directly paired host, manage its Hub through the current loopback page without transmitting its administrator token or using relays |
 
 The legacy one-shot Task/Report interface remains compatible. New mailbox messages do not depend on it or generate business replies automatically.
+
+The 0.5.0 startup and remote-management features passed offline tests. Physical-computer reboot, login triggering, remote management and native-session recovery in a new lifecycle still await acceptance. Installation and upgrades never silently enable startup. See [startup limits](docs/AUTOSTART.en.md) and [remote-management steps](docs/LAN.en.md#open-another-computers-management-page).
 
 The original Codex ↔ WorkBuddy sessions on the development machine completed a pure mailbox collaboration: requests, verification replies and an artifact returned automatically to the original entry. The first attempt omitted a message ID; after improving the prompt, one explicit format explanation allowed it to complete. [Actual test and limitations](docs/NATIVE-VALIDATION.en.md)
 
@@ -61,6 +66,7 @@ On 2026-10-20 at 11:48 Beijing time, Claude Code mod `0.2.2` also passed a mailb
 | Events | Local HTTP loopback and SSE; no scheduled scanning of chat histories |
 | Codex Client | Node standard library; official Desktop MCP targets a specific original chat |
 | WorkBuddy Client | Python standard library; official CodeBuddy CLI `--resume` targets a specific original session |
+| Grok Routine Client | Python standard libraries and the user's official Routine webhook; 0.2.1 adds independent queue registration, with native acceptance checked per environment |
 | Claude Code Client | Mod 0.2.2 with native mailbox tools; queue-only Code sessions, verified on the local Claude-3p Mac |
 | Installer | Portable Go bootstrap, package checksums and platform-specific launchers |
 | Target platforms | Windows and macOS, each with amd64/arm64 packages; native capabilities are accepted separately per platform |

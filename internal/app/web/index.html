@@ -27,7 +27,7 @@
     <div id="notice" class="notice success" role="status" hidden></div>
     <div id="workspace" hidden>
       <section class="overview" aria-labelledby="hub-name">
-        <div class="overview-title"><div><span class="eyebrow">你的协作网络</span><h1 id="hub-name">本机 Hub</h1><p id="hub-id" class="mono muted"></p></div><span class="local-label">此电脑</span></div>
+        <div class="overview-title"><div><span class="eyebrow">你的协作网络</span><h1 id="hub-name">本机 Hub</h1><p id="hub-id" class="mono muted"></p></div><span id="computer-label" class="local-label">此电脑</span></div>
         <div class="metrics" aria-label="本机视角的网络数量">
           <div><strong id="count-local">0</strong><span>本机助手</span></div>
           <div><strong id="count-paired">0</strong><span>已配对 Hub</span></div>
@@ -54,6 +54,17 @@
           </fieldset>
         </form>
       </section>
+      <section id="startup" class="section" aria-labelledby="startup-title">
+        <div class="section-heading"><div><span id="startup-scope" class="eyebrow">本机运行</span><h2 id="startup-title">登录自启动</h2></div><span id="startup-status" class="badge neutral">关闭</span></div>
+        <form id="startup-form" class="panel">
+          <label class="switch-item"><input id="startup-enabled" type="checkbox"><span><strong>用户登录后启动 Hub</strong><small>默认关闭；保存后在下次登录生效，不停止当前运行</small></span></label>
+          <p id="startup-detail" class="hint"></p>
+          <div id="startup-clients"></div>
+          <p class="hint">这里只选择已在目标电脑登记的 Client。Codex 和 Claude Code 仍需原生宿主环境；启动进程不代表会话或业务已就绪。</p>
+          <div id="startup-runtime" class="hint" role="status"></div>
+          <button id="save-startup" type="submit" class="secondary">保存自启动设置</button>
+        </form>
+      </section>
       <nav class="section-nav" aria-label="管理区域"><a href="#local">本机助手</a><a href="#network">其他 Hub</a><a href="#messages">最近消息</a></nav>
       <section id="local" class="section" aria-labelledby="local-title">
         <div class="section-heading"><div><span class="eyebrow">01 / 本机</span><h2 id="local-title">助手会话与接入</h2></div><p>保留原生会话与工具</p></div>
@@ -65,7 +76,7 @@
         <div class="section-heading"><div><span class="eyebrow">02 / 局域网</span><h2 id="network-title">其他 Hub</h2></div><span id="network-note" class="muted">仅显示此 Hub 已知的主机</span></div>
         <div id="network-off" class="notice neutral-notice" hidden>局域网连接已关闭。可查看已保存的配对；开启连接后才能与其他主机通信。</div>
         <div id="discovery-error" class="notice error" role="status" hidden></div>
-        <div class="pairing-grid">
+        <div id="pairing-controls" class="pairing-grid">
           <div class="panel">
             <h3>邀请另一台电脑</h3><p class="muted">生成短期邀请，交给对方 Hub 提交配对请求，然后在本机确认。</p>
             <button id="invite" type="button" class="secondary">生成邀请</button>
@@ -88,6 +99,7 @@
       </section>
       <section id="messages" class="section" aria-labelledby="messages-title">
         <div class="section-heading"><div><span class="eyebrow">03 / 邮箱</span><h2 id="messages-title">消息邮箱</h2></div><span class="muted">最多 30 条 · 按消息 ID 排列</span></div>
+        <p id="remote-preview" class="section-note" hidden>远端只显示最近记录和截断正文预览，完整消息与成果请在目标电脑核对。</p>
         <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th scope="col">消息</th><th scope="col">发件人 → 收件人</th><th scope="col">用途</th><th scope="col">投递状态</th><th scope="col">内容</th></tr></thead><tbody id="mails"></tbody></table></div><p id="mail-empty" class="empty" hidden>还没有邮箱消息。助手明确选择收件人后，消息会显示在这里。</p></div>
         <details id="compatibility" class="compatibility"><summary>兼容任务与成果记录 <span id="count-tasks" class="count">0</span></summary><div class="table-scroll"><table><thead><tr><th scope="col">任务</th><th scope="col">接收方</th><th scope="col">执行</th><th scope="col">成果位置 / 回报</th></tr></thead><tbody id="tasks"></tbody></table></div></details>
       </section>

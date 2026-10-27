@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Version `0.3.0`, Hub protocol `1`, optional addressed mailbox protocol `1`. The default entry is `desktop_mcp_client.mjs`, implemented with the Node.js 22+ standard library, without npm installation or third-party libraries. It uses the official `codex-app-tools` MCP server to deliver messages to the bound original desktop chat, preserving its tools, model and permissions.
+Version `0.3.1`, Hub protocol `1`, optional addressed mailbox protocol `1`. The default entry is `desktop_mcp_client.mjs`, implemented with the Node.js 22+ standard library, without npm installation or third-party libraries. It uses the official `codex-app-tools` MCP server to deliver messages to the bound original desktop chat, preserving its tools, model and permissions.
 
 Run only one consumer per Hub endpoint. When `mailbox_protocol_version=1` is explicitly configured, it consumes only `/v1/mail/inbox`: `request/reply/result` go to the original session, while `status` stays in the message record with a delivery receipt and does not wake a model. The session's skill chooses actions, collaborators and reply recipients from context. Every reply is sent explicitly; the Hub neither generates replies from business state nor forces a parent/child task chain. `reply_to` is only a reference. `root_origin` retains the native session where the user first asked, and final results should return there.
 
@@ -36,6 +36,8 @@ Desktop MCP and App Server proxy are separate entry points. The former uses the 
 
 The current production macOS host checks the signatures of the connecting process and its parent chain. The verified launch chain is an official Node Client directly starting the official Node server, executed normally from a Codex host that already provides the official environment. A Python parent chain caused the tool-discovery connection to close on this machine. Installing a system Node separately or launching outside the host in the background does not guarantee availability. Do not copy bridge tickets, persist pipe values, guess private sockets or change identities to connect.
 
+Read-only preflight on 2026-10-27 confirmed this requirement again: with the same configuration, official server and real host environment, starting the Client through the system `node` on PATH passed `initialize` but failed `tools/list` with JSON-RPC `-32603` (`Codex app tools pipe closed`), surfaced as `desktop_mcp_rpc_unconfirmed`. Changing only the Client's parent Node to the host-provided official Node discovered 58 tools twice; switching back to the system Node still failed. An official Node in `native.command` alone does not establish a trusted parent chain. Inheriting the complete environment did not fix this failure, so changing the mailbox protocol or widening the environment allowlist is not a remedy. No sending tool was called; this verifies preflight only, without adding native-wakeup or business-loop acceptance evidence.
+
 ## Configure and start
 
 Register a `codex` endpoint in the Hub with `endpoint.driver="codex"` and `endpoint.session_id` equal to the verified native thread ID. Use `"driver":{"type":"external"}` for its binding. Export private configuration scoped to this endpoint only:
@@ -59,17 +61,26 @@ When migrating a customized older Client, export a fresh endpoint-scoped configu
 
 Obtain `command`, `args` and `cwd` from the actual installed official plugin manifest and runtime environment; do not guess directories. The Client inherits only normal operating-system variables and an allowlist of official Node/bridge variables. It does not read desktop credentials from configuration. If the host lacks `CODEX_THREAD_ID` or `CODEX_APP_TOOLS_PIPE_PATH`, it stops before claiming messages. Do not copy those values into `client.json`, documentation or logs.
 
-Start the verified official Node directly from an entry with the official host environment. In this POSIX example, `exec` replaces the launch shell with Node, preserving the verified parent chain:
+Start the Client inside the actual current desktop host, preferably with the Node provided by that host through `CODEX_MCP_NODE_PATH`. If the host does not provide it, explicitly use an official runtime whose path and signature have been verified. Do not hardcode application names such as `ChatGPT.app` or installation directories, or capture host environment for reuse in a background session. In this POSIX example, `exec` replaces the launch shell with Node, preserving the verified parent chain:
 
 ```sh
-exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
+: "${CODEX_MCP_NODE_PATH:?Start from the current desktop host providing official Node}"
+exec "$CODEX_MCP_NODE_PATH" /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
+
+A bare `node desktop_mcp_client.mjs ...` uses the runtime on PATH and may fail `tools/list` under the macOS parent-signature check described above. Check the complete preflight result even when initialization succeeds. The `node --test` command below runs offline tests without connecting to the official server; it is not a native Client startup example.
 
 On Windows, use an actual `node.exe` and local absolute paths, without `.cmd` or `.bat` wrappers as the process entry. The Windows 11/macOS arm64 results above apply only to the tested hosts; bridge and wakeup capabilities on other Windows/macOS hosts and on Linux need separate acceptance. The default Hub address is `http://127.0.0.1:7331`; only numeric loopback addresses are accepted. Use the actual exported configuration.
 
-The Client rechecks the endpoint binding and MCP tools on initial startup and every Hub reconnection. It subscribes to SSE before claiming; keepalives do not trigger polling. On disconnection, it only reconnects and scans pending messages that the Hub can still deliver. Messages already `dispatching / uncertain` are not resent. The Client does not declare the session idle or handle permission prompts automatically.
+The Client rechecks the endpoint binding and MCP tools on initial startup and every Hub reconnection. It subscribes to SSE before claiming; keepalives do not trigger polling. On disconnection, it only reconnects and scans pending messages that the Hub can still deliver. Messages already `dispatching / uncertain` are not resent.
+
+Version `0.3.1` uses official `read_thread` to inspect minimal metadata of the bound original chat after connecting and before a claim batch triggered by a real Hub change. It invokes no model and copies no chat bodies. Confirmed `idle`, or `busy` with the actual in-progress turn ID, is reported through endpoint-scoped `POST /v1/endpoint/session`. The endpoint token and current native session ID guard the binding; unchanged state causes no repeated persistence or broadcast. A mismatched target, missing tool or failed read stops claims conservatively. Tool discovery and stale snapshots do not establish idle. Wake-verification flags and business completion remain separate. A native delivery receipt ends that claim batch; the next real event causes a fresh observation instead of reusing pre-delivery idle for another wake.
+
+This repairs **reattachment after a Hub restart resets state to unknown while the Client already runs in its native host**. It does not start the desktop application, establish automatic acquisition of a new host environment after an OS restart, or continuously track busy-to-idle transitions without Hub events. See [native recovery limits](../../docs/AUTOSTART.en.md#recovering-an-already-bound-native-assistant). The Client does not guess idle or handle permission prompts automatically.
 
 It records `delivered` only when the tool returns `isError=false` and its single text block parses as a JSON ACK matching the original thread ID. Initialization or discovery failure before the tool call claims no message. Timeout, disconnection, tool errors or mismatched ACKs after a call begins are `uncertain`. A failure to persist the receipt stops the Client, retaining the Hub claim for reconciliation. An ACK proves native receipt, not business success or a verified idle wakeup.
+
+State reconstruction in `0.3.1` requires Hub `0.5.0` with the new endpoint. Upgrade the Hub and Node Client together. If an older Hub lacks it, the Client stops conservatively without falling back to administrator privileges or inventing idle state.
 
 ## Retained Python entry
 

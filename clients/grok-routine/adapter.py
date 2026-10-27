@@ -27,13 +27,17 @@ def expand(value: object, envelope: dict, endpoint: str) -> object:
             return envelope
         if "{{envelope}}" in value:
             raise ConfigurationError("envelope_object_must_be_entire_value")
-        replacements = {
-            "envelope_json": json.dumps(envelope, ensure_ascii=False, allow_nan=False),
-            "notification": notification(endpoint, envelope),
-            "content": envelope["content"], "task_id": envelope["task_id"], "message_id": envelope["message_id"],
-        }
+        def replace(match: re.Match) -> str:
+            name = match.group(1)
+            if name == "envelope_json":
+                return json.dumps(envelope, ensure_ascii=False, allow_nan=False)
+            if name == "notification":
+                return notification(endpoint, envelope)
+            if name == "task_id" and envelope.get("mailbox") is True:
+                raise ConfigurationError("mailbox_does_not_support_task_id_placeholder")
+            return envelope[name]
         # One pass: placeholders in the actual task content remain literal data.
-        return PLACEHOLDER.sub(lambda match: replacements[match.group(1)], value)
+        return PLACEHOLDER.sub(replace, value)
     if isinstance(value, list):
         return [expand(child, envelope, endpoint) for child in value]
     if isinstance(value, dict):
@@ -42,6 +46,9 @@ def expand(value: object, envelope: dict, endpoint: str) -> object:
 
 
 class GrokRoutineAdapter:
+    mailbox_protocol_version = 1
+    supports_native_queue = True
+
     def __init__(self, config: dict):
         native = config["native"]
         if set(native) - {"routine_id", "url", "headers", "body", "timeout_seconds"}:
@@ -71,12 +78,35 @@ class GrokRoutineAdapter:
             raise ConfigurationError("grok_native_binding_mismatch")
         if binding.get("modes") != ["queue"]:
             raise ConfigurationError("grok_routine_requires_queue_only_binding")
+        if binding.get("mailbox_protocol_version", 0) == 1 and binding.get("mailbox_native_queue_verified") is not True:
+            raise ConfigurationError("needs_native_queue_verification")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
-        if envelope["mode"] != "queue":
+        if not isinstance(envelope, dict) or envelope.get("recipient") != self.endpoint:
+            return "failed", "Routine webhook rejected a foreign recipient before dispatch"
+        if envelope.get("mode") != "queue":
             return "failed", "Routine webhook has no verified steer or interrupt mode"
+        mailbox = envelope.get("mailbox", False)
+        if type(mailbox) is not bool:
+            return "failed", "Routine webhook rejected invalid mailbox metadata"
+        kinds = ("request", "reply", "result") if mailbox else ("task", "control", "result")
+        required = ("message_id", "sender", "content", "correlation_id") if mailbox else ("message_id", "task_id", "content")
+        if envelope.get("kind") not in kinds or not all(
+            isinstance(envelope.get(field), str) and envelope[field].strip()
+            for field in required
+        ):
+            return "failed", "Routine webhook requires a complete supported envelope"
+        if mailbox:
+            origin = envelope.get("root_origin")
+            if (
+                envelope.get("task_id", "") != ""
+                or not isinstance(origin, dict)
+                or not all(isinstance(origin.get(field), str) and origin[field].strip() for field in ("endpoint", "device_id"))
+                or not isinstance(origin.get("session_id"), str)
+            ):
+                return "failed", "Routine webhook rejected malformed addressed message metadata"
         try:
             body = expand(self.body, envelope, self.endpoint)
-        except (ConfigurationError, TypeError, ValueError):
+        except (ConfigurationError, KeyError, TypeError, ValueError):
             return "failed", "invalid webhook template; no native request was started"
         return post_json_once(self.url, body, self.headers, self.timeout)

@@ -74,6 +74,30 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch r.URL.Path {
+	case "/v1/manage/native-queue":
+		var in nativeQueueDecision
+		if err := decode(w, r, &in); err != nil {
+			return nil, badRequest("invalid_native_queue_verification")
+		}
+		err := s.recordNativeQueueDecision(in, writePrivateJSON)
+		return map[string]any{"ok": err == nil, "detail": "已记录本机管理员的 native queue 验收决定；原生状态和执行结果仍独立记录。"}, err
+	case "/v1/manage/autostart":
+		var in struct {
+			Enabled bool     `json:"enabled"`
+			Clients []string `json:"clients"`
+		}
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		if err := ConfigureStartup(m.dir, binary, in.Enabled, in.Clients); err != nil {
+			return nil, err
+		}
+		s.Broker.Signal()
+		return map[string]any{"ok": true, "detail": "已保存，下次用户登录时生效；当前运行和任务保持不变。"}, nil
 	case "/v1/manage/settings":
 		var in struct {
 			Name             string `json:"name"`
@@ -178,6 +202,10 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 			return nil, err
 		}
 		switch in.Action {
+		case "allow_management", "revoke_management":
+			err := m.mesh.SetManagementAllowed(in.PeerID, in.Action == "allow_management")
+			s.Broker.Signal()
+			return map[string]any{"ok": err == nil, "detail": "已更新此主机管理本机的权限；配对或消息共享本身不授予管理权限。"}, err
 		case "invite":
 			invite, err := m.mesh.Invite(5 * time.Minute)
 			return map[string]any{"ok": err == nil, "invitation": invite.Code, "expires_at": invite.ExpiresAt, "detail": "将邀请交给另一台电脑；收到请求后仍需在本机确认。"}, err
@@ -234,13 +262,14 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			e.ResultQueueWhileBusyVerified = false
 			e.MailboxWhileBusyVerified = false
 			e.PeerWhileBusyVerified = false
+			e.MailboxNativeQueueVerified = false
 		}
 		e.Enabled = action == "enable"
 		if e.Enabled && e.MailboxProtocolVersion == 0 {
 			// Enable only capabilities implemented by this release's Clients.
-			// In particular Grok Routine still consumes the legacy task inbox.
+			// Grok Routine needs the actual 0.2.0 Client, not a manifest-only update.
 			switch e.Driver {
-			case "codex", "workbuddy", "claude-code":
+			case "codex", "workbuddy", "claude-code", "grok-routine":
 				e.MailboxProtocolVersion = 1
 			}
 		}
@@ -250,7 +279,14 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		found := false
 		for i := range cfg.Bindings {
 			if cfg.Bindings[i].Endpoint.ID == id {
+				stored := cfg.Bindings[i]
+				// Configuration and its accepted binding anchor remain authoritative;
+				// a routine enable/disable must not resurrect a revoked queue grant.
+				e.MailboxNativeQueueVerified = configuredNativeQueueVerification(stored, e)
 				cfg.Bindings[i].Endpoint = e
+				if old.SessionID != e.SessionID {
+					cfg.Bindings[i].NativeQueueVerification = nil
+				}
 				found = true
 			}
 		}
@@ -267,7 +303,11 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			_ = s.Broker.SetSession(id, "unknown", "")
 		}
 		s.Broker.Signal()
-		return map[string]any{"ok": true, "detail": "已保存绑定。请按接入文档运行独立 Client；原生唤醒能力须另外验收。"}, nil
+		detail := "已保存绑定。请按接入文档运行独立 Client；原生唤醒能力须另外验收。"
+		if e.Enabled && e.Driver == "grok-routine" {
+			detail = "已保存 Grok queue / 邮箱 V1 绑定。旧 Client 0.1 必须实际升级到 0.2.0；仅改 manifest 或 endpoint 标记不能接入。本次操作未验证原生唤醒或主动回信，请按 clients/grok-routine/README.md 配置独立 Client。"
+		}
+		return map[string]any{"ok": true, "detail": detail}, nil
 	case "install":
 		host := ""
 		switch e.Driver {
@@ -279,6 +319,14 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			host = "claude"
 		}
 		if host == "" {
+			if e.Driver == "grok-routine" {
+				return map[string]any{"ok": true, "detail": "Grok Routine 需要手动配置。本次仅展示步骤，未执行安装，不代表原生已连接。", "steps": []string{
+					"旧 Grok Routine Client 0.1 必须实际升级到 0.2.0，并保留匹配的 clients/shared；仅改 manifest 或 endpoint 标记不能接入。按包内 clients/grok-routine/README.md 准备并验证本人的官方 Routine webhook，核对该 Routine 实际接收的请求结构。",
+					"在目标电脑导出仓库外的私有配置：agi-hub client-config --data <Hub私有目录> --endpoint <本卡片ID> --file <私有绝对路径/client.json>。参照 clients/grok-routine/client.example.json 填写 native.url、native.body、native.headers 和 native.routine_id；body 须包含完整交接占位符 {{notification}} 或文档中的 envelope 形式。凭据只留在本机私有文件，不贴聊天、不提交仓库。",
+					"Hub 的 endpoint.driver 使用 grok-routine，binding 的 driver.type 使用 external，session_id 与 native.routine_id 完全一致。0.2.0 支持 queue 邮箱 V1，设置 mailbox_protocol_version=1；旧 Task/Report 仅作兼容。保存并启用此 endpoint 后，在包根目录运行 python3 clients/grok-routine/main.py --config <私有配置绝对路径>；Windows 使用 py -3。",
+					"按 clients/grok-routine/README.md 中的文档准备固定身份 producer helper 与协作技能；目标 Routine 必须能读取技能并调用本机 helper，才能主动回信。真实官方 Routine 收件、执行与回信闭环待验收；未验收前保持 idle_wake_verified 和忙时验证标记为 false。不支持忙时引导、steer 或 interrupt。启用或启动进程不代表原生已连接；Webhook 2xx 只确认传输，不代替 Grok 的明确回信。",
+				}}, nil
+			}
 			return map[string]any{"ok": true, "detail": "此平台需要手动配置原生入口；未执行安装。", "steps": []string{"按该 Client 的 README 配置原生例程和私有配置。", "填写真实会话 ID 后再启用。"}}, nil
 		}
 		registered, err := install.StatusEndpoint(m.dir, id)
@@ -339,7 +387,7 @@ func (s *Server) managementState() (any, error) {
 			detail = "已启用，绑定和原生 Client 连接状态尚未核实"
 			if e.SessionID != "" {
 				status = "bound"
-				detail = "已有会话已绑定，Client 连接状态尚未验证；请核对本机 Client 输出和实际消息。"
+				detail = "已有会话已绑定；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，Client 连接状态尚未验证；请核对本机 Client 输出和实际消息。"
 			}
 			s.leaseMu.Lock()
 			lease, exists := s.leases[e.ID]
@@ -347,11 +395,14 @@ func (s *Server) managementState() (any, error) {
 			s.leaseMu.Unlock()
 			if connected {
 				status = "connected"
-				detail = "独立 Client 已连接，原生执行须另看真实回报"
+				detail = "独立 Client 已连接；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，原生执行须另看真实回报"
 			}
 			if connected && e.IdleWakeVerified && snapshot.Sessions[e.ID].State == "idle" {
 				status = "verified"
 				detail = "当前会话空闲，已配置经验证的唤醒能力"
+			}
+			if e.MailboxNativeQueueVerified {
+				detail = "已登记本机管理员验证的 native queue；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，等待独立 Client 领取邮箱；登记不代表原生已执行。"
 			}
 		}
 		installation := "not_installed"
@@ -396,7 +447,7 @@ func (s *Server) managementState() (any, error) {
 			children = append(children, map[string]string{"id": a.ID, "name": a.Name, "state": a.Status,
 				"communication_language": language.Effective(a.Driver, a.CommunicationLanguage)})
 		}
-		peers = append(peers, map[string]any{"id": p.HubID, "name": p.Name, "address": p.Address, "state": status, "route": routes[p.HubID], "agents": children})
+		peers = append(peers, map[string]any{"id": p.HubID, "name": p.Name, "address": p.Address, "state": status, "route": routes[p.HubID], "agents": children, "management_allowed": p.ManageAllowed})
 	}
 	pending := []map[string]string{}
 	for _, p := range state.Pending {
@@ -419,5 +470,14 @@ func (s *Server) managementState() (any, error) {
 	return map[string]any{
 		"hub":    map[string]any{"id": state.HubID, "name": state.Name, "network_enabled": state.Config.Enabled, "discovery_enabled": discoveryEnabled, "listen": state.Config.ListenAddr, "interface": iface, "discovery_error": discoveryErr, "network_error": m.networkError},
 		"agents": agents, "network": map[string]any{"peers": peers, "pending": pending, "discovered": discovered, "interfaces": interfaces},
+		"autostart": startupView(m.dir),
 	}, nil
+}
+
+func startupView(dir string) any {
+	v, err := StartupStatus(dir)
+	if err != nil {
+		return map[string]any{"supported": false, "enabled": nil, "platform_status": "unknown", "detail": "自启动状态核对失败，请在本机检查配置和系统登录项。"}
+	}
+	return v
 }

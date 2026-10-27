@@ -278,9 +278,10 @@ class CrossClientCompatibilityTests(unittest.TestCase):
 
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite([tests])
-    for assistant in ("codex", "workbuddy", "grok-routine"):
-        path = CLIENTS / assistant / "test_adapter.py"
-        name = "agi_hub_" + assistant.replace("-", "_") + "_adapter_tests"
+    for assistant, filename in (("codex", "test_adapter.py"), ("workbuddy", "test_adapter.py"),
+                                ("grok-routine", "test_adapter.py"), ("grok-routine", "test_recovery.py")):
+        path = CLIENTS / assistant / filename
+        name = "agi_hub_" + assistant.replace("-", "_") + "_" + Path(filename).stem
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

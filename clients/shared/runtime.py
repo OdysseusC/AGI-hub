@@ -14,11 +14,25 @@ from urllib.parse import urlencode
 from shared.transport import ConfigurationError, HubError, parse_address, request, valid_header
 
 MAX_BYTES = 1 << 20
+RECOVERY_ACTIONS = {
+    "needs_native_queue_verification": (
+        "An administrator must verify the fixed Routine's native probe and record its evidence with "
+        "agi-hub native-queue --data <private-hub-dir> --endpoint <endpoint> --native-session <routine-id> "
+        "--verified=true --evidence-ref <verified-probe-reference>. This Client cannot grant verification."
+    ),
+    "needs_native_observation": (
+        "Observe the bound WorkBuddy session through an official read-only native interface and record its actual state. "
+        "A running Client, an old successful CLI exit, or an absent process does not establish idle."
+    ),
+}
 
 
 def status(state: str, code: str) -> None:
     # Only fixed diagnostic codes. Never exception strings, native output or tokens.
-    print(json.dumps({"state": state, "code": code}), flush=True)
+    value = {"state": state, "code": code}
+    if code in RECOVERY_ACTIONS:
+        value["action"] = RECOVERY_ACTIONS[code]
+    print(json.dumps(value), flush=True)
 
 
 def read_json(path: Path) -> object:
@@ -102,6 +116,13 @@ class HubAPI:
             "Origin": self.address.origin,
             "Connection": "close",
         }
+        for field in ("routine_id", "session_id", "thread_id"):
+            if field in config.get("native", {}):
+                session = config["native"][field]
+                if not isinstance(session, str) or not session.strip() or not valid_header("X-AGI-Hub-Native-Session", session):
+                    raise ConfigurationError("invalid_fixed_native_session")
+                self.headers["X-AGI-Hub-Native-Session"] = session
+                break
 
     def path(self, name: str, query: dict[str, str] | None = None) -> str:
         if query is not None and "endpoint" in query:
@@ -182,12 +203,21 @@ def verify_binding(api: HubAPI, adapter: Adapter) -> None:
         raise ConfigurationError("native_transport_does_not_support_mailbox_protocol")
     if type(binding.get("mailbox_while_busy_verified", False)) is not bool:
         raise ConfigurationError("invalid_hub_busy_mailbox_verification")
+    native_queue = binding.get("mailbox_native_queue_verified", False)
+    if type(native_queue) is not bool:
+        raise ConfigurationError("invalid_hub_native_queue_verification")
+    if native_queue and (mailbox_version != 1 or binding["modes"] != ["queue"]):
+        raise ConfigurationError("invalid_hub_native_queue_contract")
+    if native_queue and getattr(adapter, "supports_native_queue", False) is not True:
+        raise ConfigurationError("native_transport_does_not_support_native_queue")
     session = registered.get("session")
     if not isinstance(session, dict) or session.get("state") not in ("unknown", "idle", "busy", "needs_user"):
         raise ConfigurationError("invalid_hub_session_state")
     # Unknown is valid observation, not an instruction to mark the session idle.
     # This API is read-only; only the Hub decides whether a message is eligible.
     adapter.validate_binding(binding)
+    if mailbox_version == 1 and session["state"] == "unknown" and getattr(adapter, "requires_native_observation", False) is True:
+        raise ConfigurationError("needs_native_observation")
     # A mailbox endpoint consumes only its addressed inbox. Never mix legacy
     # tasks or infer another transport when the opted-in protocol is unavailable.
     api.mailbox = mailbox_version == 1
@@ -238,20 +268,44 @@ def drain(api: HubAPI, adapter: Adapter) -> None:
 def consume(api: HubAPI, adapter: Adapter, *, sleep: Callable[[float], None] = time.sleep) -> int:
     backoff = 1.0
     announced = False
+    blocked_code = None
+
+    def can_claim():
+        nonlocal announced, blocked_code
+        try:
+            verify_binding(api, adapter)
+        except ConfigurationError as exc:
+            code = str(exc)
+            if code not in RECOVERY_ACTIONS:
+                raise
+            if blocked_code != code:
+                status("needs_verification" if code == "needs_native_queue_verification" else "needs_user", code)
+            blocked_code, announced = code, False
+            return False
+        blocked_code = None
+        return True
+
     while True:
         connected_at = time.monotonic()
         try:
             # Verify the actual registered destination on every connection, before
             # claiming any message. Envelope content cannot change this binding.
-            verify_binding(api, adapter)
+            allowed = can_claim()
             with api.subscribe() as events:
                 # Subscribe first: task creation between these steps cannot be lost.
-                if not announced:
+                if allowed and not announced:
                     status("ready", "subscribed_native_completion_unverified")
                     announced = True
-                drain(api, adapter)
-                for _ in events.changes():
+                if allowed:
                     drain(api, adapter)
+                for _ in events.changes():
+                    # Verification registration/revocation and binding changes
+                    # arrive on the real event stream; never poll or infer idle.
+                    if can_claim():
+                        if not announced:
+                            status("ready", "subscribed_native_completion_unverified")
+                            announced = True
+                        drain(api, adapter)
         except ConfigurationError as exc:
             status("error", str(exc))
             return 2

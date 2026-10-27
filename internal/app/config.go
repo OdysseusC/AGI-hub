@@ -30,9 +30,10 @@ type Binding struct {
 	Endpoint manager.Endpoint `json:"endpoint"`
 	Driver   ClientBinding    `json:"driver"`
 	// Directory visibility does not grant task submission rights.
-	VisiblePeers []string `json:"visible_peers,omitempty"`
-	AllowedPeers []string `json:"allowed_peers,omitempty"`
-	Purpose      string   `json:"purpose,omitempty"`
+	VisiblePeers            []string                 `json:"visible_peers,omitempty"`
+	AllowedPeers            []string                 `json:"allowed_peers,omitempty"`
+	Purpose                 string                   `json:"purpose,omitempty"`
+	NativeQueueVerification *NativeQueueVerification `json:"mailbox_native_queue_verification,omitempty"`
 }
 
 type Config struct {
@@ -136,6 +137,9 @@ func LoadConfig(dir string) (Config, error) {
 		}
 		if b.Endpoint.MailboxProtocolVersion < 0 || b.Endpoint.MailboxProtocolVersion > 1 || b.Endpoint.MailboxWhileBusyVerified && b.Endpoint.MailboxProtocolVersion != 1 {
 			return c, errors.New("mailbox_protocol_version must be 0 or 1; mailbox_while_busy_verified requires version 1")
+		}
+		if b.Endpoint.MailboxNativeQueueVerified && !nativeQueueVerificationMatches(*b) {
+			b.Endpoint.MailboxNativeQueueVerified = false
 		}
 		if b.Driver.Type == "" {
 			b.Driver.Type = "external"
