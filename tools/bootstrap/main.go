@@ -42,7 +42,7 @@ func main() {
 func run(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("agi-hub-setup", flag.ContinueOnError)
 	fs.SetOutput(out)
-	host := fs.String("host", "", "explicitly selected host: codex or workbuddy")
+	host := fs.String("host", "", "explicitly selected host: codex, workbuddy, or grok workspace")
 	endpoint := fs.String("endpoint", "", "configured endpoint ID (defaults to host)")
 	data := fs.String("data", app.DefaultDataDir(), "private Hub data directory, outside this package")
 	source := fs.String("package-dir", "", "extracted package directory (defaults to this executable's directory)")
@@ -68,8 +68,16 @@ func run(args []string, out io.Writer) error {
 		fs.Usage()
 		return nil
 	}
-	if *host != "" && *host != "codex" && *host != "workbuddy" {
-		return errors.New("第一版引导安装只接受明确选定的 codex 或 workbuddy")
+	if *host != "" && *host != "codex" && *host != "workbuddy" && *host != "grok" {
+		return errors.New("引导安装只接受明确选定的 codex、workbuddy 或 grok 工作区")
+	}
+	if !*verify && *host == "grok" {
+		if err := validateGrokWorkspace(*clientConfig, *workspace, *skillsDir, *reportBinary); err != nil {
+			return err
+		}
+	}
+	if *endpoint == "" {
+		*endpoint = *host
 	}
 	if *source == "" {
 		executable, err := os.Executable()
@@ -94,6 +102,19 @@ func run(args []string, out io.Writer) error {
 	*data, err = filepath.Abs(*data)
 	if err != nil {
 		return err
+	}
+	if *host == "grok" {
+		cfg, err := app.LoadConfig(*data)
+		if err != nil {
+			return fmt.Errorf("Grok 工作区安装需要现有 Hub 配置：%w", err)
+		}
+		configured := false
+		for _, binding := range cfg.Bindings {
+			configured = configured || binding.Endpoint.ID == *endpoint && binding.Endpoint.Driver == "grok-routine"
+		}
+		if !configured {
+			return errors.New("Grok 工作区必须使用当前 Hub 中已配置的 grok-routine endpoint")
+		}
 	}
 	if within(*source, *data) {
 		return errors.New("私有数据目录不能放在解压安装包里面")
@@ -120,9 +141,6 @@ func run(args []string, out io.Writer) error {
 	if _, err := app.LoadConfig(*data); err != nil {
 		return fmt.Errorf("保留已有配置；请先处理配置错误：%w", err)
 	}
-	if *endpoint == "" {
-		*endpoint = *host
-	}
 	if (*clientConfig == "") != (*workspace == "") || *clientConfig != "" && *reportBinary != "" {
 		return errors.New("client-config 和 workspace 必须一起提供，不能与 report-binary 混用")
 	}
@@ -133,6 +151,9 @@ func run(args []string, out io.Writer) error {
 		}
 	}
 	if *reportBinary == "" {
+		if *host == "grok" {
+			return errors.New("Grok 工作区必须使用其专属固定身份 helper，不回退完整 Hub CLI")
+		}
 		*reportBinary, err = existingReportHelper(*host, *skillsDir)
 		if err != nil {
 			return err
@@ -161,10 +182,41 @@ func run(args []string, out io.Writer) error {
 	if err := runHub(out, binary, "doctor", "--data", *data); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\n基础安装完成；尚未接通助手。\n程序：%s\n私有配置：%s\n继续阅读：%s\n", binary, filepath.Join(*data, "config.json"), filepath.Join(installDir, "docs", "INSTALL-FOR-ASSISTANT.md"))
+	if *host == "grok" {
+		fmt.Fprintf(out, "\nGrok 工作区协作文件已落盘；未验证云端 Bot/Routine 自动加载或原生闭环。\n协作规则：%s\n固定身份发信工具：%s\n仅供 Grok 通过本人已授权的本机 terminal 读取和执行；未启动 Hub 服务、Client 或原生助手。\n", filepath.Join(*skillsDir, "agi-hub-client", "SKILL.md"), *reportBinary)
+	} else {
+		fmt.Fprintf(out, "\n基础安装完成；尚未接通助手。\n程序：%s\n私有配置：%s\n继续阅读：%s\n", binary, filepath.Join(*data, "config.json"), filepath.Join(installDir, "docs", "INSTALL-FOR-ASSISTANT.md"))
+	}
 	if *host == "codex" {
 		message := fmt.Sprintf("请帮我接入本机 AGI Hub。先读取 %s，运行引导安装器 %s，参数为 --host workbuddy --data %s；路径中的空格须作为完整参数处理。先核实本会话实际技能目录：WorkBuddy 桌面默认目录与独立 CodeBuddy profile 不能混同，非默认时加 --skills-dir 真实技能目录。已有专属回报 helper 时保留它，可显式传 --report-binary 实际程序。保留已有配置、登录态和技能修改，不自行启用未经验证的会话、不修改工具授权。安装后请告诉我本聊天真实会话 ID、当前工作目录、实际 CodeBuddy CLI 入口及配置目录；无法确认的项目保持未知。只做安装核对，不调用其他助手，不发送企业微信消息，不读取聊天历史。", filepath.Join(installDir, "docs", "INSTALL-FOR-ASSISTANT.md"), filepath.Join(installDir, binaryName("agi-hub-setup")), *data)
 		fmt.Fprintf(out, "\n可由本人复制到 WorkBuddy 的接入消息（无凭据）：\n%s\n", message)
+	}
+	return nil
+}
+
+func validateGrokWorkspace(clientConfig, workspace, skillsDir, reportBinary string) error {
+	if clientConfig == "" || workspace == "" || skillsDir == "" || reportBinary != "" {
+		return errors.New("Grok 工作区必须显式提供 client-config、workspace 和 skills-dir；不接受 report-binary 替代")
+	}
+	for _, value := range []string{clientConfig, workspace, skillsDir} {
+		if !filepath.IsAbs(value) || strings.ContainsRune(value, 0) {
+			return errors.New("Grok 工作区路径必须为已核实的本机绝对路径")
+		}
+		for _, part := range strings.Split(filepath.ToSlash(value), "/") {
+			if part == ".." {
+				return errors.New("Grok 工作区路径不接受父目录跳转")
+			}
+		}
+		if err := noSymlinks(value); err != nil {
+			return err
+		}
+	}
+	info, err := os.Stat(workspace)
+	if err != nil || !info.IsDir() {
+		return errors.New("Grok workspace 必须是已存在的本机目录")
+	}
+	if !within(workspace, skillsDir) || filepath.Clean(workspace) == filepath.Clean(skillsDir) {
+		return errors.New("Grok skills-dir 必须位于已授权 workspace 的子目录内")
 	}
 	return nil
 }

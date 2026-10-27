@@ -2,7 +2,7 @@
 
 # 独立助手 Client
 
-每个 AI 助手有自己的 Client，通过本机 Hub 领取明确发给自己的消息并报告投递。当前定址邮箱由 Codex Desktop MCP 与 WorkBuddy CLI 实现；Claude Code mod 0.2.2 也通过原生工具实现邮箱 1，2026-10-20 已验证 macOS 原 Code 会话空闲执行并回到忙碌 Codex 原聊天；Grok 保留旧版单次任务兼容，邮箱能力为 `0`。Go Hub 不规划任务、不生成回复；Client 翻译该助手真实支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
+每个 AI 助手有自己的 Client，通过本机 Hub 领取明确发给自己的消息并报告投递。当前定址邮箱由 Codex Desktop MCP 与 WorkBuddy CLI 实现；Claude Code mod 0.2.2 也通过原生工具实现邮箱 1，2026-10-20 已验证 macOS 原 Code 会话空闲执行并回到忙碌 Codex 原聊天；Grok Routine Client 0.2.0 实现 queue 邮箱 1，真实官方 Routine 收件、执行与显式回信闭环仍为 **pending（待验收）**。Go Hub 不规划任务、不生成回复；Client 翻译该助手真实支持的原生入口。替换一个 Client 不需要重新编译 Hub，也不需要让其他助手退出。
 
 协议把 Client 与 Hub 分开维护，Client 可以是独立进程，也可以由原生助手加载。没有使用 Go 动态库，也没有把 Python 嵌入 Hub。Client 可以使用不同语言，只要遵循同一协议；当前已有 Python 实现，Codex Desktop MCP 的独立 Node 发送已实测，常驻 MQ Client 已提供并通过本地模拟。
 
@@ -22,7 +22,7 @@ clients/
 
 ### 单仓库先行，以后拆分
 
-第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.3.0`，Grok Routine 为 `0.1.0`、Claude Code 为 `0.2.2`，接口协议都为 `1`，邮箱能力单独声明。Python 入口使用 shared `0.2.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
+第一版在同一仓库维护 Go Hub、各助手 Client 和 shared runtime。WorkBuddy 与 Codex Client 为 `0.3.0`，Grok Routine 为 `0.2.0`、Claude Code 为 `0.2.2`，接口协议都为 `1`，邮箱能力单独声明。Python 入口使用 shared `0.2.0`，Codex 在 `alternate_entrypoints.python` 中单独声明；`clients/shared/manifest.json` 记录该运行库版本，它不能作为助手 Client 启动。Codex 的 Node Desktop MCP Client 使用 Node 22+ 标准库，无需 npm 或 Python shared；原有 Python queue/app-server/Desktop MCP 路径保留各自边界。
 
 Client 具有独立维护边界。Python 实现单独复制或发布时，必须一起提供其指定版本的 `clients/shared`，并保持同一父目录结构；Node Desktop MCP Client 无此 Python 依赖；Claude Code mod 只依赖宿主 mods API，直接分发完整插件目录与 marketplace。建议固定仓库提交以得到匹配的源码与 manifest。版本约束是当前维护约定，不是自动下载或依赖解析功能。后续需要分别发版时，可以把 shared 打包成固定版本运行库，再拆分 Client 仓库；协议无需因此改变。
 
@@ -45,14 +45,14 @@ Hub binding 显式设置 `mailbox_protocol_version:1`，原生 Client 才领取 
 这是 Codex binding 的字段片段，不是完整配置；WorkBuddy 对应列表填 `codex`。仓库 `config.example.json` 始终关闭邮箱、清空互通名单并禁用未绑定助手，安装时由用户明确选择。只有核实该入口支持忙时引导，才另设 `mailbox_while_busy_verified:true`。
 
 
-| Client / 传输 | 邮箱能力 | 原生行为与边界 |
-| --- | --- | --- |
-| Codex Desktop MCP | `1` | `send_message_to_thread` 向固定既有聊天直接引导，支持 `request/reply/result`；不回退 native queue；`status` 本地保存、不唤醒模型 |
-| WorkBuddy CLI | `1` | 官方 CodeBuddy CLI `--resume` 指定既有会话；完整 Envelope 经 stdin，真实进程结束并核对结果会话后才 ACK |
-| Codex queue / app-server | `0` | 保留旧兼容通道，不以排队、独立 SDK 或另一会话冒充原聊天的邮箱唤醒 |
-| WorkBuddy OpenAPI | `0` | 保留官方本地助理候选入口；需本人 OAuth，不能定位普通 Chat 的原 `session_id` |
-| Claude Code mod 0.2.2 | `1` | 会话内 queue、固定身份原生 `peers/mail_send/mail_state`、租约保护事件长轮询，不经 Bash 或自动回复；2026-10-20 已通过 macOS 原 Code 空闲执行与忙碌 Codex 回传，不支持忙时 steer |
-| Grok Routine | `0` | 保留官方 webhook 单次任务通道；尚未验证新的双向邮箱 Client |
+| Client / 传输 | 邮箱协议实现 | 原生行为与边界 | 原生闭环验收 |
+| --- | --- | --- | --- |
+| Codex Desktop MCP | `1` | `send_message_to_thread` 向固定既有聊天直接引导，支持 `request/reply/result`；不回退 native queue；`status` 本地保存、不唤醒模型 | 按日期、会话与传输入口查阅[实测记录](NATIVE-VALIDATION.md) |
+| WorkBuddy CLI | `1` | 官方 CodeBuddy CLI `--resume` 指定既有会话；完整 Envelope 经 stdin，真实进程结束并核对结果会话后才 ACK | 按日期、会话与传输入口查阅[实测记录](NATIVE-VALIDATION.md) |
+| Codex queue / app-server | `0` | 保留旧兼容通道，不以排队、独立 SDK 或另一会话冒充原聊天的邮箱唤醒 | 旧协议记录不覆盖 V1 邮箱 |
+| WorkBuddy OpenAPI | `0` | 保留官方本地助理候选入口；需本人 OAuth，不能定位普通 Chat 的原 `session_id` | 独立候选入口，单独验收 |
+| Claude Code mod 0.2.2 | `1` | 会话内 queue、固定身份原生 `peers/mail_send/mail_state`、租约保护事件长轮询，不经 Bash 或自动回复，不支持忙时 steer | 2026-10-20 已通过 macOS 原 Code 空闲执行与忙碌 Codex 回传 |
+| Grok Routine 0.2.0 | `1` | 仅 queue，投递 `request/reply/result`，`status` 本地确认；旧 Task/Report 仍可兼容，不支持忙时引导、steer 或 interrupt | **pending**：真实官方 Routine 收件、原生执行与固定身份显式回信闭环待验收；Webhook 2xx 只确认传输 |
 
 `mode:"queue"` 是当前邮箱 Envelope 的格式，不决定原生发送方式。`mailbox_while_busy_verified` 仅在实际核实该传输能忙时引导后开启，与旧 `result_queue_while_busy_verified` 分开。邮箱不要求父任务、等待状态、执行 Report 或 settled；原生会话状态与在途传输记录决定容量。新消息不会自动生成任务或回复，也不会沿固定父子树返回。
 
@@ -182,9 +182,16 @@ Windows 必须把 `command` 配成实际 `.exe`，拒绝 `.cmd` / `.bat`。若�
 
 OpenAPI 使用 `Authorization: Bearer access_token`，发送 `{"content":"完整通知","msg_type":"text"}`，需要 `user.localassistant.invokable`。`oauth_scopes` 是用户配置的授权范围记录，平台仍负责实际鉴权。缺少 token 或 invokable 范围时，Client 在领取消息前返回 `unconfigured`。这里没有应用密钥、refresh token 或自动刷新流程；稳定长期接入仍需完成官方应用授权及续期设计。Token 失效后的已尝试投递保留为不确定，不自动发送第二次。CLI 本人登录不配置第三方 OpenAPI 授权。
 
-### Grok Routine 配置（旧版兼容，邮箱关闭）
+### Grok Routine 配置（0.2.0，queue 邮箱 V1）
 
-Grok 的 `native.routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 一致。`native.body` 必须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为带报告指引的完整通知。还支持 `{{content}}`、`{{task_id}}`、`{{message_id}}`，但它们不能代替完整消息。替换仅进行一轮，任务内容中的占位符不会被再次解释。对象占位符必须独占整个 JSON 字符串值。
+旧 Client 0.1 不能消费 V1 邮箱。必须实际替换为完整的 Grok Routine Client 0.2.0，并保留匹配的 `clients/shared`；仅修改 manifest 或 Hub 的 `mailbox_protocol_version` 不能升级旧程序。0.2.0 根据 binding 二选一消费 V1 邮箱或旧 inbox，不混用；正常协作使用 V1，旧 Task/Report 仅保留兼容。
+
+1. 按 [Grok Client README](../clients/grok-routine/README.md) 准备并核实本人的官方 Routine webhook 与真实请求结构。URL、请求头和凭据只保存在本机私有文件，不贴聊天、不提交仓库。
+2. 用上文的 `client-config` 命令导出此 endpoint 专属的私有配置，参照 [示例](../clients/grok-routine/client.example.json) 填写 `native.url`、`native.body`、`native.headers` 和 `native.routine_id`。`routine_id` 是用户为该官方 webhook 目标设置的稳定标签，必须与 Hub 的 `endpoint.session_id` 完全一致。
+3. 使用 `endpoint.driver="grok-routine"`、binding `driver.type="external"`、`mailbox_protocol_version:1` 与 queue 模式；由用户明确配置 `allowed_peers` 和 `visible_peers`。先保存并启用 binding，再运行独立 Client；禁用的 endpoint 会被 Client 拒绝。启用或启动进程不代表原生已连接，当前不启用空闲唤醒或忙时验证标记。
+4. 按 README 中的安装与技能文档准备**固定身份 producer helper 和协作技能**。目标 Routine 必须能读取技能并调用该本机 helper，才能以自己的 endpoint 主动回信；不猜测 Grok 的原生技能目录。助手明确选择收件人、沿用 `correlation_id` 并按需设置 `reply_to`，Hub 和 Client 不代写业务回复。真实官方 Routine 的 V1 收件、执行与回信闭环仍为 **pending**；Webhook 2xx 不证明原生执行、读取技能或主动回信成功。
+
+`native.body` 必须包含完整消息。`"{{envelope}}"` 替换为 JSON 对象，`{{envelope_json}}` 替换为完整 JSON 字符串，`{{notification}}` 替换为完整通知，V1 使用邮箱回信指引，旧 Task/Report 使用报告指引。`{{content}}`、`{{message_id}}` 等局部占位符不能代替完整消息；`{{task_id}}` 仅适用于旧任务。替换仅进行一轮，消息内容中的占位符不会被再次解释；对象占位符必须独占整个 JSON 字符串值。仅支持 queue，不支持忙时引导、steer 或 interrupt；本机真实验收前保持 `idle_wake_verified` 及各忙时验证标记为 `false`。
 
 ### Codex 程序配置
 

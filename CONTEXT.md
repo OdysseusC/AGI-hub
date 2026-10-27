@@ -36,4 +36,4 @@
 
 **待用户处理 Needs user**：需要人类判断、信息或原生操作批准的业务情况，由助手说明；其他助手不能代替用户批准。它不是新邮箱的 Hub 任务阶段。
 
-当前邮箱协议 `1` 已有 Codex Desktop MCP、WorkBuddy CLI 和 Claude Code mod `0.2.2` 的原生验收证据。2026-10-20 的 Claude 实测覆盖本机 macOS Claude-3p `2.1.299` 既有 Code 会话空闲唤醒、原生 Read 读文件、显式 `mail_send`，再经 Hub 和独立 Codex Desktop MCP 返回忙碌原入口。Claude 仅支持 Code 会话 queue，普通 Chat/Cowork、忙时 steer 不支持；其他宿主和平台另行验收，见[原生记录](docs/NATIVE-VALIDATION.md)。Grok 邮箱仍为 `0`；旧版单次 Task/Report 与其 原生验收记录保留兼容，不作为新邮箱已接通的证明。旧默认 leader 只属于兼容任务接口。
+当前邮箱协议 `1` 已有 Codex Desktop MCP、WorkBuddy CLI 和 Claude Code mod `0.2.2` 的原生验收证据。2026-10-20 的 Claude 实测覆盖本机 macOS Claude-3p `2.1.299` 既有 Code 会话空闲唤醒、原生 Read 读文件、显式 `mail_send`，再经 Hub 和独立 Codex Desktop MCP 返回忙碌原入口。Claude 仅支持 Code 会话 queue，普通 Chat/Cowork、忙时 steer 不支持；其他宿主和平台另行验收，见[原生记录](docs/NATIVE-VALIDATION.md)。Grok Routine Client `0.2.0` 已实现 queue 邮箱协议 `1` 并通过离线测试，真实 Routine 收件、原生执行和固定身份回信仍待配置与验收；旧 `0.1` 必须实际升级，不能仅改声明。旧版单次 Task/Report 与其原生验收记录保留兼容，不作为新邮箱已接通的证明。旧默认 leader 只属于兼容任务接口。

@@ -259,9 +259,9 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		e.Enabled = action == "enable"
 		if e.Enabled && e.MailboxProtocolVersion == 0 {
 			// Enable only capabilities implemented by this release's Clients.
-			// In particular Grok Routine still consumes the legacy task inbox.
+			// Grok Routine needs the actual 0.2.0 Client, not a manifest-only update.
 			switch e.Driver {
-			case "codex", "workbuddy", "claude-code":
+			case "codex", "workbuddy", "claude-code", "grok-routine":
 				e.MailboxProtocolVersion = 1
 			}
 		}
@@ -288,7 +288,11 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			_ = s.Broker.SetSession(id, "unknown", "")
 		}
 		s.Broker.Signal()
-		return map[string]any{"ok": true, "detail": "已保存绑定。请按接入文档运行独立 Client；原生唤醒能力须另外验收。"}, nil
+		detail := "已保存绑定。请按接入文档运行独立 Client；原生唤醒能力须另外验收。"
+		if e.Enabled && e.Driver == "grok-routine" {
+			detail = "已保存 Grok queue / 邮箱 V1 绑定。旧 Client 0.1 必须实际升级到 0.2.0；仅改 manifest 或 endpoint 标记不能接入。本次操作未验证原生唤醒或主动回信，请按 clients/grok-routine/README.md 配置独立 Client。"
+		}
+		return map[string]any{"ok": true, "detail": detail}, nil
 	case "install":
 		host := ""
 		switch e.Driver {
@@ -302,10 +306,10 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		if host == "" {
 			if e.Driver == "grok-routine" {
 				return map[string]any{"ok": true, "detail": "Grok Routine 需要手动配置。本次仅展示步骤，未执行安装，不代表原生已连接。", "steps": []string{
-					"按包内 clients/grok-routine/README.md 准备并验证本人的官方 Routine webhook，核对该 Routine 实际接收的请求结构。",
+					"旧 Grok Routine Client 0.1 必须实际升级到 0.2.0，并保留匹配的 clients/shared；仅改 manifest 或 endpoint 标记不能接入。按包内 clients/grok-routine/README.md 准备并验证本人的官方 Routine webhook，核对该 Routine 实际接收的请求结构。",
 					"在目标电脑导出仓库外的私有配置：agi-hub client-config --data <Hub私有目录> --endpoint <本卡片ID> --file <私有绝对路径/client.json>。参照 clients/grok-routine/client.example.json 填写 native.url、native.body、native.headers 和 native.routine_id；body 须包含完整交接占位符 {{notification}} 或文档中的 envelope 形式。凭据只留在本机私有文件，不贴聊天、不提交仓库。",
-					"Hub 的 endpoint.driver 使用 grok-routine，binding 的 driver.type 使用 external，session_id 与 native.routine_id 完全一致。保存并启用此 endpoint 后，在包根目录运行 python3 clients/grok-routine/main.py --config <私有配置绝对路径>；Windows 使用 py -3，并保留相邻的 clients/shared。",
-					"仅支持 queue 的旧 Task/Report，不支持邮箱协议 V1（mailbox_protocol_version=1）、steer 或 interrupt。启用或启动进程不代表原生已连接；Webhook 2xx 也只确认传输，仍须 Grok 主动回报接手和成果。",
+					"Hub 的 endpoint.driver 使用 grok-routine，binding 的 driver.type 使用 external，session_id 与 native.routine_id 完全一致。0.2.0 支持 queue 邮箱 V1，设置 mailbox_protocol_version=1；旧 Task/Report 仅作兼容。保存并启用此 endpoint 后，在包根目录运行 python3 clients/grok-routine/main.py --config <私有配置绝对路径>；Windows 使用 py -3。",
+					"按 clients/grok-routine/README.md 中的文档准备固定身份 producer helper 与协作技能；目标 Routine 必须能读取技能并调用本机 helper，才能主动回信。真实官方 Routine 收件、执行与回信闭环待验收；未验收前保持 idle_wake_verified 和忙时验证标记为 false。不支持忙时引导、steer 或 interrupt。启用或启动进程不代表原生已连接；Webhook 2xx 只确认传输，不代替 Grok 的明确回信。",
 				}}, nil
 			}
 			return map[string]any{"ok": true, "detail": "此平台需要手动配置原生入口；未执行安装。", "steps": []string{"按该 Client 的 README 配置原生例程和私有配置。", "填写真实会话 ID 后再启用。"}}, nil

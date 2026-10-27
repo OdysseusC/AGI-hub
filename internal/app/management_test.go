@@ -139,10 +139,13 @@ func TestGrokConfigurationGuideIsSpecificAndDoesNotInstallOrChangeState(t *testi
 		t.Fatalf("expected concrete Grok setup steps, got %v", result.Steps)
 	}
 	guide := result.Detail + "\n" + strings.Join(result.Steps, "\n")
-	for _, required := range []string{"官方 Routine webhook", "client-config", "--data", "--endpoint", "--file", "clients/grok-routine/README.md", "clients/grok-routine/client.example.json", "native.url", "native.body", "native.headers", "native.routine_id", "session_id", "grok-routine", "external", "clients/grok-routine/main.py", "--config", "py -3", "queue", "Task/Report", "mailbox_protocol_version=1", "steer", "interrupt", "未执行安装", "不代表原生已连接", "不贴聊天", "仓库"} {
+	for _, required := range []string{"官方 Routine webhook", "client-config", "--data", "--endpoint", "--file", "clients/grok-routine/README.md", "clients/grok-routine/client.example.json", "native.url", "native.body", "native.headers", "native.routine_id", "session_id", "grok-routine", "external", "clients/grok-routine/main.py", "--config", "py -3", "0.1", "0.2.0", "实际升级", "支持 queue 邮箱 V1", "Task/Report", "mailbox_protocol_version=1", "固定身份 producer helper", "协作技能", "主动回信", "待验收", "steer", "interrupt", "未执行安装", "不代表原生已连接", "不贴聊天", "仓库"} {
 		if !strings.Contains(guide, required) {
 			t.Errorf("Grok guide omits %q", required)
 		}
+	}
+	if strings.Contains(guide, "不支持邮箱协议 V1") || strings.Contains(guide, "仅支持 queue 的旧 Task/Report") {
+		t.Error("Grok guide still tells mailbox-capable Clients to use legacy tasks only")
 	}
 	if !strings.Contains(guide, "保存并启用") || strings.Index(guide, "保存并启用") > strings.Index(guide, "运行 python3") {
 		t.Error("guide must enable the binding before starting the Client, which rejects disabled endpoints")
@@ -261,7 +264,7 @@ func TestManagementEnablesOnlyImplementedMailboxProtocols(t *testing.T) {
 		want       int
 	}{
 		{"codex", "codex", 1}, {"workbuddy", "workbuddy", 1}, {"claude", "claude-code", 1},
-		{"grok", "grok-routine", 0}, {"codex", "custom-driver", 0},
+		{"grok", "grok-routine", 1}, {"codex", "custom-driver", 0},
 	} {
 		t.Run(test.driver, func(t *testing.T) {
 			s := networkFixture(t, "protocol-"+test.driver)
@@ -296,8 +299,51 @@ func TestManagementEnablesOnlyImplementedMailboxProtocols(t *testing.T) {
 					t.Fatal("unsupported protocol persisted", binding.Endpoint)
 				}
 			}
-			if e := s.Broker.Snapshot().Endpoints[test.id]; !e.Enabled || e.MailboxProtocolVersion != test.want {
+			e := s.Broker.Snapshot().Endpoints[test.id]
+			if !e.Enabled || e.MailboxProtocolVersion != test.want {
 				t.Fatal("wrong active protocol", e)
+			}
+			if e.IdleWakeVerified || e.ResultQueueWhileBusyVerified || e.MailboxWhileBusyVerified || e.PeerWhileBusyVerified {
+				t.Fatal("binding a new session asserted unverified native capabilities", e)
+			}
+			if test.driver == "grok-routine" {
+				var enabled struct {
+					Detail string `json:"detail"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &enabled); err != nil {
+					t.Fatal(err)
+				}
+				for _, required := range []string{"0.1", "0.2.0", "升级", "未验证"} {
+					if !strings.Contains(enabled.Detail, required) {
+						t.Errorf("Grok binding confirmation omits actual Client upgrade requirement %q: %s", required, enabled.Detail)
+					}
+				}
+				if !reflect.DeepEqual(e.Modes, []string{"queue"}) {
+					t.Fatal("Grok binding expanded native sending modes", e.Modes)
+				}
+				state := managementCall(t, s, "/v1/manage", "", s.Config.AdminToken)
+				var managed struct {
+					Agents []struct {
+						ID           string `json:"id"`
+						State        string `json:"state"`
+						Installation string `json:"installation_state"`
+					} `json:"agents"`
+				}
+				if state.Code != http.StatusOK || json.Unmarshal(state.Body.Bytes(), &managed) != nil {
+					t.Fatalf("cannot check Grok after binding: %d %s", state.Code, state.Body.String())
+				}
+				found := false
+				for _, agent := range managed.Agents {
+					if agent.ID == test.id {
+						found = true
+						if agent.State != "bound" || agent.Installation != "not_installed" {
+							t.Fatalf("binding claimed Grok was connected or installed: %+v", agent)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("Grok is missing after binding")
+				}
 			}
 		})
 	}

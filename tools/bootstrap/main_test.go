@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"agihub/internal/app"
+	"agihub/internal/install"
 )
 
 func ordinaryTemp(t *testing.T) string {
@@ -287,5 +288,175 @@ func TestInstallAndRerunKeepPrivateConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(skills, "agi-hub-client", "SKILL.md")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGrokWorkspaceInstallUsesOwnScopedHelperAndManagedRules(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the local Hub for an offline workspace installer test")
+	}
+	binary := filepath.Join(ordinaryTemp(t), binaryName("agi-hub"))
+	build := exec.Command("go", "build", "-o", binary, "./cmd/agi-hub")
+	build.Dir = filepath.Join("..", "..")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, output)
+	}
+	hub, err := os.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, _, _ := fixture(t, hub)
+	data, workspace := filepath.Join(ordinaryTemp(t), "private"), ordinaryTemp(t)
+	if err := app.InitConfig(data); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := app.LoadConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Listen = listener.Addr().String()
+	listener.Close()
+	before, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(data, "config.json"), before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := map[string]any{"base_url": "http://" + cfg.Listen, "endpoint": "grok", "endpoint_token": app.EndpointToken(cfg.AdminToken, "grok"), "native": map[string]any{}}
+	clientJSON, _ := json.Marshal(client)
+	clientFile := filepath.Join(data, "grok-client.json")
+	if err := os.WriteFile(clientFile, clientJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+	skills := filepath.Join(workspace, "skills")
+	args := []string{"--host", "grok", "--endpoint", "grok", "--package-dir", source, "--data", data, "--client-config", clientFile, "--workspace", workspace, "--skills-dir", skills}
+	var out bytes.Buffer
+	if err := run(args, &out); err != nil {
+		t.Fatalf("Grok workspace install failed: %v\n%s", err, out.String())
+	}
+	folder := filepath.Join(skills, "agi-hub-client")
+	var metadata struct{ Host, BinaryPath, HubBinaryPath, Endpoint string }
+	var fields map[string]string
+	metadataJSON, err := os.ReadFile(filepath.Join(folder, "installation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(metadataJSON, &fields); err != nil {
+		t.Fatal(err)
+	}
+	metadata.Host, metadata.BinaryPath, metadata.HubBinaryPath, metadata.Endpoint = fields["host"], fields["binary_path"], fields["hub_binary_path"], fields["endpoint_id"]
+	if metadata.Host != "grok" || metadata.Endpoint != "grok" || metadata.BinaryPath == metadata.HubBinaryPath || !within(filepath.Join(data, "endpoint-helpers"), metadata.BinaryPath) {
+		t.Fatalf("Grok was not installed with its dedicated producer: %+v", metadata)
+	}
+	var binding map[string]string
+	bindingJSON, err := os.ReadFile(filepath.Join(filepath.Dir(metadata.BinaryPath), "binding.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(bindingJSON, &binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding["endpoint"] != "grok" || binding["workspace_root"] != workspace || binding["base_url"] != "http://"+cfg.Listen || binding["endpoint_token"] != client["endpoint_token"] {
+		t.Fatal("producer lost its fixed endpoint, loopback or workspace")
+	}
+	results, err := install.StatusEndpoint(data, "grok")
+	if err != nil || len(results) != 1 || results[0].State != "current" || results[0].HostLoadState != "unknown" {
+		t.Fatalf("managed registration or honest host state missing: %+v %v", results, err)
+	}
+	after, _ := os.ReadFile(filepath.Join(data, "config.json"))
+	if !bytes.Equal(before, after) {
+		t.Fatal("workspace installation changed Hub or native activation")
+	}
+	if strings.Contains(out.String(), cfg.AdminToken) || strings.Contains(out.String(), client["endpoint_token"].(string)) {
+		t.Fatal("installer printed credentials")
+	}
+	if !strings.Contains(out.String(), "工作区") || !strings.Contains(out.String(), "未验证云端") {
+		t.Fatal("installer implied native discovery rather than workspace files")
+	}
+	out.Reset()
+	if err := run(args, &out); err != nil {
+		t.Fatalf("idempotent workspace install failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "SKILL.md"), []byte("private user edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(args, &out); err == nil {
+		t.Fatal("installer replaced a privately edited skill")
+	}
+	if content, _ := os.ReadFile(filepath.Join(folder, "SKILL.md")); string(content) != "private user edit" {
+		t.Fatal("private skill edit was changed")
+	}
+}
+
+func TestGrokWorkspaceRequiresExplicitScopeBeforeInstalling(t *testing.T) {
+	source, _, _ := fixture(t, []byte("must not execute"))
+	workspace := ordinaryTemp(t)
+	client := filepath.Join(ordinaryTemp(t), "client.json")
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"missing-client", []string{"--workspace", workspace, "--skills-dir", filepath.Join(workspace, "skills")}},
+		{"missing-workspace", []string{"--client-config", client, "--skills-dir", filepath.Join(workspace, "skills")}},
+		{"missing-skills", []string{"--client-config", client, "--workspace", workspace}},
+		{"outside-workspace", []string{"--client-config", client, "--workspace", workspace, "--skills-dir", filepath.Join(workspace+"-other", "skills")}},
+		{"parent-traversal", []string{"--client-config", client, "--workspace", workspace, "--skills-dir", workspace + string(filepath.Separator) + "child" + string(filepath.Separator) + ".." + string(filepath.Separator) + "skills"}},
+		{"substitute-helper", []string{"--client-config", client, "--workspace", workspace, "--skills-dir", filepath.Join(workspace, "skills"), "--report-binary", filepath.Join(workspace, "other-helper")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := filepath.Join(ordinaryTemp(t), "not-created")
+			args := append([]string{"--host", "grok", "--package-dir", source, "--data", data}, test.args...)
+			var out bytes.Buffer
+			if err := run(args, &out); err == nil {
+				t.Fatal("unscoped workspace install accepted")
+			}
+			if _, err := os.Stat(data); !os.IsNotExist(err) {
+				t.Fatal("invalid scope changed the private data directory")
+			}
+		})
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(workspace, "linked-skills")
+		if err := os.Symlink(ordinaryTemp(t), link); err != nil {
+			t.Fatal(err)
+		}
+		data := filepath.Join(ordinaryTemp(t), "not-created")
+		var out bytes.Buffer
+		if err := run([]string{"--host", "grok", "--package-dir", source, "--data", data, "--client-config", client, "--workspace", workspace, "--skills-dir", link}, &out); err == nil {
+			t.Fatal("linked skill directory accepted")
+		}
+		if _, err := os.Stat(data); !os.IsNotExist(err) {
+			t.Fatal("linked destination changed private data")
+		}
+	}
+}
+
+func TestGrokWorkspaceCannotUseAnotherProductsEndpoint(t *testing.T) {
+	source, _, _ := fixture(t, []byte("must not execute"))
+	data, workspace := filepath.Join(ordinaryTemp(t), "private"), ordinaryTemp(t)
+	if err := app.InitConfig(data); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := app.LoadConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := map[string]any{"base_url": "http://" + cfg.Listen, "endpoint": "workbuddy", "endpoint_token": app.EndpointToken(cfg.AdminToken, "workbuddy"), "native": map[string]any{}}
+	clientJSON, _ := json.Marshal(client)
+	clientFile := filepath.Join(data, "client.json")
+	if err := os.WriteFile(clientFile, clientJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err = run([]string{"--host", "grok", "--endpoint", "workbuddy", "--package-dir", source, "--data", data, "--client-config", clientFile, "--workspace", workspace, "--skills-dir", filepath.Join(workspace, "skills")}, &out)
+	if err == nil {
+		t.Fatal("Grok borrowed another product's endpoint")
+	}
+	for _, name := range []string{"runtimes", "endpoint-helpers"} {
+		if _, err := os.Stat(filepath.Join(data, name)); !os.IsNotExist(err) {
+			t.Fatalf("wrong-product request created %s before rejecting its identity", name)
+		}
 	}
 }

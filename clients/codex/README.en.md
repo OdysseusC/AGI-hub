@@ -36,6 +36,8 @@ Desktop MCP and App Server proxy are separate entry points. The former uses the 
 
 The current production macOS host checks the signatures of the connecting process and its parent chain. The verified launch chain is an official Node Client directly starting the official Node server, executed normally from a Codex host that already provides the official environment. A Python parent chain caused the tool-discovery connection to close on this machine. Installing a system Node separately or launching outside the host in the background does not guarantee availability. Do not copy bridge tickets, persist pipe values, guess private sockets or change identities to connect.
 
+Read-only preflight on 2026-10-27 confirmed this requirement again: with the same configuration, official server and real host environment, starting the Client through the system `node` on PATH passed `initialize` but failed `tools/list` with JSON-RPC `-32603` (`Codex app tools pipe closed`), surfaced as `desktop_mcp_rpc_unconfirmed`. Changing only the Client's parent Node to the host-provided official Node discovered 58 tools twice; switching back to the system Node still failed. An official Node in `native.command` alone does not establish a trusted parent chain. Inheriting the complete environment did not fix this failure, so changing the mailbox protocol or widening the environment allowlist is not a remedy. No sending tool was called; this verifies preflight only, without adding native-wakeup or business-loop acceptance evidence.
+
 ## Configure and start
 
 Register a `codex` endpoint in the Hub with `endpoint.driver="codex"` and `endpoint.session_id` equal to the verified native thread ID. Use `"driver":{"type":"external"}` for its binding. Export private configuration scoped to this endpoint only:
@@ -59,11 +61,14 @@ When migrating a customized older Client, export a fresh endpoint-scoped configu
 
 Obtain `command`, `args` and `cwd` from the actual installed official plugin manifest and runtime environment; do not guess directories. The Client inherits only normal operating-system variables and an allowlist of official Node/bridge variables. It does not read desktop credentials from configuration. If the host lacks `CODEX_THREAD_ID` or `CODEX_APP_TOOLS_PIPE_PATH`, it stops before claiming messages. Do not copy those values into `client.json`, documentation or logs.
 
-Start the verified official Node directly from an entry with the official host environment. In this POSIX example, `exec` replaces the launch shell with Node, preserving the verified parent chain:
+Start the Client inside the actual current desktop host, preferably with the Node provided by that host through `CODEX_MCP_NODE_PATH`. If the host does not provide it, explicitly use an official runtime whose path and signature have been verified. Do not hardcode application names such as `ChatGPT.app` or installation directories, or capture host environment for reuse in a background session. In this POSIX example, `exec` replaces the launch shell with Node, preserving the verified parent chain:
 
 ```sh
-exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
+: "${CODEX_MCP_NODE_PATH:?Start from the current desktop host providing official Node}"
+exec "$CODEX_MCP_NODE_PATH" /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
+
+A bare `node desktop_mcp_client.mjs ...` uses the runtime on PATH and may fail `tools/list` under the macOS parent-signature check described above. Check the complete preflight result even when initialization succeeds. The `node --test` command below runs offline tests without connecting to the official server; it is not a native Client startup example.
 
 On Windows, use an actual `node.exe` and local absolute paths, without `.cmd` or `.bat` wrappers as the process entry. The Windows 11/macOS arm64 results above apply only to the tested hosts; bridge and wakeup capabilities on other Windows/macOS hosts and on Linux need separate acceptance. The default Hub address is `http://127.0.0.1:7331`; only numeric loopback addresses are accepted. Use the actual exported configuration.
 

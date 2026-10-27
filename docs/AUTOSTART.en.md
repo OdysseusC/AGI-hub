@@ -76,7 +76,7 @@ These commands do not stop current processes. `autostart run` is the execution e
 | Client | Behavior in 0.5.0 |
 | --- | --- |
 | WorkBuddy | Can restore its registered standalone Python consumer. Each message still resumes the fixed official CLI session through the existing Client; sign-in, native permissions and business authorization are not expanded |
-| Grok Routine | Can restore its standalone Python consumer through `clients/grok-routine/main.py --config <private-config>`. Requires the user's configured official Routine webhook; retains legacy queue support without mailbox protocol 1 |
+| Grok Routine | Can restore its standalone Python consumer through `clients/grok-routine/main.py --config <private-config>`. Client `0.2.0` implements queue mailbox protocol 1; the actual `0.1` Client must be upgraded. Requires the user's configured official Routine webhook, fixed-identity helper and workspace collaboration rules. Native acceptance remains pending; startup does not satisfy these prerequisites |
 | Codex | Registration forces `requires_host=true`. It reports `needs_host_environment`; the runner does not launch it directly |
 | Claude Code | Likewise records only a native-host requirement. Start the interactive Code process and its mod through the existing workflow; the runner executes neither `claude` nor `-p --resume` |
 

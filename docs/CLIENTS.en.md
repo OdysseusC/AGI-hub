@@ -2,7 +2,7 @@
 
 # Independent assistant Clients
 
-Each AI assistant has its own Client claiming explicitly addressed local Hub messages and reporting delivery. Codex Desktop MCP and WorkBuddy CLI implement addressed mailboxes; Claude Code mod 0.2.2 also implements mailbox 1 through native tools, with original macOS Code idle execution and return to busy original Codex verified on 2026-10-20. Grok retains legacy single-task compatibility with mailbox capability `0`. The Go Hub neither plans tasks nor generates replies. Clients translate actual supported native entries; replacing one requires neither recompiling the Hub nor closing other assistants.
+Each AI assistant has its own Client claiming explicitly addressed local Hub messages and reporting delivery. Codex Desktop MCP and WorkBuddy CLI implement addressed mailboxes; Claude Code mod 0.2.2 also implements mailbox 1 through native tools, with original macOS Code idle execution and return to busy original Codex verified on 2026-10-20. Grok Routine Client 0.2.0 implements queue mailbox 1; a real official Routine receiving mail, executing natively and explicitly replying remains **pending verification**. The Go Hub neither plans tasks nor generates replies. Clients translate actual supported native entries; replacing one requires neither recompiling the Hub nor closing other assistants.
 
 Clients are maintained separately from the Hub and may be independent processes or loaded by the native assistant. There are no Go dynamic libraries or embedded Python. Implementations may use different languages under one protocol. Python implementations exist; independent Node Codex Desktop MCP sending has been tested, and a resident MQ Client is available with local simulations.
 
@@ -22,7 +22,7 @@ Python Clients maintain `manifest.json`, `main.py`, `adapter.py` and `client.exa
 
 ### One repository first; separate repositories later
 
-The first version maintains Go Hub, product Clients and shared runtime together. WorkBuddy/Codex Clients are `0.3.0`, Grok Routine `0.1.0`, and Claude Code `0.2.2`. All use interface protocol `1`, with mailbox capability declared separately. Python entries use shared `0.2.0`; Codex declares it under `alternate_entrypoints.python`. `clients/shared/manifest.json` records the library version and is not an assistant entry point. Codex Node Desktop MCP uses Node 22+ standard libraries without npm or Python shared. Existing Python queue/app-server/Desktop MCP transports keep separate boundaries.
+The first version maintains Go Hub, product Clients and shared runtime together. WorkBuddy/Codex Clients are `0.3.0`, Grok Routine `0.2.0`, and Claude Code `0.2.2`. All use interface protocol `1`, with mailbox capability declared separately. Python entries use shared `0.2.0`; Codex declares it under `alternate_entrypoints.python`. `clients/shared/manifest.json` records the library version and is not an assistant entry point. Codex Node Desktop MCP uses Node 22+ standard libraries without npm or Python shared. Existing Python queue/app-server/Desktop MCP transports keep separate boundaries.
 
 Clients have independent maintenance boundaries. A separately copied/released Python Client must include its specified `clients/shared` version under the same parent layout. Node Desktop MCP has no Python dependency; Claude Code mod depends only on host mods APIs and distributes its complete plugin/marketplace. Pin a repository commit for matching sources/manifests. These version constraints are maintenance conventions, not automatic downloads or dependency resolution. Shared can later become a versioned library and Clients separate repositories without changing the protocol.
 
@@ -44,14 +44,14 @@ After verifying both original sessions and wake channels, fill these fields with
 
 This is a Codex field fragment, not a complete configuration; WorkBuddy's corresponding lists use `codex`. Repository `config.example.json` keeps mailboxes off, connectivity lists empty and unbound assistants disabled for explicit user selection at install. Set `mailbox_while_busy_verified:true` only after verifying busy guidance for that entry.
 
-| Client / transport | Mailbox capability | Native behavior and boundaries |
-| --- | --- | --- |
-| Codex Desktop MCP | `1` | `send_message_to_thread` directly guides the fixed existing chat for `request/reply/result`; no native-queue fallback; `status` is saved locally without a model wake |
-| WorkBuddy CLI | `1` | Official CodeBuddy CLI `--resume` targets an existing session; full Envelope through stdin; ACK only after actual exit and matching result session |
-| Codex queue / app-server | `0` | Legacy transports; queued input, separate SDK or another session cannot impersonate mailbox wake of the original chat |
-| WorkBuddy OpenAPI | `0` | Official local-assistant candidate; requires personal OAuth and cannot target an ordinary Chat's original `session_id` |
-| Claude Code mod 0.2.2 | `1` | In-session queue mode with fixed-identity native `peers/mail_send/mail_state`, leased event long polling, no Bash or automatic reply; original macOS Code idle execution/busy Codex return passed on 2026-10-20; no busy steer |
-| Grok Routine | `0` | Retains official webhook single-task transport; new bidirectional mailbox Client is not verified |
+| Client / transport | Mailbox protocol implementation | Native behavior and boundaries | Native loop verification |
+| --- | --- | --- | --- |
+| Codex Desktop MCP | `1` | `send_message_to_thread` directly guides the fixed existing chat for `request/reply/result`; no native-queue fallback; `status` is saved locally without a model wake | See [dated records](NATIVE-VALIDATION.en.md) for the actual session and transport |
+| WorkBuddy CLI | `1` | Official CodeBuddy CLI `--resume` targets an existing session; full Envelope through stdin; ACK only after actual exit and matching result session | See [dated records](NATIVE-VALIDATION.en.md) for the actual session and transport |
+| Codex queue / app-server | `0` | Legacy transports; queued input, separate SDK or another session cannot impersonate mailbox wake of the original chat | Legacy records do not verify V1 mailboxes |
+| WorkBuddy OpenAPI | `0` | Official local-assistant candidate; requires personal OAuth and cannot target an ordinary Chat's original `session_id` | Separate candidate requiring its own acceptance |
+| Claude Code mod 0.2.2 | `1` | In-session queue mode with fixed-identity native `peers/mail_send/mail_state`, leased event long polling, no Bash or automatic reply; no busy steer | Original macOS Code idle execution/busy Codex return passed on 2026-10-20 |
+| Grok Routine 0.2.0 | `1` | Queue only for `request/reply/result`; `status` acknowledged locally; legacy Task/Report compatibility remains; no busy guidance, steer or interrupt | **pending**: real official Routine receipt, native execution and explicit fixed-identity reply are unverified; webhook 2xx confirms transport only |
 
 `mode:"queue"` is the current mailbox Envelope format, not the native sending mechanism. `mailbox_while_busy_verified` is enabled only after actual busy-guidance verification and is separate from legacy `result_queue_while_busy_verified`. Mailboxes require no parent task, waiting state, execution Report or settled operation. Native session state and in-flight delivery determine capacity. New messages do not create tasks/replies automatically or return along a fixed task tree.
 
@@ -181,9 +181,16 @@ On Windows `command` must be an actual `.exe`; `.cmd`/`.bat` are rejected. An of
 
 OpenAPI uses `Authorization: Bearer access_token`, `{"content":"complete notification","msg_type":"text"}` and `user.localassistant.invokable`. Configured `oauth_scopes` records the user's grant; the platform still authenticates it. Missing token/scope yields `unconfigured` before claims. There are no app secrets, refresh tokens or automatic refresh. Stable long-term operation still needs official app authorization/renewal design. An attempted request with an expired token stays uncertain and is not resent. Personal CLI login does not authorize third-party OpenAPI.
 
-### Grok Routine configuration (legacy, mailbox off)
+### Grok Routine configuration (0.2.0, queue mailbox V1)
 
-`native.routine_id` is the user's stable label for the official webhook and must match `endpoint.session_id`. `native.body` must carry the full message. `"{{envelope}}"` becomes a JSON object, `{{envelope_json}}` complete JSON text, `{{notification}}` the full notification/report instructions. `{{content}}`, `{{task_id}}`, `{{message_id}}` are also supported but cannot replace the full envelope. Replacement runs once; placeholders inside task content are not interpreted again. Object placeholders must occupy an entire JSON string value.
+Client 0.1 cannot consume V1 mailboxes. Actually replace it with the complete Grok Routine Client 0.2.0 and its matching `clients/shared`; editing a manifest or the Hub's `mailbox_protocol_version` does not upgrade an old executable. Version 0.2.0 consumes either V1 mail or the legacy inbox according to the binding, never both. Use V1 for normal collaboration; Task/Report remains a compatibility path.
+
+1. Follow the [Grok Client README](../clients/grok-routine/README.md) to prepare and verify the user's official Routine webhook and its actual request schema. Keep the URL, headers and credentials in private local files, out of chats and the repository.
+2. Use the `client-config` command above to export this endpoint's private configuration. Follow the [example](../clients/grok-routine/client.example.json) to fill `native.url`, `native.body`, `native.headers` and `native.routine_id`. The Routine ID is the user's stable label for the official webhook and must exactly match Hub `endpoint.session_id`.
+3. Set `endpoint.driver="grok-routine"`, binding `driver.type="external"`, `mailbox_protocol_version:1` and queue mode; the user explicitly selects `allowed_peers` and `visible_peers`. Save and enable the binding before starting the independent Client, which rejects disabled endpoints. Enabling or starting a process does not prove native connection and does not enable idle-wake or busy verification flags.
+4. Prepare a **fixed-identity producer helper and collaboration skill** through the installation/skill documentation referenced by the README. The target Routine must be able to read the skill and invoke that local helper to send its own endpoint's replies; do not guess a native Grok skills directory. The assistant explicitly chooses recipients, preserves `correlation_id` and sets `reply_to` when appropriate. Neither Hub nor Client writes business replies. A real official Routine's V1 receipt, execution and reply loop remains **pending**; webhook 2xx does not prove native execution, skill loading or successful replies.
+
+`native.body` must carry the complete message. `"{{envelope}}"` becomes a JSON object, `{{envelope_json}}` complete JSON text and `{{notification}}` the full notification, with mailbox reply instructions for V1 and report instructions for legacy Task/Report. Partial placeholders such as `{{content}}` and `{{message_id}}` cannot replace the complete message; `{{task_id}}` applies only to legacy tasks. Replacement runs once; placeholders inside message content are not interpreted again. Object placeholders must occupy an entire JSON string value. Only queue is supported, without busy guidance, steer or interrupt. Keep `idle_wake_verified` and every busy verification flag `false` until actual local acceptance.
 
 ### Codex executable configuration
 

@@ -76,7 +76,7 @@ agi-hub autostart remove-client --data /absolute/private/agi-hub --endpoint work
 | Client | 0.5.0 行为 |
 | --- | --- |
 | WorkBuddy | 可恢复已登记的独立 Python 消费者；收到消息后仍由原 Client 恢复固定官方 CLI 会话。登录、原生权限及业务授权不因自启动扩大 |
-| Grok Routine | 可恢复独立 Python 消费者，入口为 `clients/grok-routine/main.py --config <私有配置>`；仍需本人配置的官方 Routine webhook，只支持原有 queue，不启用邮箱协议 1 |
+| Grok Routine | 可恢复独立 Python 消费者，入口为 `clients/grok-routine/main.py --config <私有配置>`。Client `0.2.0` 已实现 queue 邮箱协议 1，旧 `0.1` 须实际升级；仍需本人配置的官方 Routine webhook、固定身份 helper 与工作区协作规则。真实原生闭环待验收，自启动不代替这些前置条件 |
 | Codex | 登记时强制标记 `requires_host=true`；只显示 `needs_host_environment`，runner 不直接启动它 |
 | Claude Code | 同样只登记原生宿主需求；交互式 Code 进程及其 mod 必须按原流程启动，runner 不执行 `claude` 或 `-p --resume` |
 

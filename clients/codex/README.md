@@ -36,6 +36,8 @@ Desktop MCP 和 App Server proxy 是两个独立入口。前者由官方 server 
 
 当前 macOS 正式版宿主校验连接进程及父链的签名。实测可用启动链为官方 Node 客户端直接启动官方 Node server；需要从当前已提供官方环境的 Codex 宿主正常执行。Python 父链在这台电脑导致工具发现连接关闭，单独安装一个系统 Node 或脱离宿主后台启动也不能据此保证可用。不要复制桥接票据、持久化 pipe 值、猜测私有 socket 或更改身份来连接。
 
+2026-10-27 的只读预检再次核实这一要求：同一配置、同一官方 server 和真实宿主环境下，由 PATH 中的系统 `node` 启动 Client 时，`initialize` 成功，但 `tools/list` 返回 JSON-RPC `-32603`（`Codex app tools pipe closed`），Client 显示 `desktop_mcp_rpc_unconfirmed`。仅将启动 Client 的父 Node 换成该宿主提供的官方 Node，便两次成功发现 58 个工具；恢复系统 Node 后仍失败。仅在 `native.command` 中填写官方 Node 不足以保证整个父链受信任。完整继承环境也未修复该失败，不能靠切换邮箱协议或扩大环境白名单解决。本次未调用发送工具，只验证预检链，不增加原生唤醒或业务闭环的验收结论。
+
 ## 配置与启动
 
 先在 Hub 注册 `codex` endpoint，令 `endpoint.driver="codex"`、`endpoint.session_id` 等于已核实的原生 thread ID，对应 binding 使用 `"driver":{"type":"external"}`。导出仅属于此 endpoint 的私有配置：
@@ -59,11 +61,14 @@ agi-hub client-config --endpoint codex --file /absolute/private/codex/client.jso
 
 `command`、`args`、`cwd` 必须来自实际安装的官方插件清单与运行环境，不猜目录。客户端只继承正常操作系统变量及官方 Node/桥接变量白名单，不从配置读取桌面凭据。宿主缺少 `CODEX_THREAD_ID` 或 `CODEX_APP_TOOLS_PIPE_PATH` 时，在领取消息前停止；这些变量的值不要复制到 `client.json`、文档或日志。
 
-在已具备官方宿主环境的入口中，直接启动已核实的官方 Node。POSIX 示例中的 `exec` 让 Node 替代启动 shell，保持实际验证过的父链：
+在当前实际桌面宿主中，优先用该宿主提供的 `CODEX_MCP_NODE_PATH` 所指 Node 启动 Client。若宿主不提供此变量，只能显式使用已核实路径与签名的官方运行时。不要硬编码 `ChatGPT.app` 等应用名或安装目录，也不要捕获宿主环境供后台会话复用。POSIX 示例中的 `exec` 让 Node 替代启动 shell，保持实际验证过的父链：
 
 ```sh
-exec /absolute/path/to/official/node /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
+: "${CODEX_MCP_NODE_PATH:?请从提供官方 Node 的当前桌面宿主启动}"
+exec "$CODEX_MCP_NODE_PATH" /absolute/path/to/agi-hub/clients/codex/desktop_mcp_client.mjs --config /absolute/private/codex/client.json
 ```
+
+启动原生 Client 时，裸写 `node desktop_mcp_client.mjs ...` 会使用 PATH 中的运行时，可能在上述 macOS 签名父链检查中使 `tools/list` 失败；即使初始化成功也应先核对完整预检结果。文末的 `node --test` 只做离线测试，不连接官方 server，不是原生 Client 启动示例。
 
 Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。上述 Windows 11 与 macOS arm64 结果仅适用于实测宿主；其他 Windows/macOS 宿主及 Linux 的桥接与唤醒须分别验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
 
