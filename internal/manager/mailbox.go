@@ -160,7 +160,10 @@ func (b *Broker) NextMail(endpoint string) (*Envelope, error) {
 			session := b.state.Sessions[endpoint]
 			idle := registered.IdleWakeVerified && session.State == "idle"
 			busy := registered.MailboxWhileBusyVerified && session.State == "busy"
-			if !idle && !busy {
+			// This is queue admission, not permission to bypass a known busy
+			// session, an approval, or proof of native execution/serialization.
+			nativeQueue := registered.MailboxNativeQueueVerified && len(registered.Modes) == 1 && registered.Modes[0] == "queue" && (session.State == "unknown" || session.State == "idle")
+			if !idle && !busy && !nativeQueue {
 				continue
 			}
 		}

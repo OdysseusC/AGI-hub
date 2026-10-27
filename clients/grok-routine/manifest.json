@@ -1,15 +1,15 @@
 {
   "protocol": 1,
   "id": "grok-routine",
-  "version": "0.2.0",
-  "dependencies": {"shared": "0.2.0"},
+  "version": "0.2.1",
+  "dependencies": {"shared": "0.2.1"},
   "mailbox_protocol_version": 1,
   "label": "Grok Bot user-configured official Routine webhook",
   "runtime": "python>=3.11",
   "entrypoint": "main.py",
   "session_kinds": ["routine-webhook-target"],
   "supported_modes": ["queue"],
-  "native_validation": "requires-user-routine-configuration-and-local-validation",
+  "native_validation": "requires-native-routine-probe-and-local-admin-queue-registration",
   "completion": "explicit-native-mail-send-for-mailbox; native-execution-report-for-legacy",
   "mailbox_delivery": "single-webhook-2xx-confirms-transport-only; no-automatic-business-reply"
 }

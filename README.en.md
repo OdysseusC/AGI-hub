@@ -66,6 +66,7 @@ On 2026-10-20 at 11:48 Beijing time, Claude Code mod `0.2.2` also passed a mailb
 | Events | Local HTTP loopback and SSE; no scheduled scanning of chat histories |
 | Codex Client | Node standard library; official Desktop MCP targets a specific original chat |
 | WorkBuddy Client | Python standard library; official CodeBuddy CLI `--resume` targets a specific original session |
+| Grok Routine Client | Python standard libraries and the user's official Routine webhook; 0.2.1 adds independent queue registration, with native acceptance checked per environment |
 | Claude Code Client | Mod 0.2.2 with native mailbox tools; queue-only Code sessions, verified on the local Claude-3p Mac |
 | Installer | Portable Go bootstrap, package checksums and platform-specific launchers |
 | Target platforms | Windows and macOS, each with amd64/arm64 packages; native capabilities are accepted separately per platform |

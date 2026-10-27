@@ -224,6 +224,12 @@ func (b *Broker) Register(endpoint Endpoint) error {
 	if strings.TrimSpace(endpoint.ID) == "" || strings.TrimSpace(endpoint.DeviceID) == "" || strings.TrimSpace(endpoint.Driver) == "" {
 		return errors.New("endpoint ID, device, and driver are required")
 	}
+	if old, exists := b.state.Endpoints[endpoint.ID]; exists && (old.DeviceID != endpoint.DeviceID || old.SessionID != endpoint.SessionID || old.Driver != endpoint.Driver) {
+		endpoint.MailboxNativeQueueVerified = false
+	}
+	if endpoint.MailboxNativeQueueVerified && (endpoint.MailboxProtocolVersion != 1 || len(endpoint.Modes) != 1 || endpoint.Modes[0] != "queue" || endpoint.SessionID == "") {
+		return errors.New("native queue verification requires a bound mailbox protocol 1 queue endpoint")
+	}
 	if endpoint.MailboxProtocolVersion < 0 || endpoint.MailboxProtocolVersion > 1 || endpoint.MailboxWhileBusyVerified && endpoint.MailboxProtocolVersion != 1 {
 		return errors.New("mailbox protocol must be 0 or 1; mailbox busy guidance requires protocol 1")
 	}

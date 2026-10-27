@@ -78,7 +78,7 @@ agi-hub autostart remove-client --data /absolute/private/agi-hub --endpoint work
 | Client | 0.5.0 行为 |
 | --- | --- |
 | WorkBuddy | 可恢复已登记的独立 Python 消费者；收到消息后仍由原 Client 恢复固定官方 CLI 会话。登录、原生权限及业务授权不因自启动扩大 |
-| Grok Routine | 可恢复独立 Python 消费者，入口为 `clients/grok-routine/main.py --config <私有配置>`。Client `0.2.0` 已实现 queue 邮箱协议 1，旧 `0.1` 须实际升级；仍需本人配置的官方 Routine webhook、固定身份 helper 与工作区协作规则。真实原生闭环待验收，自启动不代替这些前置条件 |
+| Grok Routine | 可恢复独立 Python 消费者，入口为 `clients/grok-routine/main.py --config <私有配置>`。Client `0.2.1` 已实现 queue 邮箱协议 1，旧 `0.1` 须实际升级；仍需本人配置的官方 Routine webhook、固定身份 helper 与工作区协作规则。真实原生闭环待验收，自启动不代替这些前置条件 |
 | Codex | 登记时强制标记 `requires_host=true`；只显示 `needs_host_environment`，runner 不直接启动它 |
 | Claude Code | 同样只登记原生宿主需求；交互式 Code 进程及其 mod 必须按原流程启动，runner 不执行 `claude` 或 `-p --resume` |
 
@@ -89,6 +89,8 @@ Codex/Claude 的最小登记描述可以是 `{"endpoint":"codex","requires_host"
 已经保存的 endpoint、会话绑定、技能和消息应继续复用。重启后需要重新连接宿主，并不等于重新安装、重新绑定，也不应把每次人工粘贴启动指令作为自动恢复的验收方式。
 
 Codex Node Client `0.3.1` 修复 Hub 重启后的状态重建：在原生宿主内运行的 Client 从官方 `read_thread` 读取真实元数据，再用绑定校验接口恢复自己的状态；失败时保守停止领取。该过程不调用模型、不放宽验证标记、不重新发送不确定消息。它与操作系统登录后启动桌面宿主是两个不同阶段，后者仍未通过本版验收。
+
+Grok 的独立原生 queue 与长期聊天的忙闲观察分开核实。Client `0.2.1` 未登记时明确显示 `needs_native_queue_verification`；管理员完成真实探针并登记当前绑定后，Hub 重启的 `unknown` 不再卡住有效待投消息。改绑撤销资格，同绑定重启保留；已知 busy 仍要求独立忙时验证，needs_user 不放行业务。参见 [Grok 登记步骤](../clients/grok-routine/README.md)。这项离线修复尚未替 C 电脑完成部署或重启验收。WorkBuddy 未知原生状态仍须真实观察，显示 `needs_native_observation`，不因消费者运行或 PID 不存在而设为空闲。
 
 官方 [SessionStart hook](https://learn.chatgpt.com/docs/hooks) 支持 `startup/resume`，可作为后续原生宿主拉起 Client 的候选；[插件 hook 首次须用户审阅并信任](https://developers.openai.com/plugins/build/plugins#bundled-hooks)。目前尚未证明仅启动应用就会恢复目标聊天并立即执行 hook，也未证明 hook 获得所需完整宿主环境，因此本版不安装该 hook、不声明此恢复路径已实现。MCP tool hook 只使用既有连接，不能代替服务启动或重连。
 

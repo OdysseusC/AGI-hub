@@ -72,6 +72,7 @@ def absolute_directory(value: object, code: str) -> str:
 
 class WorkBuddyCLIAdapter:
     mailbox_protocol_version = 1
+    requires_native_observation = True
 
     def __init__(self, config: dict):
         native = config["native"]

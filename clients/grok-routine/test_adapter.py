@@ -1,6 +1,8 @@
 """Local-only adapter tests; no messages are sent to real assistants."""
 
 import copy
+import contextlib
+import io
 import json
 import sys
 import unittest
@@ -10,7 +12,7 @@ CLIENTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CLIENTS))
 import importlib.util
 from unittest.mock import Mock, patch
-from shared.runtime import drain, verify_binding
+from shared.runtime import consume, drain, verify_binding
 from shared.transport import ConfigurationError, HubError
 from tests.support import LocalHTTP, envelope, registered_binding, respond
 from tests.test_mail_clients import mail_envelope
@@ -29,6 +31,106 @@ def adapter_for(url="https://example.invalid/routine", *, body=None, headers=Non
 
 
 class AdapterTests(unittest.TestCase):
+    def test_mailbox_requires_explicit_native_queue_registration_without_changing_legacy(self):
+        adapter = adapter_for()
+        binding = registered_binding(driver="grok-routine", session_id="routine-test")["endpoint"]
+        adapter.validate_binding(binding)  # Legacy Task delivery retains its old contract.
+        binding["mailbox_protocol_version"] = 1
+        for value in (None, False):
+            if value is None:
+                binding.pop("mailbox_native_queue_verified", None)
+            else:
+                binding["mailbox_native_queue_verified"] = value
+            with self.assertRaisesRegex(ConfigurationError, "needs_native_queue_verification"):
+                adapter.validate_binding(binding)
+        binding["mailbox_native_queue_verified"] = True
+        adapter.validate_binding(binding)
+
+    def test_unregistered_queue_waits_with_actionable_status_and_recovers_on_registration_event(self):
+        pending = registered_binding(driver="grok-routine", session_id="routine-test")
+        pending["endpoint"].update(mailbox_protocol_version=1, mailbox_native_queue_verified=False)
+        verified = copy.deepcopy(pending)
+        verified["endpoint"]["mailbox_native_queue_verified"] = True
+        api = Mock(endpoint="endpoint-test")
+        api.get.side_effect = [pending, pending, verified]
+        api.post.return_value = None
+        class Events:
+            def __enter__(self): return self
+            def __exit__(self, *_): pass
+            def changes(self):
+                yield None  # Real initial SSE change, still unverified.
+                yield None  # Administrator registered the native queue.
+                raise HubError("fixture_stop", 401)
+        api.subscribe.return_value = Events()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(consume(api, adapter_for(), sleep=lambda _: self.fail("unexpected reconnect")), 1)
+        reports = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([value["state"] for value in reports], ["needs_verification", "ready", "error"])
+        self.assertEqual(reports[0]["code"], "needs_native_queue_verification")
+        self.assertIn("agi-hub native-queue", reports[0]["action"])
+        self.assertIn("--evidence-ref", reports[0]["action"])
+        api.post.assert_called_once_with("mail/inbox")
+        self.assertEqual(pending["session"]["state"], "unknown")
+
+    def test_fixed_routine_session_header_is_present_on_all_hub_requests(self):
+        requests = []
+        def receive(handler):
+            requests.append(handler.path)
+            self.assertEqual(handler.headers["X-AGI-Hub-Native-Session"], "routine-test")
+            handler.rfile.read(int(handler.headers.get("Content-Length", 0)))
+            respond(handler, None)
+        from shared.runtime import HubAPI
+        with LocalHTTP(receive) as local:
+            api = HubAPI({"base_url": local.base, "endpoint": "endpoint-test", "endpoint_token": "fixture-token",
+                          "native": {"routine_id": "routine-test"}})
+            api.get("endpoint")
+            api.post("mail/inbox")
+            api.post("mail/delivery", {"message_id": "fixture", "outcome": "delivered"})
+        self.assertEqual(len(requests), 3)
+
+    def test_revocation_event_stops_claiming_without_changing_unknown_session(self):
+        verified = registered_binding(driver="grok-routine", session_id="routine-test")
+        verified["endpoint"].update(mailbox_protocol_version=1, mailbox_native_queue_verified=True)
+        revoked = copy.deepcopy(verified)
+        revoked["endpoint"]["mailbox_native_queue_verified"] = False
+        api = Mock(endpoint="endpoint-test")
+        api.get.side_effect = [verified, revoked]
+        api.post.return_value = None
+        class Events:
+            def __enter__(self): return self
+            def __exit__(self, *_): pass
+            def changes(self):
+                yield None
+                raise HubError("fixture_stop", 401)
+        api.subscribe.return_value = Events()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(consume(api, adapter_for(), sleep=lambda _: self.fail("unexpected reconnect")), 1)
+        states = [json.loads(line)["state"] for line in output.getvalue().splitlines()]
+        self.assertEqual(states, ["ready", "needs_verification", "error"])
+        api.post.assert_called_once_with("mail/inbox")
+        self.assertEqual(revoked["session"]["state"], "unknown")
+
+    def test_native_queue_contract_is_strict_boolean_and_requires_supporting_v1_adapter(self):
+        binding = registered_binding(driver="grok-routine", session_id="routine-test")
+        binding["endpoint"]["mailbox_protocol_version"] = 1
+        api = Mock(endpoint="endpoint-test")
+        api.get.return_value = binding
+        for invalid in (None, 1, "true"):
+            binding["endpoint"]["mailbox_native_queue_verified"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ConfigurationError, "invalid_hub_native_queue_verification"):
+                verify_binding(api, adapter_for())
+        binding["endpoint"]["mailbox_native_queue_verified"] = True
+        unsupported = Mock(mailbox_protocol_version=1, supports_native_queue=False)
+        with self.assertRaisesRegex(ConfigurationError, "native_transport_does_not_support_native_queue"):
+            verify_binding(api, unsupported)
+        unsupported.validate_binding.assert_not_called()
+        binding["endpoint"]["mailbox_protocol_version"] = 0
+        with self.assertRaisesRegex(ConfigurationError, "invalid_hub_native_queue_contract"):
+            verify_binding(api, adapter_for())
+        api.post.assert_not_called()
+
     def test_mailbox_formats_preserve_full_message_and_literal_placeholders(self):
         message = dict(mail_envelope(), task_id="", content="Literal {{task_id}} {{message_id}} {{notification}}")
         before = copy.deepcopy(message)
@@ -176,6 +278,7 @@ class AdapterTests(unittest.TestCase):
                 api = Mock(endpoint="endpoint-test")
                 binding = registered_binding(driver="grok-routine", session_id="routine-test")
                 binding["endpoint"]["mailbox_protocol_version"] = version
+                binding["endpoint"]["mailbox_native_queue_verified"] = version == 1
                 api.get.return_value = binding
                 verify_binding(api, adapter)
                 self.assertIs(api.mailbox, version == 1)

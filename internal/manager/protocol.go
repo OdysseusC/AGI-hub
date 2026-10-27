@@ -15,6 +15,7 @@ type Endpoint struct {
 	PeerWhileBusyVerified        bool     `json:"peer_while_busy_verified,omitempty"`
 	MailboxProtocolVersion       int      `json:"mailbox_protocol_version,omitempty"`
 	MailboxWhileBusyVerified     bool     `json:"mailbox_while_busy_verified,omitempty"`
+	MailboxNativeQueueVerified   bool     `json:"mailbox_native_queue_verified,omitempty"`
 }
 
 type Session struct {

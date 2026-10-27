@@ -47,6 +47,7 @@ def expand(value: object, envelope: dict, endpoint: str) -> object:
 
 class GrokRoutineAdapter:
     mailbox_protocol_version = 1
+    supports_native_queue = True
 
     def __init__(self, config: dict):
         native = config["native"]
@@ -77,6 +78,8 @@ class GrokRoutineAdapter:
             raise ConfigurationError("grok_native_binding_mismatch")
         if binding.get("modes") != ["queue"]:
             raise ConfigurationError("grok_routine_requires_queue_only_binding")
+        if binding.get("mailbox_protocol_version", 0) == 1 and binding.get("mailbox_native_queue_verified") is not True:
+            raise ConfigurationError("needs_native_queue_verification")
 
     def deliver(self, envelope: dict) -> tuple[str, str]:
         if not isinstance(envelope, dict) or envelope.get("recipient") != self.endpoint:

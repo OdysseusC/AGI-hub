@@ -66,6 +66,7 @@ Hub 不建立任务树、DAG、团队计划或统一智能路由，不判断谁�
 | 事件 | 本机 HTTP loopback、SSE；不定时扫描聊天历史 |
 | Codex Client | Node 标准库，通过官方 Desktop MCP 发到指定原聊天 |
 | WorkBuddy Client | Python 标准库，通过官方 CodeBuddy CLI `--resume` 指定原会话 |
+| Grok Routine Client | Python 标准库与本人官方 Routine webhook；0.2.1 提供独立 queue 验证登记，原生闭环逐环境验收 |
 | Claude Code Client | mod 0.2.2 提供原生邮箱工具；仅支持 Code 会话 queue，已在本机 Claude-3p Mac 验证 |
 | 安装器 | Go 便携引导程序、包内校验清单和分系统启动入口 |
 | 目标平台 | Windows、macOS，各提供 amd64/arm64 两种安装包；原生能力逐平台验收 |

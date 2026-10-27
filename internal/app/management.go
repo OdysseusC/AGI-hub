@@ -74,6 +74,13 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) (any, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch r.URL.Path {
+	case "/v1/manage/native-queue":
+		var in nativeQueueDecision
+		if err := decode(w, r, &in); err != nil {
+			return nil, badRequest("invalid_native_queue_verification")
+		}
+		err := s.recordNativeQueueDecision(in, writePrivateJSON)
+		return map[string]any{"ok": err == nil, "detail": "已记录本机管理员的 native queue 验收决定；原生状态和执行结果仍独立记录。"}, err
 	case "/v1/manage/autostart":
 		var in struct {
 			Enabled bool     `json:"enabled"`
@@ -255,6 +262,7 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			e.ResultQueueWhileBusyVerified = false
 			e.MailboxWhileBusyVerified = false
 			e.PeerWhileBusyVerified = false
+			e.MailboxNativeQueueVerified = false
 		}
 		e.Enabled = action == "enable"
 		if e.Enabled && e.MailboxProtocolVersion == 0 {
@@ -271,7 +279,14 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 		found := false
 		for i := range cfg.Bindings {
 			if cfg.Bindings[i].Endpoint.ID == id {
+				stored := cfg.Bindings[i]
+				// Configuration and its accepted binding anchor remain authoritative;
+				// a routine enable/disable must not resurrect a revoked queue grant.
+				e.MailboxNativeQueueVerified = configuredNativeQueueVerification(stored, e)
 				cfg.Bindings[i].Endpoint = e
+				if old.SessionID != e.SessionID {
+					cfg.Bindings[i].NativeQueueVerification = nil
+				}
 				found = true
 			}
 		}
@@ -372,7 +387,7 @@ func (s *Server) managementState() (any, error) {
 			detail = "已启用，绑定和原生 Client 连接状态尚未核实"
 			if e.SessionID != "" {
 				status = "bound"
-				detail = "已有会话已绑定，Client 连接状态尚未验证；请核对本机 Client 输出和实际消息。"
+				detail = "已有会话已绑定；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，Client 连接状态尚未验证；请核对本机 Client 输出和实际消息。"
 			}
 			s.leaseMu.Lock()
 			lease, exists := s.leases[e.ID]
@@ -380,11 +395,14 @@ func (s *Server) managementState() (any, error) {
 			s.leaseMu.Unlock()
 			if connected {
 				status = "connected"
-				detail = "独立 Client 已连接，原生执行须另看真实回报"
+				detail = "独立 Client 已连接；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，原生执行须另看真实回报"
 			}
 			if connected && e.IdleWakeVerified && snapshot.Sessions[e.ID].State == "idle" {
 				status = "verified"
 				detail = "当前会话空闲，已配置经验证的唤醒能力"
+			}
+			if e.MailboxNativeQueueVerified {
+				detail = "已登记本机管理员验证的 native queue；当前原生会话状态 " + snapshot.Sessions[e.ID].State + "，等待独立 Client 领取邮箱；登记不代表原生已执行。"
 			}
 		}
 		installation := "not_installed"

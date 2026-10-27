@@ -48,9 +48,17 @@ Hub 从登记的发送 endpoint 保存 `root_origin`：`endpoint`、`device_id`�
 
 Client 独占原生传输结果的回执：WorkBuddy CLI 完整退出并核对结果会话后、或 Codex Desktop MCP 确认原生输入后，才调用 `/v1/mail/delivery`。模型发出的 `status/result` 是另一条消息，不能把原消息的投递改成已完成。`delivered` 不代表模型接手、业务成功或成果质量通过；这些内容由助手明确发送并由原入口核验。
 
-`request/reply/result` 仅在已核实空闲可唤醒，或已核实忙时可引导的原生入口领取；不根据业务阶段推断原生空闲。`status` 由 Client 记入本地记录并回执，不注入会话、不启动模型。所有发布都计入同一关联的共享消息总量，包括状态；达到上限或截止时间拒绝新发布。截止与取消不停止已发生的原生操作，也不承诺限制宿主内部 Token 或积分。助手应精简消息、避免确认循环，并在限额前返回必要结果。
+`request/reply/result` 在已核实空闲可唤醒、已核实忙时可引导，或已单独登记的原生 queue 入口领取；不根据业务阶段推断原生空闲。`status` 由 Client 记入本地记录并回执，不注入会话、不启动模型。所有发布都计入同一关联的共享消息总量，包括状态；达到上限或截止时间拒绝新发布。截止与取消不停止已发生的原生操作，也不承诺限制宿主内部 Token 或积分。助手应精简消息、避免确认循环，并在限额前返回必要结果。
 
 `mail-cancel --endpoint <原入口> --correlation-id <ID>` 关闭该关联，只撤回尚未投递的消息。已投递、正在投递或不确定的消息保留真实状态，不伪造业务中断。相同 ID 的重试仍只返回已有记录。
+
+## 独立原生 queue 登记
+
+0.5.0 的 `mailbox_native_queue_verified` 是单独的本机投递资格，只用于邮箱协议 1、单一 `["queue"]` 模式的固定绑定。在真实 `unknown/idle` 下可继续领取；已知 `busy` 仍要求独立的 `mailbox_while_busy_verified`，`needs_user` 不放行业务消息。在途、不确定、截止、权限与绑定检查保持生效。它不修改原生状态，也不证明串行、并发安全、执行完成或批准。
+
+本机管理员先核对原生证据，再调用 `POST /v1/manage/native-queue`，正文为 `{"endpoint":"grok","native_session_id":"actual-routine","verified":true,"evidence_ref":"local-native-probe-001"}`；撤销显式传 `false`。接口使用本机管理鉴权，不接受 endpoint 自授资格，也不开放远端管理。CLI 见 [Grok README](../clients/grok-routine/README.md)。
+
+配置同时记录设备、driver、会话及证据引用的绑定锚；引用只是记录，不读取其路径。锚缺失或不匹配时资格失效；改绑清除，同绑定停启和重启保留。配置中的撤销不能被旧运行态在保存语言或启停时恢复。此字段不增加 mesh 广播协议或业务调度。
 
 ## 当前邮箱 API
 
@@ -66,7 +74,7 @@ Client 独占原生传输结果的回执：WorkBuddy CLI 完整退出并核对�
 
 状态查询仅对自己发出或收到的 `status` 返回正文；其他参与者的邮件与请求/回复/成果正文均不在状态查询中复制。
 
-这些接口使用对应 endpoint 的凭据。`GET /v1/endpoint`、目录、规则和 SSE 事件接口继续可用；事件只通知有变更，完整消息通过邮箱领取。邮箱必须显式设置 `mailbox_protocol_version:1`；Codex Desktop MCP、WorkBuddy CLI 和 Claude Code mod 0.2.2 已实现；Claude 已于 2026-10-20 通过 macOS 原 Code 空闲邮箱执行与忙碌 Codex 回传，Grok 保持 `0`；其他原生范围分别验收。接口协议仍为 `1`，不要与磁盘日志版本混淆。首次成功发布邮箱消息将日志升级为 `3`，新版读取 `1/2/3`，旧程序应拒绝新版日志。未发布原型的 v2 记录仅保留诊断，不恢复其父子任务流程。
+这些接口使用对应 endpoint 的凭据。`GET /v1/endpoint`、目录、规则和 SSE 事件接口继续可用；事件只通知有变更，完整消息通过邮箱领取。邮箱必须显式设置 `mailbox_protocol_version:1`；Codex Desktop MCP、WorkBuddy CLI 和 Claude Code mod 0.2.2 已实现；Claude 已于 2026-10-20 通过 macOS 原 Code 空闲邮箱执行与忙碌 Codex 回传，Grok Client 0.2.1 也可显式启用 `1`，实际原生闭环仍待验收；其他原生范围分别验收。接口协议仍为 `1`，不要与磁盘日志版本混淆。首次成功发布邮箱消息将日志升级为 `3`，新版读取 `1/2/3`，旧程序应拒绝新版日志。未发布原型的 v2 记录仅保留诊断，不恢复其父子任务流程。
 
 邮箱 `wait_ms` 沿用下文旧接口的 `1..25000` 校验、订阅后复查、取消和 HTTP 200 `null` 超时语义。Claude 邮箱模式先要求 `/v1/endpoint` 声明 `capabilities: {"mailbox_long_poll_max_ms":25000,"mailbox_client_lease":true}`；send/inbox/delivery/cancel 修改操作须携带有效 `X-AGI-Hub-Lease`，旧 Hub 缺少能力声明时在领取前拒绝。原生 `mail_send/peers/mail_state` 固定身份并返回 JSON 文本；普通 CLI 不能绕过租约，其他 driver 保持原行为。
 

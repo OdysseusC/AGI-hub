@@ -15,6 +15,8 @@ func (s *Server) manageAgentLanguage(id, value string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.leaseMu.Lock()
+	defer s.leaseMu.Unlock()
 	old, ok := s.Broker.Snapshot().Endpoints[id]
 	if !ok {
 		return nil, errors.New("unknown local endpoint")
@@ -28,6 +30,7 @@ func (s *Server) manageAgentLanguage(id, value string) (any, error) {
 	found := false
 	for i := range cfg.Bindings {
 		if cfg.Bindings[i].Endpoint.ID == id {
+			updated.MailboxNativeQueueVerified = configuredNativeQueueVerification(cfg.Bindings[i], updated)
 			cfg.Bindings[i].Endpoint = updated
 			found = true
 		}
