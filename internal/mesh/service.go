@@ -92,6 +92,7 @@ type Service struct {
 	candidates    []Candidate
 	clients       map[string]*http.Client
 	retry         map[string]retryState
+	transportView string // Last notified peer/directory/route semantics; never persisted.
 	address       string
 	server        *http.Server
 	listener      net.Listener
@@ -252,6 +253,9 @@ func (s *Service) persistLocked() error {
 	return atomicJSON(filepath.Join(s.opts.DataDir, "state.json"), s.disk)
 }
 func (s *Service) changed() {
+	s.mu.Lock()
+	s.transportView = s.transportViewLocked()
+	s.mu.Unlock()
 	if s.opts.OnChange != nil {
 		s.opts.OnChange()
 	}

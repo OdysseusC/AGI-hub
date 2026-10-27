@@ -82,12 +82,16 @@ func (s *Service) acceptDirectory(frame directoryFrame) {
 // Its validly signed self advertisement is a live response. Relayed entries
 // only convey bounded route hints; neither kind grants pairing or mail access.
 func (s *Service) acceptDirectoryFrom(source string, frame directoryFrame) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.acceptDirectoryFromLocked(source, frame)
+}
+
+func (s *Service) acceptDirectoryFromLocked(source string, frame directoryFrame) {
 	if frame.Version != Version || len(frame.Entries) > maxPeers {
 		return
 	}
 	now := s.now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for id := range s.ads {
 		if !s.adLeases[id].After(now) {
 			delete(s.ads, id)

@@ -14,7 +14,17 @@ Register a `grok` endpoint and set its binding to `"driver": {"type": "external"
 agi-hub client-config --data /absolute/path/to/private/hub --endpoint grok --file /absolute/path/to/private/grok/client.json
 ```
 
-The command exports only endpoint credentials and empty `native`, without overwriting an existing file. Use [client.example.json](client.example.json) to set the actual Routine's `native.url`, `native.headers`, `native.body` and the user-defined `native.routine_id` label. That label alone is not a verified native session ID. Confirm that the webhook reaches the user's selected Routine and use its actual official request structure; the example fields are placeholders, not a validated format.
+The command exports only endpoint credentials and empty `native`, without overwriting an existing file. Use [client.example.json](client.example.json) to set the actual Routine's `native.url`, `native.headers`, `native.body` and the user-defined `native.routine_id` label. That label alone is not a verified native session ID. Confirm that the webhook reaches the user's selected Routine.
+
+The Webhook section of the [official Grok Bot Routines documentation](https://cursor.com/help/grok-bot/routines) allows a JSON body, which the Bot receives together with the Routine instruction. It specifies no fixed JSON field such as `notification`. Template fields are an agreement between the user and the selected Routine's instruction; there is no need to wait for an undocumented "official notification field." For example:
+
+```json
+{"body": {"agi_hub_notification": "{{notification}}"}}
+```
+
+`agi_hub_notification` is this example's convention, not a fixed platform schema. Make the existing Routine instruction explicitly read its complete handoff, check this endpoint and Routine binding, then follow the collaboration skill. First use a safe native probe to check actual reception, context reading and a Hub reply through its own fixed helper. Neither the example nor HTTP 2xx proves those checks passed, creates a new webhook or adds native permissions.
+
+A Routine that accepts only `{id}` and reads legacy Task files for an old endpoint from a fixed directory uses a different custom contract. Sharing its webhook or passing an old workflow does not establish mailbox V1 or new-endpoint compatibility. Back up the original instruction and configuration, preserve the old branch and business behavior, then explicitly add an inline JSON branch for the new endpoint and validate it separately. Do not feed mailbox messages into the legacy Task-file branch or change Hub queue eligibility to bypass validation.
 
 To send the full handoff, the request template must contain `{{notification}}`, `{{envelope_json}}`, or `{{envelope}}` occupying an entire JSON string value. `{{content}}` and `{{message_id}}` are also available. `{{task_id}}` belongs to legacy Task/Report only; mailbox templates containing it fail before any request. Substitution happens once, leaving placeholders in actual message content unchanged. Messages cannot alter the fixed URL, headers or Routine binding. The default local Hub is `http://127.0.0.1:7331`; use the exported configuration.
 

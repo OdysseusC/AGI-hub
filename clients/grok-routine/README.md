@@ -14,7 +14,17 @@
 agi-hub client-config --data /absolute/path/to/private/hub --endpoint grok --file /absolute/path/to/private/grok/client.json
 ```
 
-命令只导出 endpoint 凭据和空 `native`，不覆盖已有文件。按 [client.example.json](client.example.json) 设置真实 Routine 的 `native.url`、`native.headers`、`native.body` 和用户定义的 `native.routine_id` 标签。该标签本身不是已验证的原生会话 ID。须确认 webhook 实际指向本人选定的 Routine，按其官方实际结构填写请求字段；示例占位字段不能直接作为已验证格式。
+命令只导出 endpoint 凭据和空 `native`，不覆盖已有文件。按 [client.example.json](client.example.json) 设置真实 Routine 的 `native.url`、`native.headers`、`native.body` 和用户定义的 `native.routine_id` 标签。该标签本身不是已验证的原生会话 ID。须确认 webhook 实际指向本人选定的 Routine。
+
+[Grok Bot Routines 官方文档](https://cursor.com/help/grok-bot/routines)的 Webhook 说明允许发送 JSON body，Bot 会同时收到该 body 和 Routine instruction；该页没有规定 `notification` 等固定 JSON 字段名。模板字段由用户与所选 Routine 的指令共同约定，无需等待一个未被文档规定的“官方 notification 字段”。例如：
+
+```json
+{"body": {"agi_hub_notification": "{{notification}}"}}
+```
+
+`agi_hub_notification` 是本示例的约定，不是平台固定 schema。须让既有 Routine 的指令明确读取此字段内的完整交接，核对本 endpoint 和 Routine 绑定，再按协作技能处理；先用安全输入做原生探针，确认实际接收、上下文读取和自身固定 helper 的 Hub 回信。示例和 HTTP 2xx 都不证明这些步骤已经通过，也不创建新 webhook 或增加原生权限。
+
+仅接收 `{id}`、再从固定目录读取旧 endpoint 的 Task 文件的 Routine，使用的是另一套自定义契约；不能因同一 webhook 或旧流程曾通过，就宣称兼容邮箱 V1 或新 endpoint。适配前备份原指令与配置，保留旧分支和业务行为，再为新 endpoint 明确增加 inline JSON 处理分支并单独验收。不要把邮箱消息误送进旧 Task 文件分支，也不要为了绕过验收修改 Hub 队列资格。
 
 请求模板须包含 `{{notification}}`、`{{envelope_json}}` 或独占 JSON 字符串值的 `{{envelope}}`，确保发送完整交接。也可使用 `{{content}}`、`{{message_id}}`；`{{task_id}}` 只属于旧 Task/Report，邮箱模板包含它会在请求前失败。替换只有一轮，消息正文内的占位符保持原样，不作为配置重新展开。消息不能改变固定的 URL、headers 或 Routine 绑定。默认本机 Hub 为 `http://127.0.0.1:7331`，以导出配置为准。
 

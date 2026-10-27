@@ -499,7 +499,52 @@ launch:
 	s.flush(ctx)
 }
 
+// transportViewLocked excludes signed revisions and lease timestamps: renewing
+// the same live directory is not a user-visible topology change. Keep the last
+// notified view across I/O so a request outliving the online TTL still reports
+// its offline edge. All refresh workers compare/advance it under the same lock.
+func (s *Service) transportViewLocked() string {
+	type peerView struct {
+		ID, Name, Address string
+		Online            bool
+		Agents            []Agent
+		Route             []string
+	}
+	peers := make([]peerView, 0, len(s.disk.Peers))
+	now := s.now()
+	for id, peer := range s.disk.Peers {
+		agents := []Agent{}
+		if ad, ok := s.ads[id]; ok && s.adLeases[id].After(now) {
+			agents = append(agents, ad.Agents...)
+		}
+		sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+		path, _ := s.routeLocked(id, nil)
+		peers = append(peers, peerView{id, peer.Name, peer.Address, s.isOnlineLocked(id), agents, append([]string{}, path...)})
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
+	data, _ := json.Marshal(peers)
+	return string(data)
+}
+
+func (s *Service) rememberTransportViewLocked() {
+	if s.transportView == "" {
+		s.transportView = s.transportViewLocked()
+	}
+}
+
+func (s *Service) transportChangedLocked() bool {
+	view := s.transportViewLocked()
+	if view == s.transportView {
+		return false
+	}
+	s.transportView = view
+	return true
+}
+
 func (s *Service) refresh(ctx context.Context, p peerRecord) {
+	s.mu.Lock()
+	s.rememberTransportViewLocked()
+	s.mu.Unlock()
 	var directory directoryFrame
 	err := s.request(ctx, p, "/v1/directory", nil, &directory)
 	if err == nil && directory.Version != Version {
@@ -542,7 +587,11 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 		}
 		backoff.Next = s.now().Add(delay)
 		s.retry[p.HubID] = backoff
+		notify := s.transportChangedLocked()
 		s.mu.Unlock()
+		if notify {
+			s.changed()
+		}
 		return
 	}
 	if previous.Address != p.Address {
@@ -555,9 +604,12 @@ func (s *Service) refresh(ctx context.Context, p peerRecord) {
 	}
 	s.online[p.HubID] = s.now().Add(4 * time.Second)
 	s.retry[p.HubID] = retryState{Next: s.now().Add(time.Second)}
+	s.acceptDirectoryFromLocked(p.HubID, directory)
+	notify := s.transportChangedLocked()
 	s.mu.Unlock()
-	s.acceptDirectoryFrom(p.HubID, directory)
-	s.changed()
+	if notify {
+		s.changed()
+	}
 }
 
 func (s *Service) sortedPeers() []peerRecord {

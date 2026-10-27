@@ -35,6 +35,14 @@ Transport uses TLS 1.3 with pinned peer keys and reuses long-lived connections t
 
 A relay supplies transport only. The destination verifies the original message signature and checks pairing and local sharing permissions. A trusting B and B trusting C does not make A trust C. A and C must establish their own direct pairing first; later, they can use B as a relay when their direct link is unavailable.
 
+## Hub availability and native wakeup
+
+The local management page refreshes network state through Hub SSE. Changes to paired-host availability, effective agent directories or selected routes notify subscribers. Renewing the same live directory's lease, signature or revision, or reordering agents, no longer repeatedly triggers refreshes. A connection failure that makes a peer offline also notifies once. Discovery candidates, configuration and business delivery retain their own events; an SSE change is not necessarily an online transition.
+
+Sharing a LAN does not authorize communication. Discovery, pairing, exports and native integration are separate. Availability events generate no business mail and do not broadcast model wakes. `connected` establishes a network path, not user login, Client recovery or a new native turn.
+
+A reboot trial can start with one authorized request carrying a stable ID, deadline and reply budget. After preparing startup, the target assistant performs one normal reboot. On recovery it explicitly sends a `reply/result` using its fixed-identity helper, including the trial nonce and actual boot/native-turn evidence. The original entry Client then consumes its own mailbox and uses its verified native channel to wake or steer the original chat. A `status` is recorded without a model wake by default. The Hub does not generate these replies.
+
 ## Open another computer's management page
 
 **0.5.0** adds a separate remote-management grant, off by default. Pairing establishes Hub identity trust, and sharing agents permits the corresponding collaboration; neither grants administrative access. To manage computer B from computer A, both must run a version supporting this feature and currently have direct connectivity.

@@ -6,7 +6,7 @@
     "routine_id": "<user label matching this Hub endpoint session_id>",
     "url": "<official Routine webhook URL from the user's setup>",
     "headers": {},
-    "body": {"replace_with_official_routine_field": "{{notification}}"},
+    "body": {"agi_hub_notification": "{{notification}}"},
     "timeout_seconds": 30
   }
 }
