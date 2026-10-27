@@ -100,6 +100,9 @@ func inspectLaunchAgent(r Registration, definition []byte) (inspectedDefinition,
 	if args[1] != "autostart" || args[2] != "run" || args[3] != "--data" || !filepath.IsAbs(args[0]) || !filepath.IsAbs(args[4]) {
 		return inspectedDefinition{}, errors.New("LaunchAgent is not an AGI Hub login runner")
 	}
+	if args[4] != r.DataDir {
+		return inspectedDefinition{}, errors.New("LaunchAgent belongs to another data directory")
+	}
 	stdout, stderr := values["StandardOutPath"], values["StandardErrorPath"]
 	if stdout.XMLName.Local != "string" || stderr.XMLName.Local != "string" || len(stdout.Children) != 0 || len(stderr.Children) != 0 || !filepath.IsAbs(stdout.Text) || filepath.Dir(stdout.Text) != filepath.Dir(stderr.Text) || filepath.Base(stdout.Text) != "runner.stdout.log" || filepath.Base(stderr.Text) != "runner.stderr.log" {
 		return inspectedDefinition{}, errors.New("LaunchAgent log paths are invalid")
@@ -113,7 +116,7 @@ func inspectLaunchAgent(r Registration, definition []byte) (inspectedDefinition,
 		return inspectedDefinition{}, errors.New("LaunchAgent log permissions must use a private umask")
 	}
 	return inspectedDefinition{
-		matches: args[0] == r.Binary && args[4] == r.DataDir && stdout.Text == filepath.Join(r.LogDir, "runner.stdout.log") && stderr.Text == filepath.Join(r.LogDir, "runner.stderr.log"),
+		matches: args[0] == r.Binary && stdout.Text == filepath.Join(r.LogDir, "runner.stdout.log") && stderr.Text == filepath.Join(r.LogDir, "runner.stderr.log"),
 		enabled: runAtLoad.XMLName.Local == "true",
 	}, nil
 }
@@ -242,7 +245,10 @@ func (p platformController) inspectScheduledTask(r Registration, definition []by
 	if err != nil || len(args) != 4 || args[0] != "autostart" || args[1] != "run" || args[2] != "--data" || !platformAbsolutePath("windows", args[3]) || !platformAbsolutePath("windows", action.Command) {
 		return inspectedDefinition{}, errors.New("scheduled task runner arguments are invalid")
 	}
-	return inspectedDefinition{matches: action.Command == r.Binary && args[3] == r.DataDir, enabled: trigger.Enabled && task.Settings.Enabled}, nil
+	if args[3] != r.DataDir {
+		return inspectedDefinition{}, errors.New("scheduled task belongs to another data directory")
+	}
+	return inspectedDefinition{matches: action.Command == r.Binary, enabled: trigger.Enabled && task.Settings.Enabled}, nil
 }
 
 func decodePlatformXML(definition []byte, value any) error {

@@ -54,6 +54,47 @@ func TestPlanDefaultLoadHasNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestPlanDisableRefusesAnotherDataDirsDefinitionWithoutCommitting(t *testing.T) {
+	dir := t.TempDir()
+	plan := Plan{Version: 1, Enabled: true, Binary: os.Args[0], Clients: []Client{{Endpoint: "desktop", Enabled: true, RequiresHost: true}}}
+	if err := Save(dir, plan); err != nil {
+		t.Fatal(err)
+	}
+	beforePlan := readPlanBytes(t, dir)
+	p, _ := macPlatformForTest(t)
+	requested := RegistrationFor(dir, os.Args[0]+"-updated")
+	other := requested
+	other.DataDir = t.TempDir()
+	definition, err := launchAgentDefinition(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := p.launchAgentPath(requested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, definition, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ops := planPlatformOperations{
+		enable:  func(Registration) error { t.Fatal("a rejected disable tried to enable a login item"); return nil },
+		disable: p.disable,
+	}
+	if err := configureWithPlatform(dir, requested.Binary, false, []string{}, ops); err == nil {
+		t.Error("off save accepted a definition belonging to another data directory")
+	}
+	if after := readPlanBytes(t, dir); !bytes.Equal(beforePlan, after) {
+		t.Error("rejected off save changed the plan or Client selection")
+	}
+	if after, err := os.ReadFile(path); err != nil || !bytes.Equal(definition, after) {
+		t.Errorf("rejected off save changed the existing definition: %v", err)
+	}
+	requireNoStagedPlans(t, dir)
+}
+
 func TestPlanReadJSONOnlyCommitsACompleteFreshSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "snapshot.json")
 	type snapshot struct {

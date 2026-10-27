@@ -148,6 +148,76 @@ func TestPlatformFailedLaunchAgentUpdatePreservesExistingFile(t *testing.T) {
 	}
 }
 
+func TestPlatformDisableChecksDataOwnershipNotBinaryVersion(t *testing.T) {
+	for _, osName := range []string{"darwin", "windows"} {
+		for _, foreignData := range []bool{false, true} {
+			name := "old-binary-same-data"
+			if foreignData {
+				name = "same-label-other-data"
+			}
+			t.Run(osName+"/"+name, func(t *testing.T) {
+				p, requested := macPlatformForTest(t)
+				if osName == "windows" {
+					requested = windowsRegistrationForTest()
+					p = platformController{osName: "windows", currentUser: func() (string, error) { return "S-1-5-21-1234", nil }}
+				}
+				installed := requested
+				if osName == "windows" {
+					installed.Binary = `C:\previous\agihub.exe`
+				} else {
+					installed.Binary = filepath.Join(t.TempDir(), "previous-agihub")
+				}
+				if foreignData {
+					if osName == "windows" {
+						installed.DataDir = `C:\another Hub\private`
+					} else {
+						installed.DataDir = t.TempDir()
+					}
+				}
+				var definition []byte
+				var read func() ([]byte, bool)
+				if osName == "windows" {
+					definition, _ = scheduledTaskDefinition(installed, "S-1-5-21-1234")
+					p.run = func(command string, args ...string) ([]byte, error) {
+						if command == "powershell.exe" {
+							return definition, nil
+						}
+						if command != "schtasks.exe" || !reflect.DeepEqual(args, []string{"/Delete", "/TN", requested.ID, "/F"}) {
+							t.Fatalf("unexpected native action: %s %v", command, args)
+						}
+						definition = nil
+						return nil, nil
+					}
+					read = func() ([]byte, bool) { return definition, definition != nil }
+				} else {
+					definition, _ = launchAgentDefinition(installed)
+					path, _ := p.launchAgentPath(requested)
+					if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, definition, 0600); err != nil {
+						t.Fatal(err)
+					}
+					read = func() ([]byte, bool) { body, err := os.ReadFile(path); return body, err == nil }
+				}
+				before := append([]byte(nil), definition...)
+				err := p.disable(requested)
+				after, exists := read()
+				if foreignData {
+					if err == nil {
+						t.Error("disable accepted the correct Label/owner with another data directory")
+					}
+					if !exists || !bytes.Equal(before, after) {
+						t.Fatal("rejected disable changed the other data directory's definition")
+					}
+				} else if err != nil || exists {
+					t.Fatalf("same-data old binary must remain removable: exists=%v err=%v", exists, err)
+				}
+			})
+		}
+	}
+}
+
 type platformExitError int
 
 func (e platformExitError) Error() string { return "native command failed" }

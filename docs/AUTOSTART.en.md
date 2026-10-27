@@ -16,6 +16,8 @@ User agents run within a logged-in macOS user's lifecycle, and Windows logon tri
 
 `enable`, `disable` and saving in management change future login behavior only. They do not start, stop or reload the current Hub, Clients, native assistants or tasks. Disabling startup does not stop an existing runner; it continues its current lifecycle. Changing the Client selection also does not update a running instance.
 
+Disabling a login definition also checks its data directory. A matching name and generated marker with a command pointing to another directory causes refusal, preserving the definition, plan and Client selection. An older executable for the same data directory can still be disabled.
+
 ## Register, then select
 
 Use the actual installed Hub executable in a stable location and your existing private data directory. Replace every example path with the target computer's paths; do not use a temporary download directory, public repository or someone else's paths. Windows requires an actual `.exe`; use `&` in PowerShell when invoking a quoted executable path.
