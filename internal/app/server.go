@@ -97,7 +97,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpoint := r.URL.Query().Get("endpoint")
-	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills" && !mailRoute(r.URL.Path)
+	adminOnly := r.URL.Path != "/v1/inbox" && r.URL.Path != "/v1/delivery" && r.URL.Path != "/v1/report" && r.URL.Path != "/v1/events" && r.URL.Path != "/v1/endpoint" && r.URL.Path != "/v1/endpoint/session" && r.URL.Path != "/v1/client-lease" && r.URL.Path != "/v1/catalog" && r.URL.Path != "/v1/skills" && !mailRoute(r.URL.Path)
 	if !s.authorized(r, endpoint, adminOnly) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -140,6 +140,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}}
 	case r.URL.Path == "/v1/client-lease" && r.Method == http.MethodPost:
 		result, err = s.changeClientLease(w, r, endpoint)
+	case r.URL.Path == "/v1/endpoint/session" && r.Method == http.MethodPost:
+		err = s.observeEndpointSession(w, r, endpoint)
 	case r.URL.Path == "/v1/state" && r.Method == http.MethodGet:
 		result = s.Broker.Snapshot()
 	case r.URL.Path == "/v1/tasks" && r.Method == http.MethodPost:

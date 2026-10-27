@@ -84,6 +84,16 @@ agi-hub autostart remove-client --data /absolute/private/agi-hub --endpoint work
 
 Codex/Claude 的最小登记描述可以是 `{"endpoint":"codex","requires_host":true}` 或 `{"endpoint":"claude","requires_host":true}`，用同一 `register-client` 命令登记。不要为这些条目填写启动命令或环境。Codex 的官方桥接环境、签名父链和真实 caller 身份必须由自然宿主提供；首次绑定不能将这些条件永久保存为任意后台进程都可恢复。Claude 仍须满足所选交互式宿主、插件、固定会话和用户网络要求。
 
+### 已绑定原生助手的恢复
+
+已经保存的 endpoint、会话绑定、技能和消息应继续复用。重启后需要重新连接宿主，并不等于重新安装、重新绑定，也不应把每次人工粘贴启动指令作为自动恢复的验收方式。
+
+Codex Node Client `0.3.1` 修复 Hub 重启后的状态重建：在原生宿主内运行的 Client 从官方 `read_thread` 读取真实元数据，再用绑定校验接口恢复自己的状态；失败时保守停止领取。该过程不调用模型、不放宽验证标记、不重新发送不确定消息。它与操作系统登录后启动桌面宿主是两个不同阶段，后者仍未通过本版验收。
+
+官方 [SessionStart hook](https://learn.chatgpt.com/docs/hooks) 支持 `startup/resume`，可作为后续原生宿主拉起 Client 的候选；[插件 hook 首次须用户审阅并信任](https://developers.openai.com/plugins/build/plugins#bundled-hooks)。目前尚未证明仅启动应用就会恢复目标聊天并立即执行 hook，也未证明 hook 获得所需完整宿主环境，因此本版不安装该 hook、不声明此恢复路径已实现。MCP tool hook 只使用既有连接，不能代替服务启动或重连。
+
+官方 CLI 中存在 `queue/resume` 也不能单独证明连接了当前桌面宿主。本机只读检查发现默认 shared daemon 控制 socket 不存在；新建一个 CLI daemon 或使用同一个会话 UUID，不足以证明保留了原桌面工具，不能作为自动恢复的静默回退。
+
 启动描述与带凭据的 `client.json` 是两份不同配置。启动计划只保存后者的路径，不复制 endpoint token、登录凭据、宿主 IPC、pipe 或模型密钥。可选 `environment` 仅接受代码规定的 OS、语言及时区、显式代理变量白名单；代理 URL 不接受凭据。runner 不捕获当前助手的代理、宿主或密钥环境。各 Client 自身仍可进一步筛选环境，配置代理变量也不证明指定代理链与出口已经核实；需要这类门禁的宿主必须按原要求验证，不得回退直连。详见[各 Client 说明](CLIENTS.md)。
 
 ## 就绪、重试与诊断

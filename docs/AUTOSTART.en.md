@@ -84,6 +84,16 @@ These commands do not stop current processes. `autostart run` is the execution e
 
 Minimal host-only descriptions are `{"endpoint":"codex","requires_host":true}` and `{"endpoint":"claude","requires_host":true}`, registered with the same `register-client` command. Do not provide launch commands or environment values for them. Codex requires naturally supplied official bridge environment, a valid signed process chain and the real caller identity. An initial binding cannot persist these conditions into permission for arbitrary future background processes. Claude retains its selected interactive host, plugin, fixed-session and user-required network prerequisites.
 
+### Recovering an already-bound native assistant
+
+Reuse the saved endpoint, session binding, skill and messages. Reconnecting a host after restart does not require installing or binding it again. Repeatedly pasting a startup instruction is not evidence of automatic recovery.
+
+Codex Node Client `0.3.1` repairs state reconstruction after a Hub restart. A Client already running inside its native host reads real metadata with official `read_thread`, then restores only its own state through a binding-guarded endpoint. Failed observation stops claims conservatively. This invokes no model, relaxes no verification flags and resends no uncertain messages. Starting the desktop host after OS login is a separate stage, still outside this version's accepted recovery scope.
+
+Official [SessionStart hooks](https://learn.chatgpt.com/docs/hooks) support `startup/resume` and are candidates for launching the Client from its native host. [Plugin hooks require initial user review and trust](https://developers.openai.com/plugins/build/plugins#bundled-hooks). We have not established that opening the app alone resumes the target chat and immediately runs the hook, or that the hook receives the complete required host environment. This version installs no such hook and does not claim this path works. MCP tool hooks use existing connections; they do not start or reconnect servers.
+
+The presence of official CLI `queue/resume` commands does not establish a connection to the current desktop host. A read-only check on this machine found no default shared-daemon control socket. Starting another CLI daemon or using the same session UUID does not establish retention of the original desktop tools and cannot serve as a silent recovery fallback.
+
 The launch description and credential-bearing `client.json` are separate configurations. A launch plan stores only the latter's path, not endpoint tokens, sign-in credentials, native IPC, pipe values or model keys. Optional `environment` accepts only the code's explicit OS, locale/timezone and proxy allowlist; proxy URLs cannot contain credentials. The runner does not capture the current assistant's proxy, host or key environment. Individual Clients can filter the environment further. Setting proxy variables does not verify a required proxy chain or egress address; hosts with such gates must retain those checks without falling back to direct connections. See the [Client documentation](CLIENTS.en.md).
 
 ## Readiness, retries and diagnosis

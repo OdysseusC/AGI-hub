@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-版本 `0.3.0`，Hub 协议 `1`，可选寻址消息协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天投递消息，保留原会话的工具、模型和权限。
+版本 `0.3.1`，Hub 协议 `1`，可选寻址消息协议 `1`。默认入口是 Node.js 22+ 标准库实现的 `desktop_mcp_client.mjs`，不需要 npm 安装或第三方库。它使用官方 `codex-app-tools` MCP server 向已绑定的原桌面聊天投递消息，保留原会话的工具、模型和权限。
 
 每个 Hub endpoint 只启动一个消费者。在显式配置 `mailbox_protocol_version=1` 后，只消费 `/v1/mail/inbox`；`request/reply/result` 交给原会话，`status` 留在消息记录并保存投递回执，不唤醒模型。会话内技能根据上下文决定行动、协助对象和回复收件人；每条回复都显式发送，Hub 不根据业务状态生成回复，不强制父子任务链。`reply_to` 只作引用，`root_origin` 保留用户最初输入的原生会话，最终成果应发回那里。
 
@@ -72,9 +72,15 @@ exec "$CODEX_MCP_NODE_PATH" /absolute/path/to/agi-hub/clients/codex/desktop_mcp_
 
 Windows 使用实际 `node.exe` 与本机绝对路径；不要把 `.cmd` 或 `.bat` 包装器当作进程入口。上述 Windows 11 与 macOS arm64 结果仅适用于实测宿主；其他 Windows/macOS 宿主及 Linux 的桥接与唤醒须分别验收。Hub 默认地址为 `http://127.0.0.1:7331`，仅接受数字 loopback 地址，实际地址以导出的配置为准。
 
-首次启动与每次 Hub 重连都会重新核对 endpoint 绑定和 MCP 工具。先订阅 SSE 再领取，keepalive 不触发轮询。断线仅重建连接并扫描 Hub 仍可投递的 pending 消息；已经 `dispatching / uncertain` 的消息不会因此重新发送。客户端不自行宣称会话 idle，不自动处理权限提示。
+首次启动与每次 Hub 重连都会重新核对 endpoint 绑定和 MCP 工具。先订阅 SSE 再领取，keepalive 不触发轮询。断线仅重建连接并扫描 Hub 仍可投递的 pending 消息；已经 `dispatching / uncertain` 的消息不会因此重新发送。
+
+`0.3.1` 在连接后及实际 Hub change 事件触发的领取前，用官方 `read_thread` 读取绑定原聊天的最小元数据，不调用模型、不复制聊天正文。确认的 `idle` 或携带真实执行中 turn ID 的 `busy` 通过端点专属 `POST /v1/endpoint/session` 上报；接口用 endpoint token 和当前原生会话 ID 核对绑定，相同状态不重复写盘或广播。目标不匹配、工具缺失或读取失败时保守停止领取，不能把工具发现成功或旧快照当成 idle；不改变任何唤醒验证标记，也不代替业务完成。每次原生投递回执后结束当前领取批次，下次实际事件重新观察，避免沿用投递前的 idle 连续唤醒。
+
+这修复的是 **Hub 重启后状态为 unknown，而 Client 已在原生宿主运行时的重新对接**。它不负责启动桌面应用，不证明系统重启后 Client 能自动取得新宿主环境，也不提供无 Hub 事件时的连续忙闲跟踪。尚未验证的宿主恢复见[自启动边界](../../docs/AUTOSTART.md#已绑定原生助手的恢复)。客户端不猜测 idle，不自动处理权限提示。
 
 只有工具返回 `isError=false`，且唯一文本内容可解析为匹配原 thread ID 的 JSON ACK，才记录 `delivered`。工具调用前的初始化或发现失败不会领取消息；调用开始后的超时、断线、工具错误或 ACK 不符记为 `uncertain`。回执保存失败时停止，保留 Hub 领取记录供核对。ACK 只证明原生接收，不能替代业务成功或空闲唤醒验收。
+
+`0.3.1` 的状态恢复需要含该新接口的 Hub `0.5.0`。请成套升级 Hub 与 Node Client；旧 Hub 返回接口不存在时，Client 保守停止，不回退到管理权限或凭空设置 idle。
 
 ## 保留的 Python 入口
 
