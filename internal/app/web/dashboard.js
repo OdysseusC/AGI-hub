@@ -191,6 +191,11 @@
       refs[key] = button(document, label, () => action({ endpoint: agent.id, action: key }));
       actions.append(refs[key]);
     }
+    refs.feedback = element(document, "div", "agent-feedback");
+    refs.feedback.hidden = true;
+    refs.feedback.setAttribute("role", "status");
+    refs.feedback.setAttribute("aria-live", "polite");
+    refs.feedback.setAttribute("aria-atomic", "true");
     refs.binding = element(document, "details", "binding");
     refs.binding.append(element(document, "summary", "", "绑定已有会话"));
     refs.binding.append(element(document, "p", "", "从原生应用确认现有会话 ID 后填写。此操作保存绑定并启用接收，不会创建会话或发送模型测试。"));
@@ -269,7 +274,14 @@
       refs.languageValidation.textContent = "";
       return action({ endpoint: agent.id, action: "language", communication_language: language });
     });
-    node.append(heading, states, refs.detail, meta, actions, refs.languageForm, refs.binding);
+    node.append(heading, states, refs.detail, meta, actions, refs.feedback, refs.languageForm, refs.binding);
+    function feedbackMessage(message, tone, alert = false) {
+      refs.feedback.className = "notice " + tone + " agent-feedback";
+      refs.feedback.setAttribute("role", alert ? "alert" : "status");
+      refs.feedback.setAttribute("aria-live", alert ? "assertive" : "polite");
+      refs.feedback.replaceChildren(element(document, "span", "", message));
+      refs.feedback.hidden = false;
+    }
     function update(next) {
       agent = next;
       refs.name.textContent = agent.name || agent.id;
@@ -296,7 +308,28 @@
       languageInput();
     }
     update(agent);
-    return { node, refs, update, languageSaved() { languageDirty = false; languageInput(); } };
+    return {
+      node, refs, update,
+      languageSaved() { languageDirty = false; languageInput(); },
+      actionStarted(request) {
+        const message = request.action === "install" ? (/grok/i.test(agent.driver || agent.id) ? "正在读取配置步骤…" : "正在安装协作技能…") :
+          request.action === "language" ? "正在保存协作语言…" : "正在提交操作…";
+        feedbackMessage(message, "neutral-notice");
+      },
+      actionCompleted(result) {
+        renderActionNotice(document, refs.feedback, result, "操作已提交，当前状态见本卡片。");
+        refs.feedback.className += " agent-feedback";
+        refs.feedback.setAttribute("role", "status");
+        refs.feedback.setAttribute("aria-live", "polite");
+      },
+      actionFailed(failure) {
+        feedbackMessage(failure.name === "AbortError" ? "操作已取消，请重新连接后核对状态。" : failure.message || string(failure), "error", true);
+      },
+      refreshFailed(failure) {
+        refs.feedback.className = "notice warning agent-feedback";
+        refs.feedback.append(element(document, "p", "", "操作结果已收到，但状态刷新失败：" + (failure.message || string(failure)) + "。请使用刷新按钮核对，避免重复提交。"));
+      },
+    };
   }
 
   function createPeerCard(document, peer, action, options = {}) {
@@ -594,8 +627,10 @@
     });
 
     async function mutate(path, body) {
-      if (actionInFlight || !authenticated) return;
+      if (actionInFlight || !authenticated) return null;
       actionInFlight = true;
+      const card = path === "/v1/manage/agent" ? cards.get(body.endpoint) : undefined;
+      card?.actionStarted(body);
       clearError();
       noticeBox.hidden = true;
       el("workspace").setAttribute("aria-busy", "true");
@@ -612,9 +647,16 @@
         if (path === "/v1/manage/settings") settingsDirty = false;
         if (path === "/v1/manage/autostart") startupDirty = false;
         if (path === "/v1/manage/agent" && body.action === "language") cards.get(body.endpoint)?.languageSaved();
-        notice(result, "操作已提交，当前状态见下方列表。");
-        await refresh();
-      } catch (failure) { error(failure); }
+        if (card) card.actionCompleted(result);
+        else notice(result, "操作已提交，当前状态见下方列表。");
+        try { await refresh(); }
+        catch (failure) { card?.refreshFailed(failure); error(failure); }
+        return result;
+      } catch (failure) {
+        card?.actionFailed(failure);
+        error(failure);
+        return null;
+      }
       finally {
         actionInFlight = false;
         el("workspace").setAttribute("aria-busy", "false");

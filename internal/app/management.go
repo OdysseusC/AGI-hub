@@ -300,6 +300,14 @@ func (s *Server) manageAgent(id, action, sessionID string) (any, error) {
 			host = "claude"
 		}
 		if host == "" {
+			if e.Driver == "grok-routine" {
+				return map[string]any{"ok": true, "detail": "Grok Routine 需要手动配置。本次仅展示步骤，未执行安装，不代表原生已连接。", "steps": []string{
+					"按包内 clients/grok-routine/README.md 准备并验证本人的官方 Routine webhook，核对该 Routine 实际接收的请求结构。",
+					"在目标电脑导出仓库外的私有配置：agi-hub client-config --data <Hub私有目录> --endpoint <本卡片ID> --file <私有绝对路径/client.json>。参照 clients/grok-routine/client.example.json 填写 native.url、native.body、native.headers 和 native.routine_id；body 须包含完整交接占位符 {{notification}} 或文档中的 envelope 形式。凭据只留在本机私有文件，不贴聊天、不提交仓库。",
+					"Hub 的 endpoint.driver 使用 grok-routine，binding 的 driver.type 使用 external，session_id 与 native.routine_id 完全一致。保存并启用此 endpoint 后，在包根目录运行 python3 clients/grok-routine/main.py --config <私有配置绝对路径>；Windows 使用 py -3，并保留相邻的 clients/shared。",
+					"仅支持 queue 的旧 Task/Report，不支持邮箱协议 V1（mailbox_protocol_version=1）、steer 或 interrupt。启用或启动进程不代表原生已连接；Webhook 2xx 也只确认传输，仍须 Grok 主动回报接手和成果。",
+				}}, nil
+			}
 			return map[string]any{"ok": true, "detail": "此平台需要手动配置原生入口；未执行安装。", "steps": []string{"按该 Client 的 README 配置原生例程和私有配置。", "填写真实会话 ID 后再启用。"}}, nil
 		}
 		registered, err := install.StatusEndpoint(m.dir, id)

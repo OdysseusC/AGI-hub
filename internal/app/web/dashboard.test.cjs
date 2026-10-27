@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 let ui;
 try { ui = require("./dashboard.js"); } catch (error) {
@@ -22,8 +24,22 @@ class Element {
     this.hidden = false;
     this.open = false;
   }
-  append(...nodes) { this.children.push(...nodes); }
-  replaceChildren(...nodes) { this.children = nodes; }
+  append(...nodes) { for (const node of nodes) { node.remove(); node.parentNode = this; this.children.push(node); } }
+  replaceChildren(...nodes) { for (const node of this.children) node.parentNode = null; this.children = []; this.append(...nodes); }
+  remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(node => node !== this); this.parentNode = null; }
+  get firstElementChild() { return this.children[0]; }
+  querySelectorAll(selector) {
+    const matches = (node, part) => {
+      if (part.startsWith(".")) return node.className.split(" ").includes(part.slice(1));
+      const match = /^([a-z]+)(?:\[([a-z-]+)\])?$/.exec(part);
+      if (!match || node.tagName !== match[1].toUpperCase()) return false;
+      if (!match[2]) return true;
+      if (match[2] === "open") return node.open;
+      const key = match[2].replace(/^data-/, "").replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      return Object.hasOwn(node.dataset, key);
+    };
+    return descendants(this).slice(1).filter(node => selector.split(",").some(part => matches(node, part.trim())));
+  }
   setAttribute(key, value) { this.attributes[key] = String(value); }
   addEventListener(type, listener) { this.listeners[type] = listener; }
   async trigger(type) { return this.listeners[type]?.({ preventDefault() {}, target: this }); }
@@ -36,6 +52,138 @@ const fixtureAgent = changes => ({
   shared: false, session_bound: false, installation_state: "installed",
   state: "unknown", detail: "组件已安装，等待绑定。",
   actions: ["install", "enable", "share", "language"], ...changes,
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+async function dashboardFixture(agent, handlers = {}) {
+  const ids = new Map();
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  for (const match of html.matchAll(/<([a-z][a-z0-9-]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) ids.set(match[2], new Element(match[1]));
+  const dom = { createElement: tag => new Element(tag), getElementById(id) { assert.ok(ids.has(id), id); return ids.get(id); } };
+  // Only card controls need DOM ancestry for the production busy-state query.
+  ids.get("workspace").append(ids.get("agents"));
+  const calls = [];
+  const window = {
+    document: dom, location: { pathname: "/remote/" + "a".repeat(64) + "/", hash: "" },
+    history: { replaceState() {} }, addEventListener() {}, setTimeout() { return 1; }, clearTimeout() {},
+    async fetch(url, options) {
+      const route = url.replace(/^\/remote\/[a-f0-9]{64}/, "");
+      calls.push({ route, ...options });
+      const body = options.body === undefined ? undefined : JSON.parse(options.body);
+      if (options.method === "POST") return handlers.post(route, body);
+      if (route === "/v1/manage") {
+        const result = handlers.manage ? await handlers.manage() : { agents: [agent] };
+        return { ok: true, json: async () => ({ hub: {}, network: {}, autostart: { supported: true }, ...result }) };
+      }
+      assert.equal(route, "/v1/state");
+      return { ok: true, json: async () => ({ messages: {}, tasks: {} }) };
+    },
+  };
+  ui.start(window);
+  ids.get("token").value = "offline-test-token";
+  await ids.get("login-form").trigger("submit");
+  return { ids, calls, card: ids.get("agents").children[0] };
+}
+
+const cardButton = (card, label) => descendants(card).find(node => node.tagName === "BUTTON" && node.textContent === label);
+const cardFeedback = card => descendants(card).find(node => node.className.split(" ").includes("agent-feedback"));
+
+test("Grok configuration button shows returned manual steps inside its own card", async () => {
+  const agent = fixtureAgent({ id: "grok", driver: "grok-routine", installation_state: "not_installed" });
+  const result = { ok: true, detail: "仅展示官方 Routine 配置步骤，未执行安装。", steps: ["填写真实 webhook。", "保持 queue；邮箱协议为 0。"] };
+  let reads = 0;
+  const page = await dashboardFixture(agent, {
+    post: async () => ({ ok: true, json: async () => result }),
+    manage: async () => ({ agents: [{ ...agent, communication_language: ++reads > 1 ? "ru" : "en" }] }),
+  });
+  const session = descendants(page.card).find(node => node.placeholder === "填写已确认的真实会话 ID");
+  const select = descendants(page.card).find(node => node.tagName === "SELECT");
+  session.value = "unsaved-existing-session";
+  select.value = "nb";
+  await select.trigger("change");
+  const returned = await cardButton(page.card, "查看配置步骤").trigger("click");
+  const feedback = cardFeedback(page.card);
+  assert.ok(feedback && !feedback.hidden, "the clicked card must show feedback without finding the global notice");
+  for (const value of [result.detail, ...result.steps]) assert.ok(text(feedback).includes(value), value);
+  assert.ok(text(page.card).includes("尚未安装"), "manual instructions must not imply an installed Client");
+  assert.equal(session.value, "unsaved-existing-session");
+  assert.equal(select.value, "nb", "a state refresh must preserve the unsaved language draft");
+  assert.deepEqual(returned, result, "the production mutation returns its API result");
+  assert.equal(page.calls.filter(call => call.method === "POST").length, 1);
+  await page.ids.get("refresh").trigger("click");
+  assert.equal(cardFeedback(page.card), feedback, "state refresh must preserve the same card feedback");
+  assert.ok(text(feedback).includes(result.steps[0]));
+});
+
+test("card action shows loading and its result before an asynchronous refresh completes", async () => {
+  const response = deferred(), refreshing = deferred(), refreshStarted = deferred();
+  let reads = 0;
+  const agent = fixtureAgent({ id: "grok", driver: "grok-routine" });
+  const page = await dashboardFixture(agent, {
+    post: () => response.promise,
+    manage: async () => { if (++reads > 1) { refreshStarted.resolve(); await refreshing.promise; } return { agents: [agent] }; },
+  });
+  const button = cardButton(page.card, "查看配置步骤");
+  const pending = button.trigger("click");
+  try {
+    assert.ok(cardFeedback(page.card) && !cardFeedback(page.card).hidden, "loading feedback belongs to the clicked card");
+    assert.ok(text(cardFeedback(page.card)).includes("正在读取配置步骤"));
+    assert.equal(button.disabled, true);
+    response.resolve({ ok: true, json: async () => ({ ok: true, detail: "配置步骤已读取", steps: ["核对 Routine。"] }) });
+    await refreshStarted.promise;
+    assert.ok(text(cardFeedback(page.card)).includes("核对 Routine。"), "show the API result while refresh is still pending");
+    assert.equal(button.disabled, true, "keep the existing busy gate through the refresh");
+    await button.trigger("click");
+    assert.equal(page.calls.filter(call => call.method === "POST").length, 1);
+  } finally {
+    response.resolve({ ok: true, json: async () => ({ ok: true, detail: "已读取" }) });
+    refreshing.resolve();
+    await pending;
+  }
+  assert.equal(button.disabled, false);
+});
+
+test("API failures are visible in the clicked card and do not discard drafts", async () => {
+  const page = await dashboardFixture(fixtureAgent(), {
+    post: async () => ({ ok: false, status: 422, text: async () => '{"error":"当前权限不足，请在原生宿主核对。"}' }),
+  });
+  const session = descendants(page.card).find(node => node.placeholder === "填写已确认的真实会话 ID");
+  const select = descendants(page.card).find(node => node.tagName === "SELECT");
+  session.value = "unsaved-existing-session";
+  select.value = "nb";
+  await select.trigger("change");
+  await cardButton(page.card, "保存语言").parentNode.trigger("submit");
+  const feedback = cardFeedback(page.card);
+  assert.ok(feedback && !feedback.hidden, "action errors must be visible beside the clicked controls");
+  assert.ok(text(feedback).includes("当前权限不足"));
+  assert.ok(feedback.className.includes("error"));
+  assert.equal(session.value, "unsaved-existing-session");
+  assert.equal(select.value, "nb");
+  assert.ok(text(page.card).includes("尚未保存"));
+  assert.equal(cardButton(page.card, "保存语言").disabled, false);
+});
+
+test("successful language save survives a failed refresh with a visible verification warning", async () => {
+  let reads = 0;
+  const page = await dashboardFixture(fixtureAgent(), {
+    post: async () => ({ ok: true, json: async () => ({ ok: true, detail: "语言已保存", skill_sync_complete: true }) }),
+    manage: async () => { if (++reads > 1) throw new Error("状态连接暂不可用"); return { agents: [fixtureAgent()] }; },
+  });
+  const select = descendants(page.card).find(node => node.tagName === "SELECT");
+  select.value = "nb";
+  await select.trigger("change");
+  await cardButton(page.card, "保存语言").parentNode.trigger("submit");
+  const feedback = cardFeedback(page.card);
+  assert.ok(feedback && !feedback.hidden);
+  assert.ok(text(feedback).includes("语言已保存"));
+  assert.ok(text(feedback).includes("刷新失败"));
+  assert.ok(feedback.className.includes("warning"));
+  assert.equal(text(page.card).includes("尚未保存的语言设置"), false, "a refresh error does not undo a successful save");
 });
 
 test("remote management uses only an exact qualified local proxy path", () => {

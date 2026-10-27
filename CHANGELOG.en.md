@@ -2,10 +2,11 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
-## 0.5.0 — 2026-10-26
+## 0.5.0 — 2026-10-27
 
 - Add optional user-login startup, off by default: a current-user LaunchAgent on macOS and a current-user logon task on Windows. Installation and upgrades do not enable it automatically; Linux remains CI-only for this feature. Registration and saving startup switches affect the next login without starting or stopping current processes.
 - Add `autostart status/enable/disable/register-client/remove-client/run`, a management startup switch and registered-Client checkboxes. Register absolute executables, separate arguments and working directories through the local CLI. New registrations start unselected; omitting `--clients` on `enable` preserves choices, while `--clients ''` clears them. The web interface accepts no executable commands or private configuration paths.
+- Show configuration, installation, binding and language progress, results and errors inside the relevant agent card. Preserve confirmed action results when a later state refresh fails and ask for verification before retrying. Grok shows concrete Routine setup instructions without installing, enabling or connecting anything.
 - Authenticate the local Hub before starting selected consumers. Attach to an existing Hub without taking ownership. The runner's own Hub and each failed Client receive at most an initial start plus five retries after 1/2/4/8/16 seconds, retaining failure after exhaustion. No unlimited OS restart policy or redelivery of uncertain messages is introduced.
 - Report system login settings separately from live process state. Failed queries show an unknown setting while preserving the actual runtime observation. Windows queries use .NET calls without PowerShell module discovery, retaining the restricted startup environment.
 - WorkBuddy/Grok can register their actual standalone consumer entry points. Codex/Claude retain a forced native-host requirement and report `needs_host_environment` instead of being launched directly by the Go runner. Native IPC, pipe values, sign-in credentials and model keys are not saved. Authentication, native permissions and network gates remain in force. See the [startup guide](docs/AUTOSTART.en.md).

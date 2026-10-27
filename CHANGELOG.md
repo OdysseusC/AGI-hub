@@ -2,10 +2,11 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
-## 0.5.0 — 2026-10-26
+## 0.5.0 — 2026-10-27
 
 - 新增默认关闭的用户登录自启动：macOS 使用当前用户 LaunchAgent，Windows 使用当前用户登录任务；首次安装与升级不自动开启，Linux 仅用于 CI，不支持本功能。登记、启停开关和保存只影响下次登录，不启动或停止当前进程。
 - 增加 `autostart status/enable/disable/register-client/remove-client/run` 与管理页总开关、已登记 Client 勾选。独立 Client 使用本机 CLI 登记绝对可执行路径、逐项参数和工作目录；新登记默认未选择，`enable` 省略 `--clients` 保留既有选择，`--clients ''` 清空选择。网页不接收可执行命令或私有配置路径。
+- 管理页在对应助手卡片内显示配置、安装、绑定和语言操作的进度、结果与错误；状态刷新失败时保留已收到的操作结果，提示先核对再重试。Grok 提供具体 Routine 配置步骤，查看说明不会安装、启用或建立连接。
 - 登录 runner 先认证 Hub，再启动选定消费者。已有 Hub 只附着、不接管；自有 Hub 与每个异常 Client 各最多首次加五次重试，依次等待 1/2/4/8/16 秒，用尽即保留失败状态。OS 不无限重拉，进程重启不重投不确定消息。
 - 系统登录项与实际运行状态独立记录；查询失败显示待核实，仍保留真实进程状态。Windows 查询使用不依赖 PowerShell 模块发现的 .NET 调用，保持精简启动环境。
 - WorkBuddy/Grok 可登记真实独立消费者入口；Codex/Claude 强制保留原生宿主需求，仅显示 `needs_host_environment`，不由 Go runner 直接拉起。不保存宿主 IPC、pipe、登录凭据或模型密钥，不改变认证、原生权限和网络门禁。详见[自启动指南](docs/AUTOSTART.md)。
